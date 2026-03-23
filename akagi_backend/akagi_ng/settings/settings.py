@@ -124,6 +124,23 @@ class AutoplayConfig:
     input: AutoplayInputConfig
 
 
+def _default_autoplay_config() -> AutoplayConfig:
+    return AutoplayConfig(
+        enabled=False,
+        window_keyword="",
+        timing=AutoplayTimingConfig(
+            first_tile=5.0,
+            rand_min=1.0,
+            rand_max=3.0,
+            candidate=0.5,
+        ),
+        input=AutoplayInputConfig(
+            bezier_smoothing=0.35,
+            bezier_steps=18,
+        ),
+    )
+
+
 @dataclass(slots=True)
 class Settings:
     log_level: str
@@ -136,7 +153,7 @@ class Settings:
     server: ServerConfig
     ot: OTConfig
     model_config: ModelConfig
-    autoplay: AutoplayConfig
+    autoplay: AutoplayConfig = field(default_factory=_default_autoplay_config)
     desktop: DesktopConfig = field(default_factory=DesktopConfig)
 
     def update(self, data: dict, *, clear_flya_api_key: bool = False):
