@@ -103,6 +103,28 @@ class ModelConfig:
 
 
 @dataclass(slots=True)
+class AutoplayTimingConfig:
+    first_tile: float
+    rand_min: float
+    rand_max: float
+    candidate: float
+
+
+@dataclass(slots=True)
+class AutoplayInputConfig:
+    bezier_smoothing: float
+    bezier_steps: int
+
+
+@dataclass(slots=True)
+class AutoplayConfig:
+    enabled: bool
+    window_keyword: str
+    timing: AutoplayTimingConfig
+    input: AutoplayInputConfig
+
+
+@dataclass(slots=True)
 class Settings:
     log_level: str
     locale: str
@@ -114,6 +136,7 @@ class Settings:
     server: ServerConfig
     ot: OTConfig
     model_config: ModelConfig
+    autoplay: AutoplayConfig
     desktop: DesktopConfig = field(default_factory=DesktopConfig)
 
     def update(self, data: dict, *, clear_flya_api_key: bool = False):
@@ -175,6 +198,9 @@ class Settings:
         model_config_data = data.get("model_config", {})
         ot_data = data.get("ot", {})
         flya_api_key = _load_flya_api_key(ot_data)
+        autoplay_data = data.get("autoplay", {})
+        autoplay_timing = autoplay_data.get("timing", {})
+        autoplay_input = autoplay_data.get("input", {})
         game_url = data.get("game_url", "")
 
         platform_val = data.get("platform")
@@ -236,6 +262,20 @@ class Settings:
                 model_4p=model_config_data.get("model_4p", "mortal.pth"),
                 model_3p=model_config_data.get("model_3p", "mortal3p.pth"),
                 temperature=model_config_data.get("temperature", 0.3),
+            ),
+            autoplay=AutoplayConfig(
+                enabled=autoplay_data.get("enabled", False),
+                window_keyword=autoplay_data.get("window_keyword", ""),
+                timing=AutoplayTimingConfig(
+                    first_tile=autoplay_timing.get("first_tile", 5.0),
+                    rand_min=autoplay_timing.get("rand_min", 1.0),
+                    rand_max=autoplay_timing.get("rand_max", 3.0),
+                    candidate=autoplay_timing.get("candidate", 0.5),
+                ),
+                input=AutoplayInputConfig(
+                    bezier_smoothing=autoplay_input.get("bezier_smoothing", 0.35),
+                    bezier_steps=autoplay_input.get("bezier_steps", 18),
+                ),
             ),
         )
 
@@ -343,6 +383,20 @@ def get_default_settings_dict() -> dict:
             "model_4p": "mortal.pth",
             "model_3p": "mortal3p.pth",
             "temperature": 0.3,
+        },
+        "autoplay": {
+            "enabled": False,
+            "window_keyword": "",
+            "timing": {
+                "first_tile": 5.0,
+                "rand_min": 1.0,
+                "rand_max": 3.0,
+                "candidate": 0.5,
+            },
+            "input": {
+                "bezier_smoothing": 0.35,
+                "bezier_steps": 18,
+            },
         },
     }
 
@@ -475,6 +529,18 @@ def _update_settings(settings: Settings, data: dict):
     settings.model_config.model_4p = model_config_data.get("model_4p", "mortal.pth")
     settings.model_config.model_3p = model_config_data.get("model_3p", "mortal3p.pth")
     settings.model_config.temperature = model_config_data.get("temperature", 0.3)
+
+    autoplay_data = data.get("autoplay", {})
+    settings.autoplay.enabled = autoplay_data.get("enabled", False)
+    settings.autoplay.window_keyword = autoplay_data.get("window_keyword", "")
+    autoplay_timing = autoplay_data.get("timing", {})
+    settings.autoplay.timing.first_tile = autoplay_timing.get("first_tile", 5.0)
+    settings.autoplay.timing.rand_min = autoplay_timing.get("rand_min", 1.0)
+    settings.autoplay.timing.rand_max = autoplay_timing.get("rand_max", 3.0)
+    settings.autoplay.timing.candidate = autoplay_timing.get("candidate", 0.5)
+    autoplay_input = autoplay_data.get("input", {})
+    settings.autoplay.input.bezier_smoothing = autoplay_input.get("bezier_smoothing", 0.35)
+    settings.autoplay.input.bezier_steps = autoplay_input.get("bezier_steps", 18)
 
     ot_data = data.get("ot", {})
     settings.ot.online = ot_data.get("online", False)
