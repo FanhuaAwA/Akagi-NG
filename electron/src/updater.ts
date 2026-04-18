@@ -1,8 +1,8 @@
 import { app, net } from 'electron';
 
-import { GITHUB_RELEASES_API } from './constants';
-import { safeSend } from './utils';
-import type { WindowManager } from './window-manager';
+import { GITHUB_RELEASES_API } from './constants.js';
+import { safeSend } from './utils.js';
+import type { WindowManager } from './window-manager.js';
 
 interface GitHubRelease {
   tag_name: string;

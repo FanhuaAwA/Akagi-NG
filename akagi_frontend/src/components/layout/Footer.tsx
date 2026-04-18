@@ -1,5 +1,5 @@
 import { AppWindow, Scale } from 'lucide-react';
-import { type ReactNode } from 'react';
+import type { ReactNode } from 'react';
 
 import { AKAGI_VERSION } from '@/version';
 

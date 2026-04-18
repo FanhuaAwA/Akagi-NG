@@ -1,35 +1,38 @@
+import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import tailwindcss from '@tailwindcss/vite';
 import react from '@vitejs/plugin-react';
 import { defineConfig } from 'vite';
 
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
 export default defineConfig(({ mode }) => {
   const isDev = mode === 'development';
   const pkgVersion = process.env.npm_package_version ?? '0.0.0';
-  const displayVersion = isDev ? 'dev' : pkgVersion;
 
   return {
-    plugins: [react(), tailwindcss()],
     base: './',
+    plugins: [react(), tailwindcss()],
     build: {
       target: 'esnext',
-      outDir: '../dist/renderer',
+      outDir: path.resolve(__dirname, '../dist/renderer'),
       emptyOutDir: true,
       cssMinify: 'lightningcss',
     },
     resolve: {
       alias: {
-        '@': fileURLToPath(new URL('./src', import.meta.url)),
+        '@': path.resolve(__dirname, 'src'),
       },
     },
     define: {
-      __AKAGI_VERSION__: JSON.stringify(displayVersion),
+      __AKAGI_VERSION__: JSON.stringify(isDev ? 'dev' : pkgVersion),
     },
-    preview: {
+    server: {
       host: '127.0.0.1',
-      port: 24701,
-      allowedHosts: true,
+      port: 5173,
+      strictPort: true,
     },
   };
 });

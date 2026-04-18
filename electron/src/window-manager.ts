@@ -2,7 +2,7 @@ import { join } from 'node:path';
 
 import { app, BrowserWindow, nativeTheme, screen } from 'electron';
 
-import type { BackendManager } from './backend-manager';
+import type { BackendManager } from './backend-manager.js';
 import {
   DASHBOARD_WINDOW_HEIGHT,
   DASHBOARD_WINDOW_MIN_HEIGHT,
@@ -18,9 +18,9 @@ import {
   HUD_MIN_WIDTH,
   HUD_WINDOW_HEIGHT,
   HUD_WINDOW_WIDTH,
-} from './constants';
-import { GameHandler } from './game-handler';
-import { isSafeWindow, safeSend } from './utils';
+} from './constants.js';
+import { GameHandler } from './game-handler.js';
+import { isSafeWindow, safeSend } from './utils.js';
 
 export class WindowManager {
   private dashboardWindow: BrowserWindow | null = null;

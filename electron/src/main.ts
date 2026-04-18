@@ -1,9 +1,9 @@
 import { app, BrowserWindow, dialog } from 'electron';
 
-import { BackendManager } from './backend-manager';
-import { registerIpcHandlers } from './ipc-handlers';
-import { UpdaterManager } from './updater';
-import { WindowManager } from './window-manager';
+import { BackendManager } from './backend-manager.js';
+import { registerIpcHandlers } from './ipc-handlers.js';
+import { UpdaterManager } from './updater.js';
+import { WindowManager } from './window-manager.js';
 
 const backendManager = new BackendManager();
 const windowManager = new WindowManager(backendManager);

@@ -24,10 +24,10 @@ import {
   BACKEND_STARTUP_CHECK_INTERVAL_MS,
   BACKEND_STARTUP_CHECK_RETRIES,
   BACKEND_STARTUP_CHECK_TIMEOUT_MS,
-} from './constants';
-import type { ResourceStatus } from './resource-validator';
-import { ResourceValidator } from './resource-validator';
-import { getAssetPath, getProjectRoot } from './utils';
+} from './constants.js';
+import type { ResourceStatus } from './resource-validator.js';
+import { ResourceValidator } from './resource-validator.js';
+import { getAssetPath, getProjectRoot } from './utils.js';
 
 export class BackendManager {
   private pyProcess: ChildProcess | null = null;

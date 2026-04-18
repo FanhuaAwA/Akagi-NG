@@ -1,9 +1,9 @@
 import { app, BrowserWindow, ipcMain, shell } from 'electron';
 
-import type { BackendManager } from './backend-manager';
-import { EXIT_ANIMATION_DELAY_MS } from './constants';
-import { isSafeWindow, safeSend } from './utils';
-import type { WindowManager } from './window-manager';
+import type { BackendManager } from './backend-manager.js';
+import { EXIT_ANIMATION_DELAY_MS } from './constants.js';
+import { isSafeWindow, safeSend } from './utils.js';
+import type { WindowManager } from './window-manager.js';
 
 export function registerIpcHandlers(windowManager: WindowManager, backendManager: BackendManager) {
   // Toggle HUD Window
@@ -30,7 +30,9 @@ export function registerIpcHandlers(windowManager: WindowManager, backendManager
     // Run exit animation and backend shutdown in parallel
     await Promise.all([
       new Promise((resolve) => setTimeout(resolve, EXIT_ANIMATION_DELAY_MS)),
-      backendManager.stop().catch((err) => console.error('[IPC] Backend stop error:', err)),
+      backendManager
+        .stop()
+        .catch((err: unknown) => console.error('[IPC] Backend stop error:', err)),
     ]);
 
     app.quit();

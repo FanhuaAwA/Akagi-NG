@@ -126,7 +126,7 @@ export function SettingsProvider({ children, initialSettings }: SettingsProvider
 
   const { settings, saveStatus, restartRequired, isRestored, availableModels } = state;
 
-  const debounceTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const toastIdRef = useRef<string | number | null>(null);
   const saveSeqRef = useRef(0);
 
