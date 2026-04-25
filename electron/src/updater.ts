@@ -1,8 +1,11 @@
 import { app, net } from 'electron';
 
 import { GITHUB_RELEASES_API } from './constants.js';
+import { createLogger } from './logger.js';
 import { safeSend } from './utils.js';
 import type { WindowManager } from './window-manager.js';
+
+const logger = createLogger('Updater');
 
 interface GitHubRelease {
   tag_name: string;
@@ -13,12 +16,12 @@ export class UpdaterManager {
 
   public checkForUpdates() {
     if (!app.isPackaged) {
-      console.log('[Updater] Running in dev mode, skipping update check.');
+      logger.info('Running in dev mode, skipping update check.');
       return;
     }
 
     this.fetchLatestVersion().catch((err) => {
-      console.error('[Updater] Error checking for updates:', err);
+      logger.error('Error checking for updates:', err);
     });
   }
 
@@ -28,7 +31,7 @@ export class UpdaterManager {
     });
 
     if (!response.ok) {
-      console.warn(`[Updater] GitHub API returned ${response.status}`);
+      logger.warn(`GitHub API returned ${response.status}`);
       return;
     }
 
@@ -37,10 +40,10 @@ export class UpdaterManager {
     const currentVersion = app.getVersion();
 
     if (latestVersion !== currentVersion) {
-      console.log(`[Updater] Update available: v${currentVersion} → v${latestVersion}`);
+      logger.info(`Update available: v${currentVersion} → v${latestVersion}`);
       this.notifyWindow('app:update-available', latestVersion);
     } else {
-      console.log(`[Updater] Already on latest version: v${currentVersion}`);
+      logger.info(`Already on latest version: v${currentVersion}`);
     }
   }
 

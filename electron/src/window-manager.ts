@@ -20,7 +20,10 @@ import {
   HUD_WINDOW_WIDTH,
 } from './constants.js';
 import { GameHandler } from './game-handler.js';
+import { createLogger } from './logger.js';
 import { isSafeWindow, safeSend } from './utils.js';
+
+const logger = createLogger('WindowManager');
 
 export class WindowManager {
   private dashboardWindow: BrowserWindow | null = null;
@@ -75,7 +78,7 @@ export class WindowManager {
 
     if (isDev) {
       await this.dashboardWindow.loadURL(DEV_SERVER_URL).catch((err) => {
-        console.error(`[WindowManager] Failed to load dev URL: ${err.message}`);
+        logger.error(`Failed to load Dashboard in dev mode: ${err.message}`);
       });
       if (isSafeWindow(this.dashboardWindow)) {
         this.dashboardWindow.webContents.openDevTools();
@@ -83,7 +86,7 @@ export class WindowManager {
     } else {
       const indexPath = join(__dirname, '../renderer/index.html');
       await this.dashboardWindow.loadFile(indexPath).catch((err) => {
-        console.error(`[WindowManager] Failed to load index file: ${err.message}`);
+        logger.error(`Failed to load Dashboard: ${err.message}`);
       });
     }
 
@@ -188,7 +191,7 @@ export class WindowManager {
       ? this.hudWindow.loadURL(DEV_HUD_URL)
       : this.hudWindow.loadFile(join(__dirname, '../renderer/index.html'), { hash: '/hud' });
 
-    await loadPromise.catch((err) => console.error('[WindowManager] Failed to load HUD:', err));
+    await loadPromise.catch((err) => logger.error('Failed to load HUD:', err));
 
     this.hudWindow.on('close', (e) => {
       // If the app is quitting, allow close. Otherwise, just hide.
@@ -218,7 +221,7 @@ export class WindowManager {
     this.gameWindow = null; // Clean up zombie reference and proceed with creation
 
     if (!url) {
-      console.warn('[WindowManager] No URL provided for Game Window!');
+      logger.warn('No URL provided for Game Window!');
       return;
     }
 
@@ -268,7 +271,7 @@ export class WindowManager {
     if (useMitm) {
       const mitm = await this.backendManager.getMitmConfig();
       const proxyRules = `http://${mitm.host}:${mitm.port}`;
-      console.log(`[WindowManager] Setting game window proxy to: ${proxyRules}`);
+      logger.info(`Routing game traffic through MITM proxy: ${proxyRules}`);
       await this.gameWindow.webContents.session.setProxy({
         proxyRules,
         proxyBypassRules: '127.0.0.1,localhost',
@@ -284,7 +287,7 @@ export class WindowManager {
           this.gameHandler.attach(); // Do not await, let it happen in parallel with loadURL
         }
       } catch (e) {
-        console.error('Failed to attach GameHandler:', e);
+        logger.error('Failed to attach GameHandler:', e);
       }
     }
 
@@ -305,11 +308,9 @@ export class WindowManager {
       // ERR_ABORTED can happen during redirects or if the navigation is cancelled by the page logic
       // but it doesn't always mean the load failed.
       if (error.code === 'ERR_ABORTED' || error.errno === -3) {
-        console.warn(`[WindowManager] Navigation aborted for ${url}, attempting to proceed...`);
+        logger.warn(`Navigation aborted for ${url}, attempting to proceed...`);
       } else {
-        console.error(
-          `[WindowManager] Failed to load game URL: ${error.message ?? 'Unknown Error'}`,
-        );
+        logger.error(`Failed to load game URL: ${error.message ?? 'Unknown Error'}`);
         // Clean up failed window immediately
         if (isSafeWindow(this.gameWindow)) {
           this.gameWindow.close();

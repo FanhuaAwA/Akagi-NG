@@ -6,6 +6,8 @@ import { delimiter, join } from 'node:path';
 
 import { app, dialog } from 'electron';
 
+import { createLogger } from './logger.js';
+
 interface AppSettings {
   server?: {
     host?: string;
@@ -29,6 +31,8 @@ import type { ResourceStatus } from './resource-validator.js';
 import { ResourceValidator } from './resource-validator.js';
 import { getAssetPath, getProjectRoot } from './utils.js';
 
+const logger = createLogger('BackendManager');
+
 export class BackendManager {
   private pyProcess: ChildProcess | null = null;
   private validator: ResourceValidator;
@@ -45,8 +49,8 @@ export class BackendManager {
       return JSON.parse(fileContent) as AppSettings;
     } catch (err) {
       if ((err as NodeJS.ErrnoException).code !== 'ENOENT') {
-        console.warn(
-          '[BackendManager] Failed to read settings.json for config:',
+        logger.warn(
+          'Failed to read settings.json for config:',
           err instanceof Error ? err.message : String(err),
         );
       }
@@ -94,7 +98,7 @@ export class BackendManager {
 
   public start() {
     if (this.pyProcess) {
-      console.log('Backend already running.');
+      logger.info('Backend already running.');
       return;
     }
 
@@ -111,7 +115,7 @@ export class BackendManager {
   }
 
   private startDevBackend() {
-    console.log('Starting backend in DEV mode...');
+    logger.info('Starting Python backend in DEV mode...');
 
     const projectRoot = getProjectRoot();
     const backendRoot = join(projectRoot, 'akagi_backend');
@@ -126,7 +130,7 @@ export class BackendManager {
 
     if (!existsSync(pythonExecutable)) {
       const errorMsg = `Python executable NOT FOUND at: ${pythonExecutable}. Please check your environment.`;
-      console.error(`[BackendManager] ${errorMsg}`);
+      logger.error(errorMsg);
       dialog.showErrorBox('Backend Initialization Failed', errorMsg);
       return;
     }
@@ -134,7 +138,6 @@ export class BackendManager {
     const env = {
       ...process.env,
       PYTHONUNBUFFERED: '1',
-      AKAGI_GUI_MODE: '1',
       PYTHONPATH: process.env.PYTHONPATH
         ? `${backendRoot}${delimiter}${process.env.PYTHONPATH}`
         : backendRoot,
@@ -150,12 +153,12 @@ export class BackendManager {
   }
 
   private startMockBackend() {
-    console.log('[BackendManager] Starting backend in MOCK mode...');
+    logger.info('Starting mock backend service...');
     this.markReady();
   }
 
   private startProdBackend() {
-    console.log('Starting backend in PROD mode...');
+    logger.info('Starting Python backend service...');
 
     const isWin = process.platform === 'win32';
     const bundleDir = getAssetPath('bin');
@@ -163,7 +166,7 @@ export class BackendManager {
 
     if (!existsSync(pythonExecutable)) {
       const msg = `Portable Python not found at ${pythonExecutable}`;
-      console.error(`[BackendManager] ${msg}`);
+      logger.error(msg);
       dialog.showErrorBox('Startup Error', msg);
       return;
     }
@@ -175,7 +178,6 @@ export class BackendManager {
           ...process.env,
           PYTHONPATH: join(bundleDir, 'app_packages'),
           PYTHONUNBUFFERED: '1',
-          AKAGI_GUI_MODE: '1',
         },
       });
 
@@ -183,7 +185,7 @@ export class BackendManager {
       this.startHealthCheck();
     } catch (e) {
       const msg = `Backend initialization failed: ${e instanceof Error ? e.message : String(e)}`;
-      console.error(`[BackendManager] ${msg}`);
+      logger.error(msg);
       dialog.showErrorBox('Startup Error', msg);
     }
   }
@@ -192,7 +194,7 @@ export class BackendManager {
     try {
       for (let i = 0; i < BACKEND_STARTUP_CHECK_RETRIES; i++) {
         if (!this.isRunning()) {
-          console.warn('[BackendManager] Backend process has stopped. Aborting readiness check.');
+          logger.warn('Backend process has stopped. Aborting readiness check.');
           break;
         }
         try {
@@ -201,7 +203,7 @@ export class BackendManager {
           const timeoutId = setTimeout(() => controller.abort(), BACKEND_STARTUP_CHECK_TIMEOUT_MS);
           await fetch(`http://${host}:${port}`, { signal: controller.signal });
           clearTimeout(timeoutId);
-          console.log(`[BackendManager] API port ${port} is ready to traffic.`);
+          logger.info(`Backend API is listening on port ${port}.`);
           this.markReady();
           break;
         } catch {
@@ -209,7 +211,7 @@ export class BackendManager {
         }
       }
     } catch (err) {
-      console.warn('[BackendManager] Health check unexpected termination:', err);
+      logger.warn('Backend health check terminated unexpectedly:', err);
     }
   }
 
@@ -218,23 +220,19 @@ export class BackendManager {
 
     this.pyProcess.on('error', (err) => {
       const msg = `Failed to execute backend process: ${err.message}`;
-      console.error(`[BackendManager] ${msg}`);
+      logger.error(msg);
       dialog.showErrorBox('Backend Fatal Error', msg);
     });
 
-    this.pyProcess.stdout?.on('data', (data) => {
-      console.log(`${data.toString().trim()}`);
-    });
-
     this.pyProcess.stderr?.on('data', (data) => {
-      console.error(`[Backend Error]: ${data.toString().trim()}`);
+      logger.error(`Backend stderr: ${data.toString().trim()}`);
     });
 
     this.pyProcess.on('close', (code) => {
-      console.log(`Backend process exited with code ${code}`);
+      logger.info(`Backend service terminated with code ${code}`);
       this.pyProcess = null;
       if (!this.isReadyState) {
-        this.rejectReady(new Error(`Backend exited with code ${code}`));
+        this.rejectReady(new Error(`Backend service terminated with code ${code}`));
       }
     });
   }
@@ -243,7 +241,7 @@ export class BackendManager {
     if (!this.isReadyState) {
       this.isReadyState = true;
       this.resolveReady();
-      console.log('[BackendManager] Backend is marked as READY.');
+      logger.info('Backend service initialization completed.');
     }
   }
 
@@ -275,7 +273,7 @@ export class BackendManager {
 
       const timeout = setTimeout(() => {
         if (this.isRunning()) {
-          console.warn('[BackendManager] Shutdown timeout, forcing exit');
+          logger.warn('Backend shutdown timed out, forcing termination.');
           this.pyProcess?.kill('SIGKILL');
         }
         resolve();

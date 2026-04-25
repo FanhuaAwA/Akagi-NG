@@ -2,8 +2,11 @@ import { app, BrowserWindow, ipcMain, shell } from 'electron';
 
 import type { BackendManager } from './backend-manager.js';
 import { EXIT_ANIMATION_DELAY_MS } from './constants.js';
+import { createLogger } from './logger.js';
 import { isSafeWindow, safeSend } from './utils.js';
 import type { WindowManager } from './window-manager.js';
+
+const logger = createLogger('IPC');
 
 export function registerIpcHandlers(windowManager: WindowManager, backendManager: BackendManager) {
   // Toggle HUD Window
@@ -30,9 +33,7 @@ export function registerIpcHandlers(windowManager: WindowManager, backendManager
     // Run exit animation and backend shutdown in parallel
     await Promise.all([
       new Promise((resolve) => setTimeout(resolve, EXIT_ANIMATION_DELAY_MS)),
-      backendManager
-        .stop()
-        .catch((err: unknown) => console.error('[IPC] Backend stop error:', err)),
+      backendManager.stop().catch((err: unknown) => logger.error('Backend stop error:', err)),
     ]);
 
     app.quit();
@@ -47,10 +48,10 @@ export function registerIpcHandlers(windowManager: WindowManager, backendManager
         await shell.openExternal(url);
         return true;
       }
-      console.warn(`[IPC] Blocked opening non-http URL: ${url}`);
+      logger.warn(`Blocked opening non-http URL: ${url}`);
       return false;
     } catch {
-      console.error(`[IPC] Invalid URL for open-external: ${url}`);
+      logger.error(`Invalid URL for open-external: ${url}`);
       return false;
     }
   });

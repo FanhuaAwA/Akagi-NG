@@ -1,5 +1,9 @@
 import type { WebContents } from 'electron';
 
+import { createLogger } from './logger.js';
+
+const logger = createLogger('GameHandler');
+
 export interface WebSocketCreatedEvent {
   requestId: string;
   url: string;
@@ -80,15 +84,13 @@ export class GameHandler {
     try {
       // 1. Listen for process issues
       this.webContents.on('render-process-gone', (_event, details) => {
-        console.error(
-          `[GameHandler] Renderer process gone: ${details.reason} (${details.exitCode})`,
-        );
+        logger.error(`Renderer process gone: ${details.reason} (${details.exitCode})`);
         this.attached = false;
       });
 
       this.webContents.on('did-start-navigation', (_event, url, isInPlace, isMainFrame) => {
         if (isMainFrame && !isInPlace) {
-          console.info(`[GameHandler] Main frame navigating to: ${url}`);
+          logger.info(`Main frame navigating to: ${url}`);
         }
       });
 
@@ -102,7 +104,7 @@ export class GameHandler {
       // 3. Initial attachment
       await this.tryAttach();
     } catch (err) {
-      console.error('[GameHandler] Setup failed:', err);
+      logger.error('Failed to initialize GameHandler:', err);
     }
   }
 
@@ -122,7 +124,7 @@ export class GameHandler {
       this.webContents.debugger.removeAllListeners('message');
 
       this.webContents.debugger.on('detach', (_event, reason) => {
-        console.warn('[GameHandler] Debugger detached:', reason);
+        logger.warn('Web debugger detached:', reason);
         this.attached = false;
 
         // If it was a target-closed (e.g. process swap), we don't send to backend yet,
@@ -143,11 +145,11 @@ export class GameHandler {
       try {
         await this.webContents.debugger.sendCommand('Network.enable');
       } catch (cmdErr) {
-        console.warn('[GameHandler] Could not enable Network:', cmdErr);
+        logger.warn('Failed to enable network inspection for game window:', cmdErr);
       }
     } catch (e) {
       const error = e as Error;
-      console.error('[GameHandler] Attach failed:', error.message);
+      logger.error('Failed to attach web debugger to game window:', error.message);
       this.attached = false;
     }
   }
@@ -231,10 +233,10 @@ export class GameHandler {
             url: response.url,
           });
         } else {
-          console.error(`[GameHandler] Failed to fetch liqi.json: HTTP ${res.status}`);
+          logger.error(`Failed to fetch liqi.json: HTTP ${res.status}`);
         }
       } catch (e) {
-        console.error('[GameHandler] Failed to fetch liqi.json manually:', e);
+        logger.error('Failed to fetch liqi.json manually:', e);
       }
     }
   }
@@ -245,8 +247,8 @@ export class GameHandler {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(data),
     }).catch((err) => {
-      console.error(
-        '[GameHandler] Failed to send to backend:',
+      logger.error(
+        'Failed to forward game event to backend:',
         err instanceof Error ? err.message : String(err),
       );
     });
