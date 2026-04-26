@@ -6,12 +6,11 @@ from aiohttp import web
 
 from akagi_ng.core.context import get_app_context
 from akagi_ng.core.logging import configure_logging
-from akagi_ng.core.paths import get_models_dir
+from akagi_ng.core.paths import ensure_dir, get_assets_dir, get_models_dir
 from akagi_ng.dataserver.logger import logger
 from akagi_ng.mjai_bot.engine import clear_resource_cache
 from akagi_ng.schema.types import (
     DebuggerDetachedMessage,
-    LiqiDefinitionMessage,
     SystemShutdownEvent,
     WebSocketClosedMessage,
     WebSocketCreatedMessage,
@@ -144,6 +143,58 @@ async def get_models_handler(_request: web.Request) -> web.Response:
     return _json_response({"ok": True, "data": models})
 
 
+async def update_protocol_handler(request: web.Request) -> web.Response:
+    """接收前端下载的 liqi.json 并保存到本地。"""
+    try:
+        payload = await request.json()
+    except Exception as e:
+        logger.error(f"Protocol update JSON error: {e}")
+        return _json_response({"ok": False, "error": "Invalid JSON"}, status=400)
+
+    data = payload.get("data")
+    if not data:
+        return _json_response({"ok": False, "error": "Missing 'data' field"}, status=400)
+
+    try:
+        json_obj = json.loads(data)
+
+        assets_dir = get_assets_dir()
+        ensure_dir(assets_dir)
+        liqi_path = assets_dir / "liqi.json"
+
+        liqi_path.write_text(json.dumps(json_obj, indent=2, ensure_ascii=False), encoding="utf-8")
+
+        # 热重载：收集所有活跃的 MajsoulBridge 实例并重置 proto
+        from akagi_ng.bridge.majsoul.bridge import MajsoulBridge
+
+        app = get_app_context()
+        bridges: list[MajsoulBridge] = []
+
+        if app.electron_client and app.electron_client.bridge:
+            bridge = app.electron_client.bridge
+            if isinstance(bridge, MajsoulBridge):
+                bridges.append(bridge)
+
+        if app.mitm_client and app.mitm_client.addon:
+            bridges.extend(b for b in app.mitm_client.addon.bridges.values() if isinstance(b, MajsoulBridge))
+
+        for bridge in bridges:
+            bridge.liqi_proto = bridge.liqi_proto.__class__()
+
+        if bridges:
+            logger.info(f"Hot-reloaded liqi proto in {len(bridges)} active bridge(s).")
+
+        logger.info(f"Successfully updated liqi.json at {liqi_path}")
+        return _json_response({"ok": True})
+
+    except json.JSONDecodeError:
+        logger.warning("Received invalid JSON for liqi.json")
+        return _json_response({"ok": False, "error": "Invalid JSON in liqi data"}, status=400)
+    except OSError as e:
+        logger.error(f"File system error updating liqi.json: {e}")
+        return _json_response({"ok": False, "error": f"File system error: {e}"}, status=500)
+
+
 async def ingest_mjai_handler(request: web.Request) -> web.Response:
     """接收 Electron 发送的 MJAI 消息"""
     try:
@@ -161,8 +212,6 @@ async def ingest_mjai_handler(request: web.Request) -> web.Response:
                 msg = WebSocketClosedMessage()
             case {"type": "websocket", "direction": direction, "data": data}:
                 msg = WebSocketFrameMessage(direction=direction, data=data, opcode=payload.get("opcode"))
-            case {"type": "liqi_definition", "data": data}:
-                msg = LiqiDefinitionMessage(data=data)
             case {"type": "debugger_detached"}:
                 msg = DebuggerDetachedMessage()
             case _:
@@ -219,4 +268,5 @@ def setup_routes(app: web.Application):
     app.router.add_post("/api/settings/reset", reset_settings_handler)
     app.router.add_get("/api/models", get_models_handler)
     app.router.add_post("/api/ingest", ingest_mjai_handler)
+    app.router.add_post("/api/protocol/update", update_protocol_handler)
     app.router.add_post("/api/shutdown", shutdown_handler)

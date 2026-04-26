@@ -25,11 +25,6 @@ export interface WebSocketFrameSentEvent {
     opcode?: number;
   };
 }
-export interface ResponseReceivedEvent {
-  response: {
-    url: string;
-  };
-}
 
 export type BackendIngestPayload =
   | {
@@ -59,12 +54,6 @@ export type BackendIngestPayload =
       data: string;
       opcode: number;
       time: number;
-    }
-  | {
-      source: 'electron';
-      type: 'liqi_definition';
-      data: string;
-      url: string;
     };
 
 export class GameHandler {
@@ -167,31 +156,34 @@ export class GameHandler {
     }
   }
 
-  private async handleDebuggerMessage(_event: unknown, method: string, params: unknown) {
-    if (method === 'Network.webSocketCreated') {
-      const p = params as WebSocketCreatedEvent;
+  private readonly cdpHandlers: ReadonlyMap<string, (params: never) => void> = new Map([
+    ['Network.webSocketCreated', (params: WebSocketCreatedEvent) => {
       this.sendToBackend({
         source: 'electron',
         type: 'websocket_created',
-        requestId: p.requestId,
-        url: p.url,
+        requestId: params.requestId,
+        url: params.url,
         time: Date.now() / 1000,
       });
-    } else if (method === 'Network.webSocketClosed') {
-      const p = params as WebSocketClosedEvent;
+    }],
+    ['Network.webSocketClosed', (params: WebSocketClosedEvent) => {
       this.sendToBackend({
         source: 'electron',
         type: 'websocket_closed',
-        requestId: p.requestId,
+        requestId: params.requestId,
         time: Date.now() / 1000,
       });
-    } else if (method === 'Network.webSocketFrameReceived') {
-      this.handleWebSocketFrame(params as WebSocketFrameReceivedEvent, 'inbound');
-    } else if (method === 'Network.webSocketFrameSent') {
-      this.handleWebSocketFrame(params as WebSocketFrameSentEvent, 'outbound');
-    } else if (method === 'Network.responseReceived') {
-      await this.handleResponseReceived(params as ResponseReceivedEvent);
-    }
+    }],
+    ['Network.webSocketFrameReceived', (params: WebSocketFrameReceivedEvent) => {
+      this.handleWebSocketFrame(params, 'inbound');
+    }],
+    ['Network.webSocketFrameSent', (params: WebSocketFrameSentEvent) => {
+      this.handleWebSocketFrame(params, 'outbound');
+    }],
+  ] as Array<[string, (params: never) => void]>);
+
+  private async handleDebuggerMessage(_event: unknown, method: string, params: unknown) {
+    this.cdpHandlers.get(method)?.(params as never);
   }
 
   private handleWebSocketFrame(
@@ -215,30 +207,6 @@ export class GameHandler {
     };
 
     this.sendToBackend(payload);
-  }
-
-  private async handleResponseReceived(params: ResponseReceivedEvent) {
-    const { response } = params;
-
-    if (response.url && response.url.includes('liqi.json')) {
-      try {
-        // Use fetch instead of CDP getResponseBody to avoid "No resource with given identifier" errors
-        const res = await fetch(response.url);
-        if (res.ok) {
-          const text = await res.text();
-          this.sendToBackend({
-            source: 'electron',
-            type: 'liqi_definition',
-            data: text, // Send raw text (or JSON string)
-            url: response.url,
-          });
-        } else {
-          logger.error(`Failed to fetch liqi.json: HTTP ${res.status}`);
-        }
-      } catch (e) {
-        logger.error('Failed to fetch liqi.json manually:', e);
-      }
-    }
   }
 
   private sendToBackend(data: BackendIngestPayload) {

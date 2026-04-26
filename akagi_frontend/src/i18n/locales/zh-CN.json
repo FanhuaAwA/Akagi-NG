@@ -2,6 +2,7 @@
   "settings": {
     "save": "保存更改",
     "discard": "放弃更改",
+    "update_protocol": "更新协议文件",
     "restore": "恢复默认设置",
     "restore_confirm_title": "恢复默认设置",
     "restore_confirm_desc": "确定要将所有设置恢复为默认值吗？此操作无法撤销。",

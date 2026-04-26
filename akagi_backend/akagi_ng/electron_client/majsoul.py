@@ -1,9 +1,7 @@
 import base64
-import json
 import queue
 
 from akagi_ng.bridge.majsoul.bridge import MajsoulBridge
-from akagi_ng.core.paths import ensure_dir, get_assets_dir
 from akagi_ng.electron_client.base import BaseElectronClient
 from akagi_ng.electron_client.logger import logger
 from akagi_ng.schema.notifications import NotificationCode
@@ -11,7 +9,6 @@ from akagi_ng.schema.types import (
     AkagiEvent,
     ElectronMessage,
     EndGameEvent,
-    LiqiDefinitionMessage,
     SystemEvent,
     WebSocketClosedMessage,
     WebSocketCreatedMessage,
@@ -34,8 +31,6 @@ class MajsoulElectronClient(BaseElectronClient):
                 self._handle_websocket_created(message)
             case WebSocketClosedMessage():
                 self._handle_websocket_closed(message)
-            case LiqiDefinitionMessage():
-                self._handle_liqi_definition(message)
             case WebSocketFrameMessage():
                 self._handle_websocket_frame(message)
 
@@ -72,45 +67,6 @@ class MajsoulElectronClient(BaseElectronClient):
                     logger.info(
                         "[Electron] All Majsoul connections closed after game end, suppressing GAME_DISCONNECTED."
                     )
-
-    def _handle_liqi_definition(self, message: LiqiDefinitionMessage):
-        try:
-            data = message.data
-            if not data:
-                return
-
-            logger.info("Received liqi.json definition, updating...")
-
-            try:
-                # 1. 先校验 JSON
-                json_obj = json.loads(data)
-
-                # 2. 确保目录存在
-                assets_dir = get_assets_dir()
-                ensure_dir(assets_dir)
-                liqi_path = assets_dir / "liqi.json"
-
-                # 3. 写入文件
-                liqi_path.write_text(json.dumps(json_obj, indent=2, ensure_ascii=False), encoding="utf-8")
-
-                # 4. 成功后的处理
-                if self.bridge:
-                    # 重新初始化桥接器中的 proto
-                    self.bridge.liqi_proto = self.bridge.liqi_proto.__class__()
-
-                self._enqueue_event(SystemEvent(code=NotificationCode.MAJSOUL_PROTO_UPDATED))
-                logger.info(f"Successfully updated liqi.json at {liqi_path}")
-
-            except json.JSONDecodeError:
-                logger.warning("Received invalid JSON for liqi.json")
-                self._enqueue_event(SystemEvent(code=NotificationCode.MAJSOUL_PROTO_UPDATE_FAILED))
-            except OSError as e:
-                logger.error(f"File system error updating liqi.json: {e}")
-                self._enqueue_event(SystemEvent(code=NotificationCode.MAJSOUL_PROTO_UPDATE_FAILED))
-
-        except Exception as e:
-            logger.error(f"Unexpected error in handle liqi definition: {e}")
-            self._enqueue_event(SystemEvent(code=NotificationCode.MAJSOUL_PROTO_UPDATE_FAILED))
 
     def _handle_websocket_frame(self, message: WebSocketFrameMessage):
         if not self.bridge:

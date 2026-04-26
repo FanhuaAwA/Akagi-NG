@@ -183,7 +183,7 @@ class GameBridge(Protocol):
 class MessageSource(Protocol):
     """消息源协议接口。
 
-    负责接收和转发游戏消息（如 ElectronClient 或 MitmClient）。
+    负责接收和转发游戏消息。
     """
 
     def start(self):
@@ -195,11 +195,25 @@ class MessageSource(Protocol):
         ...
 
 
+class MitmAddonProtocol(Protocol):
+    """MITM 插件协议接口。"""
+
+    bridges: dict[str, GameBridge]
+
+
+class MitmClientProtocol(MessageSource, Protocol):
+    """MITM 客户端协议接口。"""
+
+    addon: MitmAddonProtocol | None
+
+
 class ElectronClientProtocol(MessageSource, Protocol):
     """Electron 客户端协议接口。
 
-    除了基本的消息源功能外，还支持向客户端推送消息。
+    除了基本的消息源功能外，还支持向客户端推送消息和访问游戏桥接器。
     """
+
+    bridge: GameBridge | None
 
     def push_message(self, message: ElectronMessage):
         """向客户端推送消息。"""

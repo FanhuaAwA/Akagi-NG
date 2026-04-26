@@ -208,3 +208,69 @@ async def test_shutdown_queue_full(cli):
         data = await resp.json()
         assert data["ok"] is False
         assert data["error"] == "Message queue is full"
+
+
+async def test_update_protocol_success(cli):
+    """测试协议更新成功，包括文件保存和热重载逻辑"""
+    from pathlib import Path
+
+    from akagi_ng.bridge.majsoul.bridge import MajsoulBridge
+
+    mock_app = MagicMock()
+    mock_electron = MagicMock()
+    mock_electron.bridge = MajsoulBridge()
+    mock_app.electron_client = mock_electron
+
+    mock_mitm = MagicMock()
+    mock_mitm.addon.bridges = {"f1": MajsoulBridge()}
+    mock_app.mitm_client = mock_mitm
+
+    mock_path = MagicMock(spec=Path)
+
+    with (
+        patch("akagi_ng.dataserver.api.get_assets_dir", return_value=mock_path),
+        patch("akagi_ng.dataserver.api.ensure_dir"),
+        patch("akagi_ng.dataserver.api.get_app_context", return_value=mock_app),
+    ):
+        liqi_file_mock = mock_path.__truediv__.return_value
+
+        resp = await cli.post("/api/protocol/update", json={"data": '{"test": 1}'})
+        assert resp.status == 200
+        data = await resp.json()
+        assert data["ok"] is True
+        assert liqi_file_mock.write_text.called
+
+
+async def test_update_protocol_missing_data(cli):
+    """测试协议更新：缺少 data 字段"""
+    resp = await cli.post("/api/protocol/update", json={})
+    assert resp.status == 400
+    data = await resp.json()
+    assert "Missing 'data' field" in data["error"]
+
+
+async def test_update_protocol_invalid_json(cli):
+    """测试协议更新：data 中包含无效 JSON"""
+    resp = await cli.post("/api/protocol/update", json={"data": "invalid json"})
+    assert resp.status == 400
+    data = await resp.json()
+    assert "Invalid JSON in liqi data" in data["error"]
+
+
+async def test_update_protocol_os_error(cli):
+    """测试协议更新：文件系统错误"""
+    from pathlib import Path
+
+    mock_path = MagicMock(spec=Path)
+    liqi_file_mock = mock_path.__truediv__.return_value
+    liqi_file_mock.write_text.side_effect = OSError("disk full")
+
+    with (
+        patch("akagi_ng.dataserver.api.get_assets_dir", return_value=mock_path),
+        patch("akagi_ng.dataserver.api.ensure_dir"),
+        patch("akagi_ng.dataserver.api.get_app_context", side_effect=RuntimeError("Should not be called")),
+    ):
+        resp = await cli.post("/api/protocol/update", json={"data": "{}"})
+        assert resp.status == 500
+        data = await resp.json()
+        assert "disk full" in data["error"]

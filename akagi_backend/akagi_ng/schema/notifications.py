@@ -54,12 +54,6 @@ class NotificationCode(StrEnum):
     RETURN_LOBBY = "return_lobby"
     """返回大厅"""
 
-    MAJSOUL_PROTO_UPDATED = "majsoul_proto_updated"
-    """雀魂协议文件更新成功"""
-
-    MAJSOUL_PROTO_UPDATE_FAILED = "majsoul_proto_update_failed"
-    """雀魂协议文件更新失败"""
-
     # ============================================================
     # 数据处理错误
     # ============================================================

@@ -76,8 +76,6 @@ type SystemEventCode = Literal[
     NotificationCode.RETURN_LOBBY,
     NotificationCode.PARSE_ERROR,
     NotificationCode.JSON_DECODE_ERROR,
-    NotificationCode.MAJSOUL_PROTO_UPDATED,
-    NotificationCode.MAJSOUL_PROTO_UPDATE_FAILED,
 ]
 
 
@@ -409,20 +407,10 @@ class WebSocketFrameMessage:
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
-class LiqiDefinitionMessage:
-    data: str
-    type: str = "liqi_definition"
-
-
-@dataclass(frozen=True, slots=True, kw_only=True)
 class DebuggerDetachedMessage:
     type: str = "debugger_detached"
 
 
 type ElectronMessage = (
-    WebSocketCreatedMessage
-    | WebSocketClosedMessage
-    | WebSocketFrameMessage
-    | LiqiDefinitionMessage
-    | DebuggerDetachedMessage
+    WebSocketCreatedMessage | WebSocketClosedMessage | WebSocketFrameMessage | DebuggerDetachedMessage
 )

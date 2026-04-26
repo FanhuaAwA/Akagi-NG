@@ -91,12 +91,6 @@ export const STATUS_UI_MAP = {
     domain: STATUS_DOMAIN.RUNTIME,
     lifecycle: STATUS_LIFECYCLE.PERSISTENT,
   },
-  majsoul_proto_update_failed: {
-    level: STATUS_LEVEL.ERROR,
-    placement: STATUS_PLACEMENT.TOAST,
-    domain: STATUS_DOMAIN.GAME,
-    lifecycle: STATUS_LIFECYCLE.PERSISTENT,
-  },
   // 服务断开连接
   service_disconnected: {
     level: STATUS_LEVEL.ERROR,
@@ -159,13 +153,6 @@ export const STATUS_UI_MAP = {
     level: STATUS_LEVEL.SUCCESS,
     placement: STATUS_PLACEMENT.TOAST,
     domain: STATUS_DOMAIN.MODEL,
-    lifecycle: STATUS_LIFECYCLE.EPHEMERAL,
-    autoHide: TOAST_DURATION_SHORT,
-  },
-  majsoul_proto_updated: {
-    level: STATUS_LEVEL.SUCCESS,
-    placement: STATUS_PLACEMENT.TOAST,
-    domain: STATUS_DOMAIN.GAME,
     lifecycle: STATUS_LIFECYCLE.EPHEMERAL,
     autoHide: TOAST_DURATION_SHORT,
   },

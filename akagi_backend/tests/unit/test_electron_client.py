@@ -5,14 +5,14 @@
 主要测试点：
 - 客户端工厂 (create_electron_client) 的实例创建。
 - 雀魂 (Majsoul) 和天凤 (Tenhou) 客户端的连接生命周期管理。
-- 调试器事件 (Debugger Detached) 和协议定义更新 (LiqiDefinition) 的处理。
+- 调试器事件 (Debugger Detached) 的处理。
 - WebSocket 帧 (Frame) 的 push 与分发逻辑，包括队列满时的丢弃策略。
 """
 
 import base64
 import contextlib
 import queue
-from unittest.mock import mock_open, patch
+from unittest.mock import patch
 
 import pytest
 
@@ -24,7 +24,6 @@ from akagi_ng.electron_client import (
 from akagi_ng.schema.types import (
     DebuggerDetachedMessage,
     EndGameEvent,
-    LiqiDefinitionMessage,
     TsumoEvent,
     WebSocketClosedMessage,
     WebSocketCreatedMessage,
@@ -81,20 +80,6 @@ def test_majsoul_debugger_events(ms_client):
     ms_client.push_message(DebuggerDetachedMessage())
     assert ms_client._active_connections == 0
     assert ms_client.message_queue.get(timeout=2.0).code == "game_disconnected"
-
-
-def test_majsoul_liqi_update(ms_client):
-    with (
-        patch("akagi_ng.electron_client.majsoul.get_assets_dir"),
-        patch("akagi_ng.electron_client.majsoul.ensure_dir"),
-        patch("builtins.open", mock_open()),
-    ):
-        ms_client.push_message(LiqiDefinitionMessage(data='{"test":1}'))
-        assert ms_client.message_queue.get(timeout=2.0).code == "majsoul_proto_updated"
-
-    # Fail case
-    ms_client.push_message(LiqiDefinitionMessage(data="invalid json"))
-    assert ms_client.message_queue.get(timeout=2.0).code == "majsoul_proto_update_failed"
 
 
 def test_majsoul_frames(ms_client):

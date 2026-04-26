@@ -2,6 +2,7 @@
   "settings": {
     "save": "変更を保存",
     "discard": "変更を破棄",
+    "update_protocol": "プロトコルを更新",
     "restore": "初期設定に戻す",
     "restore_confirm_title": "初期設定に戻す",
     "restore_confirm_desc": "すべての設定を初期値に戻しますか？この操作は取り消せません。",

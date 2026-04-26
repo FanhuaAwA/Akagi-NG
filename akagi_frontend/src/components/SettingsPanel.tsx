@@ -1,6 +1,7 @@
-import { AlertTriangle, RotateCcw } from 'lucide-react';
+import { AlertTriangle, Download, Loader2, RotateCcw } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { toast } from 'react-toastify';
 
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import {
@@ -48,6 +49,7 @@ export default function SettingsPanel({ open, onClose }: SettingsPanelProps) {
   } = useSettings();
 
   const [isRestoreDialogOpen, setIsRestoreDialogOpen] = useState(false);
+  const [isUpdatingProtocol, setIsUpdatingProtocol] = useState(false);
 
   // 每次打开面板时从后端刷新，确保一致性
   useEffect(() => {
@@ -55,6 +57,20 @@ export default function SettingsPanel({ open, onClose }: SettingsPanelProps) {
       refreshSettings();
     }
   }, [open, refreshSettings]);
+
+  const handleUpdateProtocol = async () => {
+    setIsUpdatingProtocol(true);
+    try {
+      await window.electron.invoke('update-liqi');
+      toast.success(t('status_messages.majsoul_proto_updated'));
+    } catch (error) {
+      toast.error(
+        `${t('status_messages.majsoul_proto_update_failed')}: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    } finally {
+      setIsUpdatingProtocol(false);
+    }
+  };
 
   if (!settings) return null;
 
@@ -112,7 +128,22 @@ export default function SettingsPanel({ open, onClose }: SettingsPanelProps) {
 
               <div className='col-span-2 flex flex-col pt-2'>
                 <Separator className='my-6' />
-                <div className='flex justify-end'>
+                <div className='flex items-center justify-end gap-4'>
+                  <Button
+                    variant='outline'
+                    size='sm'
+                    onClick={handleUpdateProtocol}
+                    disabled={isUpdatingProtocol}
+                    className='text-muted-foreground w-auto'
+                  >
+                    {isUpdatingProtocol ? (
+                      <Loader2 className='mr-2 h-4 w-4 animate-spin' />
+                    ) : (
+                      <Download className='mr-2 h-4 w-4' />
+                    )}
+                    {t('settings.update_protocol')}
+                  </Button>
+
                   <Button
                     variant='destructive'
                     size='sm'

@@ -40,6 +40,55 @@ export function registerIpcHandlers(windowManager: WindowManager, backendManager
     return true;
   });
 
+  // Manual Protocol Update
+  ipcMain.handle('update-liqi', async () => {
+    try {
+      logger.info('Starting manual update of liqi.json from official servers...');
+      // Step 1: Get global version
+      const verRes = await fetch('https://game.maj-soul.com/1/version.json');
+      if (!verRes.ok) throw new Error(`Failed to fetch version.json: ${verRes.status}`);
+      const verData = (await verRes.json()) as { version: string };
+
+      // Step 2: Get res mapping
+      const resMapUrl = `https://game.maj-soul.com/1/resversion${verData.version}.json`;
+      const mapRes = await fetch(resMapUrl);
+      if (!mapRes.ok) throw new Error(`Failed to fetch res mapping: ${mapRes.status}`);
+      const mapData = (await mapRes.json()) as {
+        res: Record<string, { prefix: string }>;
+      };
+
+      const prefix = mapData.res['res/proto/liqi.json']?.prefix;
+      if (!prefix) throw new Error('Could not find res/proto/liqi.json in mapping.');
+
+      // Step 3: Fetch liqi.json
+      const liqiUrl = `https://game.maj-soul.com/1/${prefix}/res/proto/liqi.json`;
+      const liqiRes = await fetch(liqiUrl);
+      if (!liqiRes.ok) throw new Error(`Failed to fetch liqi.json: ${liqiRes.status}`);
+      const liqiText = await liqiRes.text();
+
+      // Send to backend via dedicated protocol update endpoint
+      const config = await backendManager.getBackendConfig();
+      const port = config.port;
+
+      const backendRes = await fetch(`http://127.0.0.1:${port}/api/protocol/update`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ data: liqiText }),
+      });
+
+      if (!backendRes.ok) {
+        const body = (await backendRes.json().catch(() => null)) as { error?: string } | null;
+        throw new Error(body?.error ?? `Backend returned ${backendRes.status}`);
+      }
+
+      logger.info('Successfully updated liqi.json via backend.');
+      return true;
+    } catch (err) {
+      logger.error('Failed to update liqi.json:', err instanceof Error ? err.message : String(err));
+      throw err;
+    }
+  });
+
   // Open external URL in system browser
   ipcMain.handle('open-external', async (_event, url: string) => {
     try {

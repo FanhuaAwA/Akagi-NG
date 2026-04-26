@@ -2,6 +2,7 @@
   "settings": {
     "save": "Save Changes",
     "discard": "Discard Changes",
+    "update_protocol": "Update Protocol",
     "restore": "Restore Defaults",
     "restore_confirm_title": "Restore Default Settings",
     "restore_confirm_desc": "Are you sure you want to restore all settings to default values? This action cannot be undone.",

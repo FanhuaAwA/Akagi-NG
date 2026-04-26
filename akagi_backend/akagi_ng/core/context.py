@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from akagi_ng.schema.protocols import (
     ControllerProtocol,
     ElectronClientProtocol,
-    MessageSource,
+    MitmClientProtocol,
     StateTrackerProtocol,
 )
 from akagi_ng.schema.types import AkagiEvent
@@ -19,7 +19,7 @@ class AppContext:
     shared_queue: queue.Queue[AkagiEvent]
     controller: ControllerProtocol | None
     state_tracker: StateTrackerProtocol | None
-    mitm_client: MessageSource | None
+    mitm_client: MitmClientProtocol | None
     electron_client: ElectronClientProtocol | None = None
 
 
