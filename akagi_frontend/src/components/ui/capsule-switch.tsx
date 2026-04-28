@@ -40,7 +40,7 @@ export function CapsuleSwitch({
         disabled={disabled}
         onClick={() => onCheckedChange(false)}
         className={cn(
-          'relative z-10 flex min-w-12 items-center justify-center rounded-full px-3 text-sm leading-none whitespace-nowrap transition-colors focus-visible:outline-none',
+          'z-content relative flex min-w-12 items-center justify-center rounded-full px-3 text-sm leading-none whitespace-nowrap transition-colors focus-visible:outline-none',
           !checked ? 'text-foreground' : 'text-muted-foreground hover:text-foreground',
         )}
       >
@@ -53,7 +53,7 @@ export function CapsuleSwitch({
         disabled={disabled}
         onClick={() => onCheckedChange(true)}
         className={cn(
-          'relative z-10 flex min-w-12 items-center justify-center rounded-full px-3 text-sm leading-none whitespace-nowrap transition-colors focus-visible:outline-none',
+          'z-content relative flex min-w-12 items-center justify-center rounded-full px-3 text-sm leading-none whitespace-nowrap transition-colors focus-visible:outline-none',
           checked ? 'text-foreground' : 'text-muted-foreground hover:text-foreground',
         )}
       >

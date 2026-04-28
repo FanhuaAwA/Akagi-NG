@@ -1,4 +1,4 @@
-import { AlertTriangle, Download, Loader2, RotateCcw } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, Download, Loader2, RotateCcw } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'react-toastify';
@@ -81,12 +81,14 @@ export default function SettingsPanel({ open, onClose }: SettingsPanelProps) {
           <DialogTitle>{t('app.settings_title')}</DialogTitle>
           <DialogDescription>{t('app.settings_desc')}</DialogDescription>
           {restartRequired && (
-            <Alert variant='warning' className='mt-4 flex items-center justify-center p-2'>
+            <Alert variant='warning' className='mt-4 flex justify-center p-2 text-center'>
+              <AlertTriangle className='h-4 w-4' />
               <AlertDescription>{t('settings.restart_required')}</AlertDescription>
             </Alert>
           )}
           {isRestored && (
-            <Alert variant='success' className='mt-4 flex items-center justify-center p-2'>
+            <Alert variant='success' className='mt-4 flex justify-center p-2 text-center'>
+              <CheckCircle2 className='h-4 w-4' />
               <AlertDescription>{t('settings.restored_success')}</AlertDescription>
             </Alert>
           )}

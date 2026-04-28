@@ -24,7 +24,7 @@ export const NavbarActionButton = ({
       variant='ghost'
       size='icon'
       className={cn(
-        'no-drag relative aspect-square text-zinc-500 transition-colors hover:bg-zinc-100 hover:text-zinc-800 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-100',
+        'no-drag text-muted-foreground hover:bg-accent hover:text-foreground relative aspect-square transition-colors',
         className,
       )}
       {...props}

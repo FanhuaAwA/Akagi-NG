@@ -42,7 +42,7 @@ export function UpdateBadge() {
     <Badge
       variant='destructive'
       asChild
-      className='-my-0.5 cursor-pointer gap-1.5 bg-rose-500/10 px-2 py-0.5 text-rose-600 hover:bg-rose-500/20 dark:bg-rose-500/20 dark:text-rose-400'
+      className='-my-0.5 cursor-pointer gap-1.5 bg-rose-500/10 text-rose-600 hover:bg-rose-500/20 dark:bg-rose-500/20 dark:text-rose-400'
       onClick={handleClick}
     >
       <button>

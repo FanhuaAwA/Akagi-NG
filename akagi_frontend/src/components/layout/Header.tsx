@@ -60,16 +60,13 @@ function HeaderContent({
   }, []);
 
   return (
-    <header className='draggable bg-linear-to-b from-white/50 to-transparent dark:from-black/50 dark:to-transparent'>
+    <header className='draggable z-header bg-linear-to-b from-white/50 to-transparent dark:from-black/50 dark:to-transparent'>
       <div className='flex h-16 items-center justify-between px-6'>
         {/* Logo & Title */}
         <div className='flex items-center gap-3'>
           {/* Status Indicator */}
           <div className='relative flex h-2.5 w-2.5 items-center justify-center'>
-            <ModelStatusIndicator
-              isConnected={isConnected}
-              className='static inset-auto top-auto left-auto m-0 transform-none animate-none'
-            />
+            <ModelStatusIndicator isConnected={isConnected} className='static' />
           </div>
           <h1 className='bg-linear-to-r from-pink-600 to-violet-600 bg-clip-text text-xl font-bold text-transparent dark:from-pink-400 dark:to-violet-400'>
             {t('app.title')}
@@ -82,7 +79,7 @@ function HeaderContent({
           <Button
             variant='ghost'
             size='sm'
-            className='no-drag flex h-full rounded-md px-3 text-zinc-500 transition-colors hover:bg-zinc-100 hover:text-zinc-800 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-100'
+            className='no-drag text-muted-foreground hover:bg-accent hover:text-foreground flex h-full rounded-md px-3 transition-colors'
             onClick={onLaunch}
             disabled={isLaunching}
           >
@@ -97,7 +94,7 @@ function HeaderContent({
           {/* Language Switcher */}
           {locale && onLocaleChange && (
             <Select value={locale} onValueChange={onLocaleChange}>
-              <SelectTrigger className='no-drag aspect-square h-full justify-center rounded-md border-none bg-transparent p-0 text-zinc-500 shadow-none transition-colors hover:bg-zinc-100 hover:text-zinc-800 focus:ring-0 focus:ring-offset-0 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-100 [&>svg:last-child]:hidden'>
+              <SelectTrigger className='no-drag text-muted-foreground hover:bg-accent hover:text-foreground aspect-square h-full justify-center rounded-md border-none bg-transparent p-0 shadow-none transition-colors focus:ring-0 focus:ring-offset-0 [&>svg:last-child]:hidden'>
                 <Globe className='h-4 w-4' />
               </SelectTrigger>
               <SelectContent align='end'>

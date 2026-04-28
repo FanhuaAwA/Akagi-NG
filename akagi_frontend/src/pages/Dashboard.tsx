@@ -2,7 +2,6 @@ import { use, useCallback, useEffect, useState, useSyncExternalStore } from 'rea
 import { useTranslation } from 'react-i18next';
 import { ToastContainer } from 'react-toastify';
 
-import { LaunchScreen } from '@/components/LaunchScreen';
 import { Footer } from '@/components/layout/Footer';
 import { Header } from '@/components/layout/Header';
 import SettingsPanel from '@/components/SettingsPanel';
@@ -17,7 +16,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
-import { APP_SPLASH_DURATION_MS, TOAST_DURATION_DEFAULT } from '@/config/constants';
+import { TOAST_DURATION_DEFAULT } from '@/config/constants';
 import { GameContext } from '@/contexts/GameContext';
 import { fetchSettingsApi, useSettings } from '@/hooks/useSettings';
 import { useTheme } from '@/hooks/useTheme';
@@ -27,9 +26,10 @@ import type { ResourceStatus, Settings } from '@/types';
 
 interface DashboardProps {
   settingsPromise: Promise<Settings>;
+  isSplashActive?: boolean;
 }
 
-function Dashboard({ settingsPromise }: DashboardProps) {
+function Dashboard({ settingsPromise, isSplashActive = false }: DashboardProps) {
   const { t, i18n } = useTranslation();
   const { theme } = useTheme();
   const initialSettings = use(settingsPromise);
@@ -38,6 +38,7 @@ function Dashboard({ settingsPromise }: DashboardProps) {
   if (!context) throw new Error('GameContext not found');
 
   const { updateSetting } = useSettings();
+  const { setIsHudActive, isHudActive } = context;
 
   const handleLocaleChange = useCallback(
     async (newLocale: string) => {
@@ -49,65 +50,60 @@ function Dashboard({ settingsPromise }: DashboardProps) {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [showShutdownConfirm, setShowShutdownConfirm] = useState(false);
   const [isLaunching, setIsLaunching] = useState(false);
-  const [showSplash, setShowSplash] = useState(true);
-  const isMounted = useSyncExternalStore(
-    () => () => {},
-    () => true,
-    () => false,
-  );
-  const [isSystemDark] = useState(() =>
-    typeof window !== 'undefined'
-      ? window.matchMedia('(prefers-color-scheme: dark)').matches
-      : false,
-  );
+
   const [resourceStatus, setResourceStatus] = useState<{
     lib: boolean;
     models: boolean;
   } | null>(null);
 
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      setShowSplash(false);
-    }, APP_SPLASH_DURATION_MS);
+  // 1. 订阅系统主题
+  const isSystemDark = useSyncExternalStore(
+    (callback) => {
+      const media = window.matchMedia('(prefers-color-scheme: dark)');
+      media.addEventListener('change', callback);
+      return () => media.removeEventListener('change', callback);
+    },
+    () => window.matchMedia('(prefers-color-scheme: dark)').matches,
+    () => false,
+  );
 
-    // 检查可选/关键资源
+  // 2. 业务副作用：资源检查与 HUD 监听
+  useEffect(() => {
     window.electron.invoke<ResourceStatus>('check-resource-status').then((status) => {
       setResourceStatus(status);
     });
 
-    // 监听来自 Electron 的 HUD 可见性变化（例如窗口关闭/隐藏）
     const unsubHud = window.electron.on('hud-visibility-changed', (visible: boolean) => {
-      context.setIsHudActive(visible);
+      setIsHudActive(visible);
     });
 
     return () => {
-      clearTimeout(timer);
       if (unsubHud) unsubHud();
     };
-  }, [context]);
+  }, [setIsHudActive]);
 
-  // 资源状态通知
+  // 3. 资源状态通知
   useEffect(() => {
     if (!resourceStatus) return;
 
-    if (!resourceStatus.lib) {
+    const { lib, models } = resourceStatus;
+    const { ot } = initialSettings;
+
+    if (!lib) {
       notify.error(t('status_messages.lib_missing'), { toastId: 'lib_missing', autoClose: false });
     }
-    if (!resourceStatus.models && !initialSettings.ot.online) {
+    if (!models && !ot.online) {
       notify.warn(t('status_messages.models_missing'), {
         toastId: 'models_missing',
         autoClose: false,
       });
     }
-  }, [resourceStatus, t, initialSettings.ot.online]);
+  }, [resourceStatus, t, initialSettings]);
 
   const handleLaunchGame = useCallback(async () => {
     setIsLaunching(true);
     try {
-      // 启动前重新拉取设置，确保配置最新
       const currentSettings = await fetchSettingsApi().catch(() => initialSettings);
-
-      // 将 URL、MITM 状态与平台配置传给 Electron
       await window.electron.invoke('start-game', {
         url: currentSettings.game_url,
         useMitm: currentSettings.mitm.enabled,
@@ -139,24 +135,17 @@ function Dashboard({ settingsPromise }: DashboardProps) {
   const handleToggleHud = useCallback(
     (show: boolean) => {
       window.electron.invoke('toggle-hud', show);
-      context.setIsHudActive(show);
+      setIsHudActive(show);
     },
-    [context],
+    [setIsHudActive],
   );
 
   return (
-    <div className='relative flex h-screen flex-col overflow-hidden text-zinc-900 dark:text-zinc-50'>
-      {showSplash && (
-        <LaunchScreen
-          isStatic
-          className='animate-out fade-out zoom-out-95 fill-mode-forwards pointer-events-none fixed inset-0 z-50 duration-1200'
-        />
-      )}
-
+    <>
       <div
         className={cn(
-          'ease-premium flex h-full flex-col transition duration-1200',
-          isMounted ? 'blur-0 opacity-100' : 'opacity-0 blur-xl',
+          'flex h-full flex-col transition duration-1000',
+          isSplashActive ? 'pointer-events-none opacity-0 blur-xl' : 'blur-0 opacity-100',
         )}
       >
         <Header
@@ -167,7 +156,7 @@ function Dashboard({ settingsPromise }: DashboardProps) {
           onLocaleChange={handleLocaleChange}
           onShutdown={handleShutdownClick}
           onToggleHud={handleToggleHud}
-          isHudActive={context.isHudActive}
+          isHudActive={isHudActive}
         />
         <main className='flex w-full grow overflow-hidden px-6 py-4'>
           <StreamPlayer className='h-full w-full' />
@@ -203,7 +192,7 @@ function Dashboard({ settingsPromise }: DashboardProps) {
         position='top-right'
         theme={theme === 'system' ? (isSystemDark ? 'dark' : 'light') : theme}
       />
-    </div>
+    </>
   );
 }
 

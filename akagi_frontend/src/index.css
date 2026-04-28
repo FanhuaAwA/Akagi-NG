@@ -41,6 +41,18 @@
   --color-action-discard: hsl(var(--action-discard));
 
   --ease-premium: cubic-bezier(0.16, 1, 0.3, 1);
+
+  /* 语义化的 Z-Index */
+  --z-index-base: 0;
+  --z-index-content: 10;
+  --z-index-tile: 10;
+  --z-index-indicator: 20;
+  --z-index-header: 30;
+  --z-index-hud: 40;
+  --z-index-modal: 50;
+  --z-index-splash: 60;
+  --z-index-toast: 70;
+  --z-index-critical: 9999;
 }
 
 @layer components {
@@ -50,11 +62,11 @@
   }
 
   .mahjong-tile-face {
-    @apply relative z-10 h-full w-full overflow-hidden rounded-lg border border-zinc-300 bg-white shadow-sm dark:border-zinc-600;
+    @apply z-tile relative h-full w-full overflow-hidden rounded-lg border border-zinc-300 bg-white shadow-sm dark:border-zinc-600;
   }
 
   .mahjong-tile-3d {
-    @apply absolute -bottom-1 z-0 h-full w-full translate-y-1 rounded-lg border border-zinc-400 bg-zinc-300 dark:border-zinc-600 dark:bg-zinc-500;
+    @apply z-base absolute -bottom-1 h-full w-full translate-y-1 rounded-lg border border-zinc-400 bg-zinc-300 dark:border-zinc-600 dark:bg-zinc-500;
   }
 
   .mahjong-tile-back {
@@ -63,7 +75,7 @@
 
   /* 组件：推荐卡片 */
   .glass-card {
-    @apply ease-premium relative flex h-44 items-center justify-between overflow-hidden rounded-3xl border border-white/40 bg-white/80 pr-8 pl-4 transition duration-500 dark:border-white/5 dark:bg-zinc-950/75;
+    @apply relative flex h-44 items-center justify-between overflow-hidden rounded-3xl border border-white/40 bg-white/80 pr-8 pl-4 transition duration-500 dark:border-white/5 dark:bg-zinc-950/75;
   }
 
   .accent-strip {
@@ -167,6 +179,12 @@
 
   html {
     @apply scroll-smooth;
+    height: 100%;
+  }
+
+  body,
+  #root {
+    height: 100%;
   }
 
   body {

@@ -5,7 +5,7 @@ import { cn } from '@/lib/utils';
 
 // 样式常量
 const DOT_BASE_CLASS =
-  'absolute top-2 left-2 z-50 h-2.5 w-2.5 rounded-full shadow-sm transition-colors duration-500';
+  'absolute top-2 left-2 z-indicator h-2.5 w-2.5 rounded-full shadow-sm transition-colors duration-500';
 
 const STATUS_VARIANTS = {
   hidden: 'hidden',
