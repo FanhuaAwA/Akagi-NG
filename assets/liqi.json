@@ -926,6 +926,14 @@
             "level": {
               "type": "uint32",
               "id": 5
+            },
+            "message": {
+              "type": "string",
+              "id": 6
+            },
+            "args": {
+              "type": "string",
+              "id": 7
             }
           }
         },
@@ -3485,6 +3493,30 @@
               "rule": "repeated",
               "type": "lq.ActivityChooseGroupData",
               "id": 21
+            },
+            "mmo_data": {
+              "rule": "repeated",
+              "type": "lq.ActivityMMODataChanges",
+              "id": 22
+            },
+            "activity_buff": {
+              "type": "ActivityBuffDataArrayDirty",
+              "id": 23
+            }
+          },
+          "nested": {
+            "ActivityBuffDataArrayDirty": {
+              "fields": {
+                "dirty": {
+                  "type": "bool",
+                  "id": 1
+                },
+                "value": {
+                  "rule": "repeated",
+                  "type": "lq.ActivityBuffData",
+                  "id": 2
+                }
+              }
             }
           }
         },
@@ -4289,6 +4321,373 @@
             "selection_id": {
               "type": "uint32",
               "id": 3
+            }
+          }
+        },
+        "ActivityMMODataChanges": {
+          "fields": {
+            "activity_id": {
+              "type": "uint32",
+              "id": 1
+            },
+            "character": {
+              "type": "ActivityMMOCharacterDataChanges",
+              "id": 2
+            },
+            "team": {
+              "type": "ActivityMMOTeamDataChanges",
+              "id": 3
+            },
+            "bag": {
+              "type": "ActivityMMOBagDataChanges",
+              "id": 4
+            },
+            "map": {
+              "type": "ActivityMMOMapDataChanges",
+              "id": 5
+            },
+            "support": {
+              "type": "ActivityMMOSupportDataChanges",
+              "id": 6
+            }
+          },
+          "nested": {
+            "ActivityMMOCharacterDataChanges": {
+              "fields": {
+                "character_id": {
+                  "type": "UInt32Dirty",
+                  "id": 1
+                },
+                "equipments": {
+                  "type": "UInt32ArrayDirty",
+                  "id": 2
+                }
+              }
+            },
+            "ActivityMMOTeamMemberArrayDirty": {
+              "fields": {
+                "dirty": {
+                  "type": "bool",
+                  "id": 1
+                },
+                "value": {
+                  "rule": "repeated",
+                  "type": "ActivityMMOTeamMember",
+                  "id": 2
+                }
+              }
+            },
+            "ActivityMMOTeamDataChanges": {
+              "fields": {
+                "members": {
+                  "type": "ActivityMMOTeamMemberArrayDirty",
+                  "id": 1
+                }
+              }
+            },
+            "ActivityMMOEquipmentsArrayDirty": {
+              "fields": {
+                "dirty": {
+                  "type": "bool",
+                  "id": 1
+                },
+                "value": {
+                  "rule": "repeated",
+                  "type": "ActivityMMOEquipmentData",
+                  "id": 2
+                }
+              }
+            },
+            "ActivityMMOBagDataChanges": {
+              "fields": {
+                "equipments": {
+                  "type": "ActivityMMOEquipmentsArrayDirty",
+                  "id": 1
+                },
+                "total_gain_count": {
+                  "type": "UInt32Dirty",
+                  "id": 2
+                },
+                "total_fusion_count": {
+                  "type": "UInt32Dirty",
+                  "id": 3
+                }
+              }
+            },
+            "ActivityMMOMapDataChanges": {
+              "fields": {
+                "level": {
+                  "type": "UInt32Dirty",
+                  "id": 1
+                },
+                "random_seed": {
+                  "type": "UInt32Dirty",
+                  "id": 2
+                },
+                "won": {
+                  "type": "UInt32Dirty",
+                  "id": 3
+                },
+                "failed": {
+                  "type": "UInt32Dirty",
+                  "id": 4
+                }
+              }
+            },
+            "ActivityMMOSupportDataChanges": {
+              "fields": {
+                "last_receive_time": {
+                  "type": "UInt32Dirty",
+                  "id": 1
+                },
+                "most_supporter": {
+                  "type": "ActivityMMOSupportRecordDirty",
+                  "id": 2
+                },
+                "receive_support_count": {
+                  "type": "UInt32Dirty",
+                  "id": 3
+                }
+              }
+            }
+          }
+        },
+        "ActivityMMOTeamMember": {
+          "fields": {
+            "character_id": {
+              "type": "uint32",
+              "id": 1
+            },
+            "equipments": {
+              "rule": "repeated",
+              "type": "uint32",
+              "id": 2
+            },
+            "id": {
+              "type": "uint32",
+              "id": 3
+            },
+            "type": {
+              "type": "uint32",
+              "id": 4
+            }
+          }
+        },
+        "ActivityMMOEquipmentData": {
+          "fields": {
+            "id": {
+              "type": "uint32",
+              "id": 1
+            },
+            "stack": {
+              "type": "uint32",
+              "id": 2
+            }
+          }
+        },
+        "MMOActivityTeamCandidateData": {
+          "fields": {
+            "character_id": {
+              "type": "uint32",
+              "id": 1
+            },
+            "equipments": {
+              "rule": "repeated",
+              "type": "uint32",
+              "id": 2
+            },
+            "id": {
+              "type": "uint32",
+              "id": 3
+            }
+          }
+        },
+        "ActivityMMOSupportRecord": {
+          "fields": {
+            "id": {
+              "type": "uint32",
+              "id": 1
+            },
+            "count": {
+              "type": "uint32",
+              "id": 2
+            },
+            "type": {
+              "type": "uint32",
+              "id": 3
+            },
+            "character_id": {
+              "type": "uint32",
+              "id": 4
+            },
+            "equipments": {
+              "rule": "repeated",
+              "type": "uint32",
+              "id": 5
+            }
+          }
+        },
+        "ActivityMMOSupportRecordDirty": {
+          "fields": {
+            "dirty": {
+              "type": "bool",
+              "id": 1
+            },
+            "value": {
+              "type": "ActivityMMOSupportRecord",
+              "id": 2
+            }
+          }
+        },
+        "ActivityMMOData": {
+          "fields": {
+            "activity_id": {
+              "type": "uint32",
+              "id": 1
+            },
+            "character": {
+              "type": "ActivityMMOCharacterData",
+              "id": 2
+            },
+            "team": {
+              "type": "ActivityMMOTeamData",
+              "id": 3
+            },
+            "bag": {
+              "type": "ActivityMMOBagData",
+              "id": 4
+            },
+            "map": {
+              "type": "ActivityMMOMapData",
+              "id": 5
+            },
+            "support": {
+              "type": "ActivityMMOSupportData",
+              "id": 6
+            }
+          },
+          "nested": {
+            "ActivityMMOCharacterData": {
+              "fields": {
+                "character_id": {
+                  "type": "uint32",
+                  "id": 1
+                },
+                "equipments": {
+                  "rule": "repeated",
+                  "type": "uint32",
+                  "id": 2
+                }
+              }
+            },
+            "ActivityMMOTeamData": {
+              "fields": {
+                "members": {
+                  "rule": "repeated",
+                  "type": "ActivityMMOTeamMember",
+                  "id": 1
+                },
+                "friend_list": {
+                  "rule": "repeated",
+                  "type": "MMOActivityTeamCandidateData",
+                  "id": 100
+                },
+                "friend_list_expire": {
+                  "type": "uint32",
+                  "id": 101
+                },
+                "random_friends": {
+                  "rule": "repeated",
+                  "type": "MMOActivityTeamCandidateData",
+                  "id": 102
+                },
+                "daily_update_time": {
+                  "type": "uint32",
+                  "id": 103
+                },
+                "npc_list": {
+                  "rule": "repeated",
+                  "type": "MMOActivityTeamCandidateData",
+                  "id": 104
+                }
+              }
+            },
+            "ActivityMMOBagData": {
+              "fields": {
+                "equipments": {
+                  "rule": "repeated",
+                  "type": "ActivityMMOEquipmentData",
+                  "id": 1
+                },
+                "total_gain_count": {
+                  "type": "uint32",
+                  "id": 2
+                },
+                "total_fusion_count": {
+                  "type": "uint32",
+                  "id": 3
+                },
+                "random_record": {
+                  "rule": "repeated",
+                  "type": "ActivityMMORandomRecord",
+                  "id": 100
+                }
+              },
+              "nested": {
+                "ActivityMMORandomRecord": {
+                  "fields": {
+                    "rarity": {
+                      "type": "uint32",
+                      "id": 1
+                    },
+                    "count": {
+                      "type": "uint32",
+                      "id": 2
+                    }
+                  }
+                }
+              }
+            },
+            "ActivityMMOMapData": {
+              "fields": {
+                "level": {
+                  "type": "uint32",
+                  "id": 1
+                },
+                "random_seed": {
+                  "type": "uint32",
+                  "id": 2
+                },
+                "won": {
+                  "type": "uint32",
+                  "id": 3
+                },
+                "failed": {
+                  "type": "uint32",
+                  "id": 4
+                }
+              }
+            },
+            "ActivityMMOSupportData": {
+              "fields": {
+                "last_receive_time": {
+                  "type": "uint32",
+                  "id": 1
+                },
+                "most_supporter": {
+                  "type": "ActivityMMOSupportRecord",
+                  "id": 2
+                },
+                "receive_support_count": {
+                  "type": "uint32",
+                  "id": 3
+                },
+                "support_record": {
+                  "rule": "repeated",
+                  "type": "ActivityMMOSupportRecord",
+                  "id": 100
+                }
+              }
             }
           }
         },
@@ -9861,6 +10260,10 @@
               "requestType": "ReqUpgradeActivityBuff",
               "responseType": "ResActivityBuff"
             },
+            "setActivityBuff": {
+              "requestType": "ReqSetActivityBuff",
+              "responseType": "ResActivityBuff"
+            },
             "upgradeActivityLevel": {
               "requestType": "ReqUpgradeActivityLevel",
               "responseType": "ResUpgradeActivityLevel"
@@ -10468,6 +10871,42 @@
             "marathonActivityFinishRace": {
               "requestType": "ReqMarathonActivityFinishRace",
               "responseType": "ResMarathonActivityFinishRace"
+            },
+            "mmoActivityFetchData": {
+              "requestType": "ReqMMOActivityFetchData",
+              "responseType": "ResMMOActivityFetchData"
+            },
+            "mmoActivityEquipFusion": {
+              "requestType": "ReqMMOActivityEquipFusion",
+              "responseType": "ResMMOActivityEquipFusion"
+            },
+            "mmoActivitySetCharacter": {
+              "requestType": "ReqMMOActivitySetCharacter",
+              "responseType": "ResMMOActivitySetCharacter"
+            },
+            "mmoActivitySetTeamMember": {
+              "requestType": "ReqMMOActivitySetTeamMember",
+              "responseType": "ResMMOActivitySetTeamMember"
+            },
+            "mmoActivityStartBattle": {
+              "requestType": "ReqMMOActivityStartBattle",
+              "responseType": "ResMMOActivityStartBattle"
+            },
+            "mmoActivityFinishBattle": {
+              "requestType": "ReqMMOActivityFinishBattle",
+              "responseType": "ResMMOActivityFinishBattle"
+            },
+            "mmoActivitySetEquip": {
+              "requestType": "ReqMMOActivitySetEquip",
+              "responseType": "ResMMOActivitySetEquip"
+            },
+            "mmoActivityUpdateFriendList": {
+              "requestType": "ReqMMOActivityUpdatehFriendList",
+              "responseType": "ResMMOActivityUpdatehFriendList"
+            },
+            "mmoActivityReceiveSupportReward": {
+              "requestType": "ReqMMOActivityReceiveSupportReward",
+              "responseType": "ResMMOActivityReceiveSupportReward"
             }
           }
         },
@@ -15605,6 +16044,11 @@
               "rule": "repeated",
               "type": "lq.ActivityChooseGroupData",
               "id": 38
+            },
+            "mmo_data": {
+              "rule": "repeated",
+              "type": "lq.ActivityMMOData",
+              "id": 39
             }
           },
           "nested": {
@@ -16217,6 +16661,33 @@
             "count": {
               "type": "uint32",
               "id": 3
+            }
+          }
+        },
+        "ReqSetActivityBuff": {
+          "fields": {
+            "buff_list": {
+              "rule": "repeated",
+              "type": "BuffInfo",
+              "id": 1
+            },
+            "activity_id": {
+              "type": "uint32",
+              "id": 2
+            }
+          },
+          "nested": {
+            "BuffInfo": {
+              "fields": {
+                "buff_id": {
+                  "type": "uint32",
+                  "id": 1
+                },
+                "level": {
+                  "type": "uint32",
+                  "id": 2
+                }
+              }
             }
           }
         },
@@ -20865,6 +21336,364 @@
               "rule": "repeated",
               "type": "ExecuteReward",
               "id": 3
+            }
+          }
+        },
+        "ReqMMOActivityFetchData": {
+          "fields": {
+            "activity_id": {
+              "type": "uint32",
+              "id": 1
+            }
+          }
+        },
+        "ResMMOActivityFetchData": {
+          "fields": {
+            "error": {
+              "type": "Error",
+              "id": 1
+            },
+            "mmo_data": {
+              "type": "ActivityMMOData",
+              "id": 2
+            }
+          }
+        },
+        "ReqMMOActivityEquipFusion": {
+          "fields": {
+            "activity_id": {
+              "type": "uint32",
+              "id": 1
+            },
+            "equip_list": {
+              "rule": "repeated",
+              "type": "uint32",
+              "id": 2
+            },
+            "target_type": {
+              "type": "uint32",
+              "id": 3
+            }
+          }
+        },
+        "ResMMOActivityEquipFusion": {
+          "fields": {
+            "error": {
+              "type": "Error",
+              "id": 1
+            },
+            "result": {
+              "type": "uint32",
+              "id": 2
+            },
+            "changes": {
+              "type": "ActivityMMODataChanges",
+              "id": 3
+            }
+          }
+        },
+        "ReqMMOActivitySetCharacter": {
+          "fields": {
+            "activity_id": {
+              "type": "uint32",
+              "id": 1
+            },
+            "character_id": {
+              "type": "uint32",
+              "id": 2
+            }
+          }
+        },
+        "ResMMOActivitySetCharacter": {
+          "fields": {
+            "error": {
+              "type": "Error",
+              "id": 1
+            },
+            "changes": {
+              "type": "ActivityMMODataChanges",
+              "id": 2
+            }
+          }
+        },
+        "ReqMMOActivitySetTeamMember": {
+          "fields": {
+            "activity_id": {
+              "type": "uint32",
+              "id": 1
+            },
+            "members": {
+              "rule": "repeated",
+              "type": "MMOActivityTeamMember",
+              "id": 2
+            }
+          },
+          "nested": {
+            "MMOActivityTeamMember": {
+              "fields": {
+                "character_id": {
+                  "type": "uint32",
+                  "id": 1
+                },
+                "id": {
+                  "type": "uint32",
+                  "id": 2
+                },
+                "type": {
+                  "type": "uint32",
+                  "id": 3
+                }
+              }
+            }
+          }
+        },
+        "ResMMOActivitySetTeamMember": {
+          "fields": {
+            "error": {
+              "type": "Error",
+              "id": 1
+            },
+            "changes": {
+              "type": "ActivityMMODataChanges",
+              "id": 2
+            }
+          }
+        },
+        "ReqMMOActivityStartBattle": {
+          "fields": {
+            "activity_id": {
+              "type": "uint32",
+              "id": 1
+            }
+          }
+        },
+        "ResMMOActivityStartBattle": {
+          "fields": {
+            "error": {
+              "type": "Error",
+              "id": 1
+            },
+            "actions": {
+              "rule": "repeated",
+              "type": "MMOActivityBattleAction",
+              "id": 2
+            },
+            "units": {
+              "rule": "repeated",
+              "type": "MMOActivityBattleUnit",
+              "id": 3
+            },
+            "changes": {
+              "type": "ActivityMMODataChanges",
+              "id": 4
+            },
+            "result": {
+              "type": "uint32",
+              "id": 5
+            }
+          },
+          "nested": {
+            "MMOActivityBattleAction": {
+              "fields": {
+                "type": {
+                  "type": "uint32",
+                  "id": 1
+                },
+                "target": {
+                  "type": "uint32",
+                  "id": 2
+                },
+                "from": {
+                  "type": "uint32",
+                  "id": 3
+                },
+                "value": {
+                  "type": "uint32",
+                  "id": 4
+                },
+                "tick": {
+                  "type": "uint32",
+                  "id": 5
+                },
+                "critical": {
+                  "type": "uint32",
+                  "id": 6
+                }
+              }
+            },
+            "MMOActivityBattleUnit": {
+              "fields": {
+                "id": {
+                  "type": "uint32",
+                  "id": 1
+                },
+                "hp": {
+                  "type": "uint32",
+                  "id": 2
+                },
+                "equipments": {
+                  "rule": "repeated",
+                  "type": "uint32",
+                  "id": 3
+                }
+              }
+            }
+          }
+        },
+        "ReqMMOActivityFinishBattle": {
+          "fields": {
+            "activity_id": {
+              "type": "uint32",
+              "id": 1
+            }
+          }
+        },
+        "ResMMOActivityFinishBattle": {
+          "fields": {
+            "error": {
+              "type": "Error",
+              "id": 1
+            },
+            "changes": {
+              "type": "ActivityMMODataChanges",
+              "id": 2
+            },
+            "rewards": {
+              "rule": "repeated",
+              "type": "ExecuteReward",
+              "id": 3
+            }
+          }
+        },
+        "ReqMMOActivitySetEquip": {
+          "fields": {
+            "activity_id": {
+              "type": "uint32",
+              "id": 1
+            },
+            "equipments": {
+              "rule": "repeated",
+              "type": "uint32",
+              "id": 2
+            }
+          }
+        },
+        "ResMMOActivitySetEquip": {
+          "fields": {
+            "error": {
+              "type": "Error",
+              "id": 1
+            },
+            "changes": {
+              "type": "ActivityMMODataChanges",
+              "id": 5
+            }
+          }
+        },
+        "ReqMMOActivityUpdatehFriendList": {
+          "fields": {
+            "activity_id": {
+              "type": "uint32",
+              "id": 1
+            }
+          }
+        },
+        "ResMMOActivityUpdatehFriendList": {
+          "fields": {
+            "error": {
+              "type": "Error",
+              "id": 1
+            },
+            "friend_list": {
+              "rule": "repeated",
+              "type": "MMOActivityTeamCandidateData",
+              "id": 2
+            },
+            "random_friends": {
+              "rule": "repeated",
+              "type": "MMOActivityTeamCandidateData",
+              "id": 3
+            },
+            "npc_list": {
+              "rule": "repeated",
+              "type": "MMOActivityTeamCandidateData",
+              "id": 4
+            },
+            "expire_time": {
+              "type": "uint32",
+              "id": 5
+            },
+            "changes": {
+              "type": "ActivityMMODataChanges",
+              "id": 6
+            }
+          }
+        },
+        "ReqMMOActivityReceiveSupportReward": {
+          "fields": {
+            "activity_id": {
+              "type": "uint32",
+              "id": 1
+            }
+          }
+        },
+        "ResMMOActivityReceiveSupportReward": {
+          "fields": {
+            "error": {
+              "type": "Error",
+              "id": 1
+            },
+            "rewards": {
+              "rule": "repeated",
+              "type": "ExecuteReward",
+              "id": 2
+            },
+            "changes": {
+              "type": "ActivityMMODataChanges",
+              "id": 3
+            },
+            "support_count": {
+              "type": "uint32",
+              "id": 4
+            },
+            "total_support_count": {
+              "type": "uint32",
+              "id": 5
+            }
+          }
+        },
+        "ReqMMOActivityDebugSetTeamCandidate": {
+          "fields": {
+            "activity_id": {
+              "type": "uint32",
+              "id": 1
+            },
+            "friend_list": {
+              "rule": "repeated",
+              "type": "MMOActivityTeamCandidateData",
+              "id": 2
+            },
+            "random_friends": {
+              "rule": "repeated",
+              "type": "MMOActivityTeamCandidateData",
+              "id": 3
+            },
+            "npc_list": {
+              "rule": "repeated",
+              "type": "MMOActivityTeamCandidateData",
+              "id": 4
+            }
+          }
+        },
+        "ResMMOActivityDebugSetTeamCandidate": {
+          "fields": {
+            "error": {
+              "type": "Error",
+              "id": 1
+            },
+            "changes": {
+              "type": "ActivityMMODataChanges",
+              "id": 2
             }
           }
         },
@@ -25673,6 +26502,132 @@
             "seat": {
               "type": "uint32",
               "id": 1
+            }
+          }
+        },
+        "SubmitGroup": {
+          "fields": {
+            "count": {
+              "type": "uint32",
+              "id": 1
+            },
+            "tiles": {
+              "rule": "repeated",
+              "type": "string",
+              "id": 2
+            }
+          }
+        },
+        "SubmitInfo": {
+          "fields": {
+            "submit_seat": {
+              "type": "uint32",
+              "id": 1
+            },
+            "groups": {
+              "rule": "repeated",
+              "type": "SubmitGroup",
+              "id": 2
+            }
+          }
+        },
+        "ActionSubmit": {
+          "fields": {
+            "submits": {
+              "rule": "repeated",
+              "type": "SubmitInfo",
+              "id": 1
+            }
+          }
+        },
+        "RecordSubmit": {
+          "fields": {
+            "submits": {
+              "rule": "repeated",
+              "type": "SubmitInfo",
+              "id": 1
+            }
+          }
+        },
+        "TakeInfo": {
+          "fields": {
+            "take_seat": {
+              "type": "uint32",
+              "id": 1
+            },
+            "from_seat": {
+              "type": "uint32",
+              "id": 2
+            },
+            "count": {
+              "type": "uint32",
+              "id": 3
+            },
+            "tiles": {
+              "rule": "repeated",
+              "type": "string",
+              "id": 4
+            }
+          }
+        },
+        "ActionTake": {
+          "fields": {
+            "takes": {
+              "rule": "repeated",
+              "type": "TakeInfo",
+              "id": 1
+            },
+            "tingpais0": {
+              "rule": "repeated",
+              "type": "TingPaiDiscardInfo",
+              "id": 2
+            },
+            "tingpais1": {
+              "rule": "repeated",
+              "type": "TingPaiInfo",
+              "id": 3
+            },
+            "operation": {
+              "type": "OptionalOperationList",
+              "id": 4
+            }
+          }
+        },
+        "RecordTake": {
+          "fields": {
+            "takes": {
+              "rule": "repeated",
+              "type": "TakeInfo",
+              "id": 1
+            },
+            "tingpais0": {
+              "rule": "repeated",
+              "type": "TingPaiDiscardInfo",
+              "id": 2
+            },
+            "tingpai": {
+              "rule": "repeated",
+              "type": "TingPai",
+              "id": 3
+            },
+            "operation": {
+              "type": "OptionalOperationList",
+              "id": 4
+            }
+          },
+          "nested": {
+            "TingPai": {
+              "fields": {
+                "seat": {
+                  "type": "uint32",
+                  "id": 1
+                },
+                "tingpais1": {
+                  "rule": "repeated",
+                  "type": "TingPaiInfo",
+                  "id": 2
+                }
+              }
             }
           }
         },
