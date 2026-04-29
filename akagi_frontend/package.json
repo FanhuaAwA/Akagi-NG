@@ -1,7 +1,7 @@
 {
   "name": "akagi-frontend",
   "private": true,
-  "version": "1.0.7",
+  "version": "1.0.8",
   "description": "Akagi-NG React Frontend",
   "author": "Akagi-NG Contributors",
   "license": "AGPL-3.0",
@@ -16,7 +16,7 @@
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "i18next": "^26.0.8",
-    "lucide-react": "^1.13.0",
+    "lucide-react": "^1.14.0",
     "radix-ui": "^1.4.3",
     "react": "^19.2.5",
     "react-dom": "^19.2.5",
