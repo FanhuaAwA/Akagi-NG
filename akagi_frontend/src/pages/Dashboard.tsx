@@ -17,6 +17,7 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
 import { TOAST_DURATION_DEFAULT } from '@/config/constants';
+import { MITM_REQUIRED_PLATFORMS } from '@/config/platforms';
 import { GameContext } from '@/contexts/GameContext';
 import { fetchSettingsApi, useSettings } from '@/hooks/useSettings';
 import { useTheme } from '@/hooks/useTheme';
@@ -37,7 +38,7 @@ function Dashboard({ settingsPromise, isSplashActive = false }: DashboardProps) 
   const context = use(GameContext);
   if (!context) throw new Error('GameContext not found');
 
-  const { updateSetting } = useSettings();
+  const { updateSetting, settings } = useSettings();
   const { setIsHudActive, isHudActive } = context;
 
   const handleLocaleChange = useCallback(
@@ -46,6 +47,9 @@ function Dashboard({ settingsPromise, isSplashActive = false }: DashboardProps) 
     },
     [updateSetting],
   );
+
+  const isLaunchDisabled =
+    MITM_REQUIRED_PLATFORMS.includes(settings.platform) && !settings.mitm.enabled;
 
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [showShutdownConfirm, setShowShutdownConfirm] = useState(false);
@@ -155,6 +159,7 @@ function Dashboard({ settingsPromise, isSplashActive = false }: DashboardProps) 
       >
         <Header
           isLaunching={isLaunching}
+          isLaunchDisabled={isLaunchDisabled}
           onLaunch={handleLaunchGame}
           onOpenSettings={handleOpenSettings}
           locale={i18n.language}

@@ -102,8 +102,8 @@ async def save_settings_handler(request: web.Request) -> web.Response:
             configure_logging(new_level)
 
         if (
-            payload.get("game_url") != old_settings.get("game_url")
-            or payload.get("platform") != old_settings.get("platform")
+            payload.get("platform") != old_settings.get("platform")
+            or payload.get("majsoul_server") != old_settings.get("majsoul_server")
             or payload.get("mitm") != old_settings.get("mitm")
             or payload.get("server") != old_settings.get("server")
             or payload.get("ot") != old_settings.get("ot")
@@ -114,7 +114,7 @@ async def save_settings_handler(request: web.Request) -> web.Response:
 
         clear_resource_cache()
         logger.info("Resource cache cleared due to settings update.")
-        return _json_response({"ok": True, "restartRequired": restart_required})
+        return _json_response({"ok": True, "data": get_settings_dict(), "restartRequired": restart_required})
     except Exception:
         logger.exception("Failed to save settings")
         return _json_response({"ok": False, "error": "Internal server error"}, status=500)

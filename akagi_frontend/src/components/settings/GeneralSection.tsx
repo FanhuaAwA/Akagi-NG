@@ -9,7 +9,7 @@ import {
 } from '@/components/ui/select';
 import { SettingsItem } from '@/components/ui/settings-item';
 import { SUPPORTED_LOCALES } from '@/config/locales';
-import { PLATFORM_DEFAULTS, PLATFORMS } from '@/config/platforms';
+import { PLATFORMS } from '@/config/platforms';
 import { useTheme } from '@/hooks/useTheme';
 import type { Paths, PathValue, Settings, Theme } from '@/types';
 
@@ -92,12 +92,7 @@ export function GeneralSection({
         <Select
           value={settings.platform || PLATFORMS.MAJSOUL}
           onValueChange={(val) => {
-            const defaultUrl =
-              PLATFORM_DEFAULTS[val]?.url || PLATFORM_DEFAULTS[PLATFORMS.MAJSOUL].url;
-            updateSettingsBatch([
-              { path: ['platform'], value: val },
-              { path: ['game_url'], value: defaultUrl },
-            ]);
+            updateSettingsBatch([{ path: ['platform'], value: val }]);
           }}
         >
           <SelectTrigger>

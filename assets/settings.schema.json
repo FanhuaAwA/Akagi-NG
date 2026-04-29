@@ -5,6 +5,7 @@
     "log_level",
     "locale",
     "game_url",
+    "majsoul_server",
     "platform",
     "mitm",
     "server",
@@ -26,13 +27,20 @@
     },
     "game_url": {
       "type": "string",
-      "default": "",
-      "description": "Game URL for internal Electron window."
+      "default": "https://game.maj-soul.com/1/",
+      "readOnly": true,
+      "description": "Backend-derived game URL for internal Electron window."
+    },
+    "majsoul_server": {
+      "type": "string",
+      "enum": ["cn", "jp", "en"],
+      "default": "cn",
+      "description": "Majsoul server used to derive the game URL."
     },
     "platform": {
       "type": "string",
       "enum": ["auto", "majsoul", "tenhou", "amatsuki", "riichi_city"],
-      "default": "auto",
+      "default": "majsoul",
       "description": "The target mahjong platform."
     },
     "mitm": {

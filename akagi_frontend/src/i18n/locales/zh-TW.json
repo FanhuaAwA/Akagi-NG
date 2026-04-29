@@ -28,6 +28,12 @@
       "mode": "連線模式",
       "mode_browser": "內建視窗",
       "game_url": "遊戲位址",
+      "majsoul_server": "雀魂伺服器",
+      "majsoul_servers": {
+        "cn": "國際中文服",
+        "jp": "日服",
+        "en": "英文服"
+      },
       "mode_mitm": "外部代理",
       "mitm_required_notice": "麻雀一番街和天月麻雀僅支援外部代理模式，請切換連線模式。",
       "mitm": {

@@ -3,7 +3,7 @@ import { createContext } from 'react';
 import type { Paths, PathValue, Settings } from '@/types';
 
 export interface SettingsContextType {
-  settings: Settings | null;
+  settings: Settings;
   saveStatus: 'saved' | 'saving' | 'error';
   restartRequired: boolean;
   isRestored: boolean;

@@ -28,6 +28,12 @@
       "mode": "接続モード",
       "mode_browser": "内蔵ブラウザ",
       "game_url": "ゲームURL",
+      "majsoul_server": "雀魂サーバー",
+      "majsoul_servers": {
+        "cn": "中国語サーバー",
+        "jp": "日本サーバー",
+        "en": "英語サーバー"
+      },
       "mode_mitm": "外部プロキシ",
       "mitm_required_notice": "麻雀一番街と天月麻雀は外部プロキシモードのみ対応しています。接続モードを切り替えてください。",
       "mitm": {

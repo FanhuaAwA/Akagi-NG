@@ -185,6 +185,7 @@ export function SettingsProvider({ children, initialSettings }: SettingsProvider
         const result = await saveSettingsApi(nextSettings);
         if (currentSaveId !== saveSeqRef.current) return;
         if (result.restartRequired) dispatch({ type: 'SET_RESTART_REQUIRED' });
+        if (result.data) dispatch({ type: 'INIT_SYNC', payload: result.data });
 
         dispatch({ type: 'SET_SAVE_STATUS', status: 'saved' });
         if (toastIdRef.current !== null) {

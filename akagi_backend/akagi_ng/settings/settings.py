@@ -10,7 +10,7 @@ import jsonschema
 from jsonschema.exceptions import ValidationError
 
 from akagi_ng.core.paths import ensure_dir, get_assets_dir, get_settings_dir
-from akagi_ng.schema.constants import DEFAULT_GAME_URLS, Platform
+from akagi_ng.schema.constants import MajsoulServer, Platform, get_game_url
 from akagi_ng.settings.logger import logger
 
 CONFIG_DIR: Path = ensure_dir(get_settings_dir())
@@ -59,6 +59,7 @@ class Settings:
     log_level: str
     locale: str
     game_url: str
+    majsoul_server: MajsoulServer
     platform: Platform
     mitm: MITMConfig
     server: ServerConfig
@@ -68,19 +69,14 @@ class Settings:
     def update(self, data: dict):
         """从字典更新设置"""
         _update_settings(self, data)
-        self._validate_game_url()
+        self._normalize_game_url()
 
     def __post_init__(self):
-        self._validate_game_url()
+        self._normalize_game_url()
 
-    def _validate_game_url(self):
-        """验证并修正 game_url"""
-        is_mismatch = (self.platform == Platform.TENHOU and "maj-soul.com" in self.game_url) or (
-            self.platform == Platform.MAJSOUL and "tenhou.net" in self.game_url
-        )
-
-        if not self.game_url or is_mismatch:
-            self.game_url = DEFAULT_GAME_URLS.get(self.platform, DEFAULT_GAME_URLS[Platform.MAJSOUL])
+    def _normalize_game_url(self):
+        """根据平台设置派生只读 game_url"""
+        self.game_url = get_game_url(self.platform, self.majsoul_server)
 
     def save(self):
         """保存设置到 settings.json 文件"""
@@ -98,11 +94,14 @@ class Settings:
 
         platform_val = data.get("platform")
         platform = Platform(platform_val) if platform_val else Platform.MAJSOUL
+        majsoul_server_val = data.get("majsoul_server")
+        majsoul_server = MajsoulServer(majsoul_server_val) if majsoul_server_val else MajsoulServer.CN
 
         return cls(
             log_level=data.get("log_level", "INFO"),
             locale=data.get("locale", "zh-CN"),
             game_url=game_url,
+            majsoul_server=majsoul_server,
             platform=platform,
             mitm=MITMConfig(
                 enabled=mitm_data.get("enabled", False),
@@ -184,7 +183,8 @@ def get_default_settings_dict() -> dict:
     return {
         "log_level": "INFO",
         "locale": detect_system_locale(),
-        "game_url": "",
+        "game_url": get_game_url(Platform.MAJSOUL, MajsoulServer.CN),
+        "majsoul_server": MajsoulServer.CN.value,
         "platform": Platform.MAJSOUL.value,
         "mitm": {
             "enabled": False,
@@ -204,7 +204,7 @@ def get_default_settings_dict() -> dict:
 
 def get_settings_dict() -> dict:
     """从 settings.json 读取设置"""
-    return json.loads(SETTINGS_JSON_PATH.read_text(encoding="utf-8"))
+    return asdict(Settings.from_dict(json.loads(SETTINGS_JSON_PATH.read_text(encoding="utf-8"))))
 
 
 def verify_settings(data: dict) -> bool:
@@ -266,6 +266,7 @@ def _update_settings(settings: Settings, data: dict):
     settings.log_level = data.get("log_level", "INFO")
     settings.locale = data.get("locale", "zh-CN")
     settings.game_url = data.get("game_url", "")
+    settings.majsoul_server = MajsoulServer(data.get("majsoul_server", MajsoulServer.CN))
     settings.platform = Platform(data.get("platform", Platform.MAJSOUL))
 
     mitm_data = data.get("mitm", {})

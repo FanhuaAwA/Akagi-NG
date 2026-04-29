@@ -4,7 +4,15 @@ import { useTranslation } from 'react-i18next';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { CapsuleSwitch } from '@/components/ui/capsule-switch';
 import { Input } from '@/components/ui/input';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { SettingsItem } from '@/components/ui/settings-item';
+import { MAJSOUL_SERVERS, type MajsoulServer } from '@/config/platforms';
 import type { Paths, PathValue, Settings } from '@/types';
 
 interface ConnectionSectionProps {
@@ -37,17 +45,27 @@ export function ConnectionSection({ settings, updateSetting }: ConnectionSection
 
       {!settings.mitm.enabled && (
         <>
-          {['majsoul', 'tenhou', 'auto'].includes(settings.platform) && (
-            <SettingsItem label={t('settings.connection.game_url')}>
-              <Input
-                value={settings.game_url}
-                placeholder={
-                  settings.platform === 'tenhou'
-                    ? 'https://tenhou.net/3/'
-                    : 'https://game.maj-soul.com/1/'
-                }
-                onChange={(e) => updateSetting(['game_url'], e.target.value)}
-              />
+          {settings.platform === 'majsoul' && (
+            <SettingsItem label={t('settings.connection.majsoul_server')}>
+              <Select
+                value={settings.majsoul_server || MAJSOUL_SERVERS.CN}
+                onValueChange={(val) => updateSetting(['majsoul_server'], val as MajsoulServer)}
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={MAJSOUL_SERVERS.CN}>
+                    {t('settings.connection.majsoul_servers.cn')}
+                  </SelectItem>
+                  <SelectItem value={MAJSOUL_SERVERS.JP}>
+                    {t('settings.connection.majsoul_servers.jp')}
+                  </SelectItem>
+                  <SelectItem value={MAJSOUL_SERVERS.EN}>
+                    {t('settings.connection.majsoul_servers.en')}
+                  </SelectItem>
+                </SelectContent>
+              </Select>
             </SettingsItem>
           )}
           {['riichi_city', 'amatsuki'].includes(settings.platform) && (

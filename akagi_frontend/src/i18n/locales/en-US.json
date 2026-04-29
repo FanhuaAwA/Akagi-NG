@@ -28,6 +28,12 @@
       "mode": "Connection Mode",
       "mode_browser": "Internal Browser",
       "game_url": "Game URL",
+      "majsoul_server": "Majsoul Server",
+      "majsoul_servers": {
+        "cn": "Chinese Server",
+        "jp": "Japanese Server",
+        "en": "English Server"
+      },
       "mode_mitm": "External Proxy",
       "mitm_required_notice": "Riichi City and Amatsuki Mahjong only support External Proxy mode. Please switch the connection mode.",
       "mitm": {

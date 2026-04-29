@@ -24,6 +24,7 @@ import { cn } from '@/lib/utils';
 
 interface HeaderProps {
   isLaunching: boolean;
+  isLaunchDisabled?: boolean;
   onLaunch: () => void;
   onOpenSettings: () => void;
   locale?: string;
@@ -36,6 +37,7 @@ interface HeaderProps {
 
 function HeaderContent({
   isLaunching,
+  isLaunchDisabled = false,
   onLaunch,
   onOpenSettings,
   locale,
@@ -81,7 +83,7 @@ function HeaderContent({
             size='sm'
             className='no-drag text-muted-foreground hover:bg-accent hover:text-foreground flex h-full rounded-md px-3 transition-colors'
             onClick={onLaunch}
-            disabled={isLaunching}
+            disabled={isLaunching || isLaunchDisabled}
           >
             {isLaunching ? (
               <RefreshCw className='mr-2 h-4 w-4 animate-spin' />

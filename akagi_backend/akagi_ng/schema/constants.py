@@ -12,12 +12,33 @@ class Platform(StrEnum):
     AMATSUKI = "amatsuki"
 
 
-DEFAULT_GAME_URLS: Final[dict[Platform, str]] = {
-    Platform.MAJSOUL: "https://game.maj-soul.com/1/",
-    Platform.TENHOU: "https://tenhou.net/3/",
-    Platform.RIICHI_CITY: "https://riichi.city/",
-    Platform.AMATSUKI: "https://amatsuki-mj.jp/",
+class MajsoulServer(StrEnum):
+    CN = "cn"
+    JP = "jp"
+    EN = "en"
+
+
+MAJSOUL_SERVER_URLS: Final[dict[MajsoulServer, str]] = {
+    MajsoulServer.CN: "https://game.maj-soul.com/1/",
+    MajsoulServer.JP: "https://game.mahjongsoul.com/",
+    MajsoulServer.EN: "https://mahjongsoul.game.yo-star.com/",
 }
+
+DEFAULT_GAME_URLS: Final[dict[Platform, str]] = {
+    Platform.MAJSOUL: MAJSOUL_SERVER_URLS[MajsoulServer.CN],
+    Platform.TENHOU: "https://tenhou.net/3/",
+    Platform.RIICHI_CITY: "",
+    Platform.AMATSUKI: "",
+}
+
+
+def get_game_url(platform: Platform, majsoul_server: MajsoulServer = MajsoulServer.CN) -> str:
+    """根据平台和服务器配置返回对应的麻将游戏 URL """
+    if platform == Platform.MAJSOUL:
+        return MAJSOUL_SERVER_URLS[majsoul_server]
+    if platform == Platform.AUTO:
+        return MAJSOUL_SERVER_URLS[MajsoulServer.CN]
+    return DEFAULT_GAME_URLS.get(platform, "")
 
 
 class MahjongConstants:

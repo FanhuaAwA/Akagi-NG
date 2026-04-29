@@ -68,6 +68,7 @@ class TestSettingsClass(unittest.TestCase):
             log_level="INFO",
             locale="zh-CN",
             game_url="https://game.maj-soul.com/1/",
+            majsoul_server="cn",
             platform="majsoul",
             mitm=MITMConfig(enabled=False, host="127.0.0.1", port=6789, upstream=""),
             server=ServerConfig(host="127.0.0.1", port=8765),
@@ -92,6 +93,7 @@ class TestSettingsClass(unittest.TestCase):
             "log_level": "TRACE",
             "locale": "ja-JP",
             "game_url": "https://game.maj-soul.com/1/",
+            "majsoul_server": "cn",
             "platform": "majsoul",
             "mitm": {"enabled": True, "host": "0.0.0.0", "port": 7890, "upstream": ""},
             "server": {"host": "localhost", "port": 9000},
@@ -108,12 +110,17 @@ class TestSettingsClass(unittest.TestCase):
         self.assertTrue(settings.mitm.enabled)
 
     def test_settings_game_url_validation(self):
-        # Tenhou platform with Majsoul URL should be corrected
         s = Settings.from_dict({"platform": "tenhou", "game_url": "https://maj-soul.com"})
-        self.assertIn("tenhou.net", s.game_url)
-        # Majsoul platform with Tenhou URL should be corrected
-        s = Settings.from_dict({"platform": "majsoul", "game_url": "https://tenhou.net"})
-        self.assertIn("maj-soul.com", s.game_url)
+        self.assertEqual(s.game_url, "https://tenhou.net/3/")
+
+        s = Settings.from_dict({"platform": "majsoul", "majsoul_server": "jp", "game_url": "https://tenhou.net"})
+        self.assertEqual(s.game_url, "https://game.mahjongsoul.com/")
+
+        s = Settings.from_dict({"platform": "majsoul", "majsoul_server": "en"})
+        self.assertEqual(s.game_url, "https://mahjongsoul.game.yo-star.com/")
+
+        s = Settings.from_dict({"platform": "riichi_city", "game_url": "https://riichi.city/"})
+        self.assertEqual(s.game_url, "")
 
     def test_settings_update(self):
         s = Settings.from_dict({})
@@ -129,6 +136,8 @@ class TestSettingsLifecycle(unittest.TestCase):
         defaults = get_default_settings_dict()
         self.assertIn("log_level", defaults)
         self.assertEqual(defaults["log_level"], "INFO")
+        self.assertEqual(defaults["majsoul_server"], "cn")
+        self.assertEqual(defaults["game_url"], "https://game.maj-soul.com/1/")
 
     def test_verify_settings_valid(self):
         valid_data = get_default_settings_dict()

@@ -1,3 +1,5 @@
+import type { MajsoulServer, Platform } from '@/config/platforms';
+
 export interface SimCandidate {
   tile: string;
   confidence: number;
@@ -36,7 +38,8 @@ export interface Settings {
   log_level: string;
   locale: string;
   game_url: string;
-  platform: string;
+  majsoul_server: MajsoulServer;
+  platform: Platform;
   mitm: {
     enabled: boolean;
     host: string;
@@ -59,7 +62,7 @@ export interface Settings {
   };
 }
 
-export interface SaveSettingsResponse extends ApiResponse {
+export interface SaveSettingsResponse extends ApiResponse<Settings> {
   restartRequired?: boolean;
 }
 
