@@ -25,29 +25,25 @@ const CURRENT_YEAR = new Date().getFullYear();
 
 export function Footer() {
   return (
-    <footer className='py-1 text-center'>
-      <div className='mx-auto max-w-7xl px-4'>
-        <div className='flex items-center justify-center gap-4 text-xs leading-none text-zinc-500 dark:text-zinc-400'>
-          <span className='font-semibold tracking-wide'>Akagi-NG</span>
-          <div className='flex items-center gap-2'>
-            <span className='opacity-40'>v{AKAGI_VERSION}</span>
-            <UpdateBadge />
-          </div>
-          <div className='h-3 w-px bg-zinc-300 dark:bg-zinc-700' />
-          <ExternalLink
-            href='https://github.com/Xe-Persistent/Akagi-NG'
-            icon={<AppWindow className='h-3.5 w-3.5' />}
-            text='Homepage'
-          />
-          <ExternalLink
-            href='https://github.com/Xe-Persistent/Akagi-NG?tab=AGPL-3.0-1-ov-file'
-            icon={<Scale className='h-3.5 w-3.5' />}
-            text='License'
-          />
-          <div className='h-3 w-px bg-zinc-300 dark:bg-zinc-700' />
-          <span className='opacity-30'>© {CURRENT_YEAR} Akagi-NG contributors.</span>
-        </div>
+    <footer className='flex h-6 items-center justify-center gap-4 px-4 text-xs text-zinc-500 dark:text-zinc-400'>
+      <span className='font-semibold tracking-wide'>Akagi-NG</span>
+      <div className='flex items-center gap-2'>
+        <span className='opacity-40'>v{AKAGI_VERSION}</span>
+        <UpdateBadge />
       </div>
+      <div className='h-3 w-px bg-zinc-300 dark:bg-zinc-700' />
+      <ExternalLink
+        href='https://github.com/Xe-Persistent/Akagi-NG'
+        icon={<AppWindow className='h-3.5 w-3.5' />}
+        text='Homepage'
+      />
+      <ExternalLink
+        href='https://github.com/Xe-Persistent/Akagi-NG?tab=AGPL-3.0-1-ov-file'
+        icon={<Scale className='h-3.5 w-3.5' />}
+        text='License'
+      />
+      <div className='h-3 w-px bg-zinc-300 dark:bg-zinc-700' />
+      <span className='opacity-30'>© {CURRENT_YEAR} Akagi-NG contributors.</span>
     </footer>
   );
 }
