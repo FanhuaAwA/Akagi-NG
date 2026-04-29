@@ -77,8 +77,13 @@ function Dashboard({ settingsPromise, isSplashActive = false }: DashboardProps) 
       setIsHudActive(visible);
     });
 
+    const unsubQuit = window.electron.on('request-app-quit', () => {
+      setShowShutdownConfirm(true);
+    });
+
     return () => {
       if (unsubHud) unsubHud();
+      if (unsubQuit) unsubQuit();
     };
   }, [setIsHudActive]);
 
@@ -118,7 +123,7 @@ function Dashboard({ settingsPromise, isSplashActive = false }: DashboardProps) 
   }, [initialSettings, t]);
 
   const handleShutdownClick = useCallback(() => {
-    setShowShutdownConfirm(true);
+    window.electron.invoke('close-window');
   }, []);
 
   const performShutdown = useCallback(async () => {

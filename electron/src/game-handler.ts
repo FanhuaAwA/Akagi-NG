@@ -157,29 +157,41 @@ export class GameHandler {
   }
 
   private readonly cdpHandlers: ReadonlyMap<string, (params: never) => void> = new Map([
-    ['Network.webSocketCreated', (params: WebSocketCreatedEvent) => {
-      this.sendToBackend({
-        source: 'electron',
-        type: 'websocket_created',
-        requestId: params.requestId,
-        url: params.url,
-        time: Date.now() / 1000,
-      });
-    }],
-    ['Network.webSocketClosed', (params: WebSocketClosedEvent) => {
-      this.sendToBackend({
-        source: 'electron',
-        type: 'websocket_closed',
-        requestId: params.requestId,
-        time: Date.now() / 1000,
-      });
-    }],
-    ['Network.webSocketFrameReceived', (params: WebSocketFrameReceivedEvent) => {
-      this.handleWebSocketFrame(params, 'inbound');
-    }],
-    ['Network.webSocketFrameSent', (params: WebSocketFrameSentEvent) => {
-      this.handleWebSocketFrame(params, 'outbound');
-    }],
+    [
+      'Network.webSocketCreated',
+      (params: WebSocketCreatedEvent) => {
+        this.sendToBackend({
+          source: 'electron',
+          type: 'websocket_created',
+          requestId: params.requestId,
+          url: params.url,
+          time: Date.now() / 1000,
+        });
+      },
+    ],
+    [
+      'Network.webSocketClosed',
+      (params: WebSocketClosedEvent) => {
+        this.sendToBackend({
+          source: 'electron',
+          type: 'websocket_closed',
+          requestId: params.requestId,
+          time: Date.now() / 1000,
+        });
+      },
+    ],
+    [
+      'Network.webSocketFrameReceived',
+      (params: WebSocketFrameReceivedEvent) => {
+        this.handleWebSocketFrame(params, 'inbound');
+      },
+    ],
+    [
+      'Network.webSocketFrameSent',
+      (params: WebSocketFrameSentEvent) => {
+        this.handleWebSocketFrame(params, 'outbound');
+      },
+    ],
   ] as Array<[string, (params: never) => void]>);
 
   private async handleDebuggerMessage(_event: unknown, method: string, params: unknown) {

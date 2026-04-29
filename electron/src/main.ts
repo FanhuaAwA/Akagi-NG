@@ -1,7 +1,7 @@
 import os from 'node:os';
 import { join } from 'node:path';
 
-import { app, BrowserWindow, dialog } from 'electron';
+import { app, dialog } from 'electron';
 
 import { BackendManager } from './backend-manager.js';
 import { registerIpcHandlers } from './ipc-handlers.js';
@@ -10,7 +10,12 @@ import { UpdaterManager } from './updater.js';
 import { getProjectRoot } from './utils.js';
 import { WindowManager } from './window-manager.js';
 
-// 初始化全局日志系统（拦截所有的 console.*）
+// Single Instance Lock
+const gotTheLock = app.requestSingleInstanceLock();
+if (!gotTheLock) {
+  app.exit(0);
+}
+
 initializeLogger(join(getProjectRoot(), 'logs'));
 
 const logger = createLogger('Main');
@@ -22,6 +27,18 @@ logger.info(`Node.js: ${process.versions.node} | Electron: ${process.versions.el
 const backendManager = new BackendManager();
 const windowManager = new WindowManager(backendManager);
 const updaterManager = new UpdaterManager(windowManager);
+
+app.on('second-instance', () => {
+  logger.info('Second instance detected. Focusing existing window...');
+  const mainWindow = windowManager.getMainWindow();
+  if (mainWindow) {
+    if (mainWindow.isMinimized()) mainWindow.restore();
+    if (!mainWindow.isVisible()) mainWindow.show();
+    mainWindow.focus();
+  } else {
+    windowManager.createDashboardWindow();
+  }
+});
 
 process.on('uncaughtException', (error) => {
   logger.error('Uncaught Exception:', error);
@@ -39,16 +56,17 @@ app.whenReady().then(async () => {
   // 1. Start Python Backend
   backendManager.start();
 
-  // 2. Create Dashboard Window
+  // 2. Setup Tray
+  windowManager.setupTray(() => updaterManager.checkForUpdates());
+
+  // 3. Create Dashboard Window
   windowManager.createDashboardWindow();
 
-  // 3. Setup Auto Updater
+  // 4. Setup Auto Updater
   updaterManager.checkForUpdates();
 
   app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) {
-      windowManager.createDashboardWindow();
-    }
+    windowManager.createDashboardWindow();
   });
 });
 

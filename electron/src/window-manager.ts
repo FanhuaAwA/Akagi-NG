@@ -1,6 +1,6 @@
 import { join } from 'node:path';
 
-import { app, BrowserWindow, nativeTheme, screen } from 'electron';
+import { app, BrowserWindow, Menu, nativeImage, nativeTheme, screen, Tray } from 'electron';
 
 import type { BackendManager } from './backend-manager.js';
 import {
@@ -21,11 +21,12 @@ import {
 } from './constants.js';
 import { GameHandler } from './game-handler.js';
 import { createLogger } from './logger.js';
-import { isSafeWindow, safeSend } from './utils.js';
+import { getAssetPath, isSafeWindow, safeSend } from './utils.js';
 
 const logger = createLogger('WindowManager');
 
 export class WindowManager {
+  private tray: Tray | null = null;
   private dashboardWindow: BrowserWindow | null = null;
   private gameWindow: BrowserWindow | null = null;
   private hudWindow: BrowserWindow | null = null;
@@ -43,12 +44,79 @@ export class WindowManager {
     return this.dashboardWindow;
   }
 
+  public setupTray(onCheckForUpdates?: () => void): void {
+    if (this.tray) return;
+
+    const iconPath = getAssetPath('assets', 'torii.png');
+    const icon = nativeImage.createFromPath(iconPath);
+    if (process.platform === 'darwin') {
+      icon.setTemplateImage(true);
+    }
+    this.tray = new Tray(icon);
+
+    const contextMenu = Menu.buildFromTemplate([
+      {
+        label: 'Akagi-NG',
+        enabled: false,
+      },
+      { type: 'separator' },
+      {
+        label: 'Show Dashboard',
+        click: () => {
+          this.createDashboardWindow();
+        },
+      },
+      {
+        label: 'Check for Updates',
+        click: () => {
+          if (onCheckForUpdates) {
+            onCheckForUpdates();
+          }
+        },
+      },
+      { type: 'separator' },
+      {
+        label: 'Quit Akagi-NG',
+        click: () => {
+          this.createDashboardWindow();
+          const win = this.getMainWindow();
+          if (win) {
+            win.show();
+            win.focus();
+            safeSend(win, 'request-app-quit');
+          }
+        },
+      },
+    ]);
+
+    this.tray.setToolTip('Akagi-NG');
+    this.tray.setContextMenu(contextMenu);
+
+    this.tray.on('click', () => {
+      const window = this.getMainWindow();
+      if (window) {
+        if (window.isMinimized()) {
+          window.restore();
+          window.show();
+        } else if (window.isVisible()) {
+          window.hide();
+        } else {
+          window.show();
+        }
+        window.focus();
+      } else {
+        this.createDashboardWindow();
+      }
+    });
+  }
+
   public getGameWindow(): BrowserWindow | null {
     return this.gameWindow;
   }
 
   public async createDashboardWindow(): Promise<void> {
     if (this.dashboardWindow) {
+      this.dashboardWindow.show();
       this.dashboardWindow.focus();
       return;
     }
@@ -90,12 +158,15 @@ export class WindowManager {
       });
     }
 
+    this.dashboardWindow.on('close', (event) => {
+      if (!this.isQuitting) {
+        event.preventDefault();
+        this.dashboardWindow?.hide();
+      }
+    });
+
     this.dashboardWindow.on('closed', () => {
       this.dashboardWindow = null;
-      // If dashboard closes, we quit the app (main anchor)
-      if (process.platform !== 'darwin') {
-        app.quit();
-      }
     });
 
     this.dashboardWindow.on('maximize', () => {

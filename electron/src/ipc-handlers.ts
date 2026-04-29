@@ -114,6 +114,15 @@ export function registerIpcHandlers(windowManager: WindowManager, backendManager
     return true;
   });
 
+  // Close Window (Minimize to Tray)
+  ipcMain.handle('close-window', (event) => {
+    const win = BrowserWindow.fromWebContents(event.sender);
+    if (isSafeWindow(win)) {
+      win.close();
+    }
+    return true;
+  });
+
   // Maximize / Restore Window
   ipcMain.handle('maximize-window', (_event, type?: 'dashboard' | 'game') => {
     const win = type === 'game' ? windowManager.getGameWindow() : windowManager.getMainWindow();
