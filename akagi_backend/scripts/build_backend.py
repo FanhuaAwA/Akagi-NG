@@ -7,7 +7,7 @@ import tomllib
 import urllib.request
 from pathlib import Path
 
-RELEASE_DATE = "20260320"
+RELEASE_DATE = "20260414"
 PYTHON_VERSION = "3.12.13"
 URL_TEMPLATE = "https://github.com/astral-sh/python-build-standalone/releases/download/{date}/cpython-{python_version}+{date}-{arch}-{os_tag}-install_only.tar.gz"
 
