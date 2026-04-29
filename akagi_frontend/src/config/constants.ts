@@ -16,9 +16,3 @@ export const APP_SPLASH_EXIT_MS = 1000; // 闪屏淡出持续时间（需与 Tai
 // 打牌推荐内容尺寸 (逻辑尺寸)
 export const STREAM_PLAYER_WIDTH = 1280;
 export const STREAM_PLAYER_HEIGHT = 720;
-
-// HUD 窗口尺寸限制
-export const HUD_MIN_WIDTH = 320;
-export const HUD_MIN_HEIGHT = 180;
-export const HUD_MAX_WIDTH = 1280;
-export const HUD_MAX_HEIGHT = 720;
