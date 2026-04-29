@@ -33,7 +33,7 @@ DEFAULT_GAME_URLS: Final[dict[Platform, str]] = {
 
 
 def get_game_url(platform: Platform, majsoul_server: MajsoulServer = MajsoulServer.CN) -> str:
-    """根据平台和服务器配置返回对应的麻将游戏 URL """
+    """根据平台和服务器配置返回对应的麻将游戏 URL"""
     if platform == Platform.MAJSOUL:
         return MAJSOUL_SERVER_URLS[majsoul_server]
     if platform == Platform.AUTO:
