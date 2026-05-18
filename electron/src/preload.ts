@@ -4,6 +4,7 @@ import { contextBridge, ipcRenderer } from 'electron';
 type IpcCallback = (event: IpcRendererEvent, ...args: readonly unknown[]) => void;
 
 contextBridge.exposeInMainWorld('electron', {
+  platform: process.platform,
   send: (channel: string, ...args: readonly unknown[]) => {
     ipcRenderer.send(channel, ...args);
   },

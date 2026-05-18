@@ -1,5 +1,7 @@
 // ===== Electron IPC API =====
 export interface ElectronApi {
+  /** 当前操作系统平台（如 'darwin'、'win32'、'linux'） */
+  readonly platform: NodeJS.Platform;
   /**
    * 向主进程发送单向消息
    * @param channel IPC 通道名称

@@ -47,9 +47,14 @@ export class WindowManager {
   public setupTray(onCheckForUpdates?: () => void): void {
     if (this.tray) return;
 
-    const iconPath = getAssetPath('assets', 'torii.png');
+    const isWin = process.platform === 'win32';
+    const isMac = process.platform === 'darwin';
+
+    const iconFile = isWin ? 'torii.ico' : isMac ? 'toriiTemplate.png' : 'torii.png';
+    const iconPath = getAssetPath('assets', iconFile);
     const icon = nativeImage.createFromPath(iconPath);
-    if (process.platform === 'darwin') {
+
+    if (isMac) {
       icon.setTemplateImage(true);
     }
     this.tray = new Tray(icon);
@@ -127,7 +132,6 @@ export class WindowManager {
       minWidth: DASHBOARD_WINDOW_MIN_WIDTH,
       minHeight: DASHBOARD_WINDOW_MIN_HEIGHT,
       frame: false,
-      titleBarStyle: 'hiddenInset',
       autoHideMenuBar: true,
       backgroundColor: nativeTheme.shouldUseDarkColors ? '#18181b' : '#ffffff',
       show: false,
