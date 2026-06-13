@@ -3,7 +3,7 @@ import {
   ExternalLink,
   Globe,
   Minus,
-  Monitor,
+  PictureInPicture,
   RefreshCw,
   SettingsIcon,
   Square,
@@ -122,7 +122,7 @@ function HeaderContent({
           {/* HUD Toggle Button */}
           {onToggleHud && (
             <HeaderIconButton
-              icon={Monitor}
+              icon={PictureInPicture}
               onClick={() => onToggleHud(!isHudActive)}
               className={cn(
                 isHudActive &&
