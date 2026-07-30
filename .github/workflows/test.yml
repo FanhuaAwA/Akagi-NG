@@ -113,7 +113,7 @@ jobs:
 
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v7
-        if: success()
+        if: success() && github.repository == 'Xe-Persistent/Akagi-NG'
         with:
           files: akagi_backend/coverage.xml
           flags: backend
