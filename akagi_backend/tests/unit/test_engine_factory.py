@@ -8,6 +8,7 @@
 - 根据在线/本地配置加载 EngineProvider 及其组合逻辑。
 """
 
+import sys
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -44,7 +45,10 @@ def test_lazy_local_engine_ensure_engine(mock_consts) -> None:
     path = Path("mortal.pth")
     engine = LazyLocalEngine(BotStatusContext(), path, mock_consts, is_3p=False)
 
-    with patch("akagi_ng.mjai_bot.engine.mortal.load_mortal_resource") as mock_load:
+    # Keep this unit test independent from the optional heavyweight torch runtime.
+    mock_mortal = MagicMock()
+    with patch.dict(sys.modules, {"akagi_ng.mjai_bot.engine.mortal": mock_mortal}):
+        mock_load = mock_mortal.load_mortal_resource
         mock_resource = MagicMock()
         mock_load.return_value = mock_resource
 
@@ -102,6 +106,7 @@ def test_load_bot_and_engine_online(mock_lib_loader_module) -> None:
         patch("akagi_ng.mjai_bot.engine.factory.AkagiOTEngine") as mock_ot,
     ):
         mock_settings.ot.online = True
+        mock_settings.ot.protocol = "legacy"
         mock_settings.ot.server = "http://localhost"
         mock_settings.ot.api_key = "key"
         mock_settings.model_config.model_4p = "mortal_4p.pth"

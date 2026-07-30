@@ -213,12 +213,12 @@ Akagi-NG supports intercepting game data via Man-in-the-Middle (MITM) attacks, a
 > [!IMPORTANT]
 > Be sure to install the certificate to "**Trusted Root Certification Authorities**".
 
-3. Akagi-NG starts an HTTP proxy server at `127.0.0.1:6789` by default. You can click "Launch Game" in the Dashboard to start playing directly — in this case, Akagi-NG works similarly to Built-in Browser Mode. If you wish to use a system browser or game client, you will also need to configure proxy software and routing rules to direct game-related traffic to this proxy.
+3. Akagi-NG starts an HTTP proxy server at `127.0.0.1:6789` by default. You can click "Launch Game" in the Dashboard to start playing directly — in this case, Akagi-NG works similarly to Built-in Browser Mode. Windows game-client users can enable "Bundled mihomo TUN" instead of installing Proxifier or configuring a separate TUN core.
 
 > [!IMPORTANT]
-> For processes like the Steam game client, you must enable TUN / Enhanced Mode in your proxy software to ensure process traffic passes through Akagi-NG. Also be careful to avoid loopback proxying — make sure traffic originating from Akagi-NG is not routed back to itself.
+> The bundled mihomo TUN requires administrator privileges. Packaged Windows builds request UAC elevation; allow `mihomo.exe` through Windows Firewall on first launch.
 >
-> For browser, configuring the system proxy and domain rules is enough. TUN / Enhanced Mode is usually not required.
+> If Clash/Clash Verge is already running, disable its TUN mode and keep its system/mixed proxy available as Akagi-NG's upstream proxy. This prevents two mihomo TUN cores from competing for system routes.
 
 <details>
 <summary><b>Click to view detailed proxy configuration</b></summary>
@@ -254,7 +254,22 @@ Akagi-NG supports intercepting game data via Man-in-the-Middle (MITM) attacks, a
    - Click the SwitchyOmega extension icon in the top right corner of the browser, select **Auto switch**.
    - Visit Mahjong Soul web version, Akagi-NG should be able to receive game traffic.
 
-#### Configuration Scheme B: Steam Game Client (Clash Rule Proxy, using Windows, Clash Verge rev as an example)
+#### Configuration Scheme B: Windows Game Client (Bundled mihomo)
+
+1. Enable both "External Proxy" and "Bundled mihomo TUN" in Connection Settings.
+2. Keep the defaults: Akagi-NG MITM `6789`, mihomo mixed `7890`, and controller `9090`. These ports and the backend service port must be unique.
+3. Save the settings. Akagi-NG reloads its proxy components automatically; reopen an already-running game client so the new routing session takes effect.
+4. Start the game client. Traffic flows as: `Game client -> Akagi mihomo TUN -> Akagi MITM (6789) -> target server/upstream proxy`.
+
+The generated configuration routes supported game processes and domains through Akagi-NG. mihomo, Akagi-NG, Electron, Python, and loopback traffic are placed on `DIRECT` rules first to prevent proxy loops; unrelated traffic remains direct.
+
+To coexist with Clash/Clash Verge:
+
+1. Keep the Clash system/mixed proxy enabled and disable Clash TUN.
+2. Set Akagi-NG's "Upstream Proxy" to Clash's local HTTP/mixed endpoint, for example `http://127.0.0.1:7897`.
+3. Ensure Akagi-NG's `6789/7890/9090` ports do not overlap with Clash. The resulting path is `game -> Akagi mihomo -> Akagi MITM -> Clash -> network`.
+
+#### Configuration Scheme C: Existing Clash TUN Rules (legacy alternative)
 
 > When playing with the Steam client, please ensure Clash is in TUN mode, otherwise client traffic cannot be proxied.
 
@@ -327,6 +342,10 @@ Akagi-NG supports intercepting game data via Man-in-the-Middle (MITM) attacks, a
 #### Q: The built-in models are too weak, are there stronger ones?
 
 **A:** Yes, please join the [Discord channel](https://discord.gg/Z2wjXUK8bN) to get them.
+
+#### Q: How do I use the OT3 online models?
+
+**A:** Open Settings -> Model Configuration, select OT3, enter your API key, and refresh the model list. Four-player and three-player models can be selected independently. The same panel provides health, key-status, redemption, and purchase actions.
 
 #### Q: Is there an autoplay feature?
 

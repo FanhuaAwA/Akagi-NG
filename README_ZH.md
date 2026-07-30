@@ -213,12 +213,12 @@ Akagi-NG 支持通过中间人攻击 (MITM) 方式截获游戏数据，这允许
 > [!IMPORTANT]
 > 务必将证书安装到“**受信任的根证书颁发机构**”。
 
-3. Akagi-NG 默认在本地 127.0.0.1:6789 启动一个 HTTP 代理服务器。您可以选择直接在 Dashboard 中点击“启动游戏”开始游玩，此时 Akagi-NG 的工作方式与内置浏览器模式类似。如果您希望使用系统浏览器或游戏客户端，还需配合代理软件与代理规则将游戏相关流量导向该代理。
+3. Akagi-NG 默认在本地 `127.0.0.1:6789` 启动一个 HTTP 代理服务器。您可以直接在 Dashboard 中点击“启动游戏”；Windows 游戏客户端用户也可以启用“内置 mihomo TUN”，无需再安装 Proxifier 或单独配置 TUN 内核。
 
 > [!IMPORTANT]
-> Steam 游戏客户端等进程需要在代理软件中开启 TUN / 增强模式，才能保证进程流量经过 Akagi-NG；此外还须注意避免回环代理，即确保从 Akagi-NG 发出的流量不会被导向自身。
+> 内置 mihomo TUN 需要管理员权限。Windows 发布版会请求 UAC 提权；首次启动时请允许 `mihomo.exe` 通过 Windows 防火墙。
 >
-> 浏览器网页端一般只需配置系统代理和域名规则即可，通常不需要开启 TUN / 增强模式。
+> 如果 Clash/Clash Verge 已在运行，请关闭它的 TUN 模式，并保留其系统代理或 mixed 端口作为 Akagi-NG 的上游代理，避免两个 mihomo TUN 内核争抢系统路由。
 
 <details>
 <summary><b>点击查看详细代理规则配置方案</b></summary>
@@ -254,7 +254,22 @@ Akagi-NG 支持通过中间人攻击 (MITM) 方式截获游戏数据，这允许
    - 点击浏览器右上角 SwitchyOmega 扩展程序的图标，选择 **自动切换**。
    - 此时访问雀魂网页版，Akagi-NG 应能正常截获游戏流量。
 
-#### 配置方案 B: Steam 游戏客户端（Clash 规则代理，以 Windows 平台、Clash Verge rev为例）
+#### 配置方案 B: Windows 游戏客户端（内置 mihomo）
+
+1. 在连接设置中同时启用“外部代理”和“内置 mihomo TUN”。
+2. 保持默认端口：Akagi-NG MITM `6789`、mihomo mixed `7890`、控制端口 `9090`。这些端口与后端服务端口不能重复。
+3. 保存设置后 Akagi-NG 会自动重载代理组件；如果游戏客户端已经打开，请关闭后重新启动，使新路由会话生效。
+4. 启动游戏客户端，流量路径为：`游戏客户端 -> Akagi mihomo TUN -> Akagi MITM (6789) -> 目标服务器/上游代理`。
+
+自动生成的配置只将受支持的游戏进程和域名导向 Akagi-NG。mihomo、Akagi-NG、Electron、Python 与回环地址的 `DIRECT` 规则会优先匹配，以防止代理回环；无关流量保持直连。
+
+与 Clash/Clash Verge 共存时：
+
+1. 保留 Clash 的系统代理或 mixed 代理，关闭 Clash TUN。
+2. 将 Akagi-NG 的“上游代理”设置为 Clash 本地 HTTP/mixed 地址，例如 `http://127.0.0.1:7897`。
+3. 确保 Akagi-NG 的 `6789/7890/9090` 不与 Clash 端口重叠。最终链路为：`游戏 -> Akagi mihomo -> Akagi MITM -> Clash -> 网络`。
+
+#### 配置方案 C: 使用现有 Clash TUN 规则（兼容旧方案）
 
 > 使用 Steam 客户端游玩时，请确保 Clash 处在 TUN 模式下，否则将无法代理客户端流量
 
@@ -327,6 +342,10 @@ Akagi-NG 支持通过中间人攻击 (MITM) 方式截获游戏数据，这允许
 #### Q: 内置的模型太弱了，有没有更强的模型？
 
 **A:** 有，请加入 [Discord 频道](https://discord.gg/Z2wjXUK8bN) 获取。
+
+#### Q: 如何使用 OT3 在线模型？
+
+**A:** 打开“设置 -> 模型配置”，选择 OT3，填写 API 密钥并刷新模型列表。四麻和三麻模型可以分别选择；同一面板还提供健康检查、密钥查询、兑换与购买入口。
 
 #### Q: 有没有自动打牌功能？
 

@@ -125,7 +125,11 @@ export default function SettingsPanel({ open, onClose }: SettingsPanelProps) {
               </div>
 
               <div className='col-span-2'>
-                <ModelConfigSection settings={settings} updateSetting={updateSetting} />
+                <ModelConfigSection
+                  settings={settings}
+                  updateSetting={updateSetting}
+                  updateSettingsBatch={updateSettingsBatch}
+                />
               </div>
 
               <div className='col-span-2 flex flex-col pt-2'>

@@ -58,6 +58,59 @@ async def test_get_settings(cli):
         assert data["data"] == {"test": "val"}
 
 
+async def test_ot3_management_routes_use_local_proxy_without_exposing_credentials(cli):
+    mock_client = MagicMock()
+    mock_client.health.return_value = {"status": "ok", "models": [], "queue_depth": {}}
+    mock_client.key_status.return_value = {
+        "plan": "pro",
+        "expires_at": "2026-09-01",
+        "usage_today": 1,
+        "rpd": 6000,
+        "rpm": 10.0,
+        "topk": 3,
+    }
+    mock_client.models.return_value = [{"id": "4p-ot3", "game": "4p", "desc": "OT3"}]
+
+    with patch("akagi_ng.dataserver.api.OT3ServiceClient", return_value=mock_client) as client_type:
+        health = await cli.post("/api/ot3/health", json={"server": "https://server.example"})
+        status = await cli.post(
+            "/api/ot3/key-status",
+            json={
+                "server": "https://server.example",
+                "api_key": "secret",
+                "proxy": "socks5h://127.0.0.1:7890",
+            },
+        )
+        models = await cli.post(
+            "/api/ot3/models",
+            json={"server": "https://server.example", "api_key": "secret"},
+        )
+
+    assert health.status == status.status == models.status == 200
+    assert (await health.json())["data"]["status"] == "ok"
+    assert (await status.json())["data"]["plan"] == "pro"
+    assert (await models.json())["data"][0]["id"] == "4p-ot3"
+    assert client_type.call_args_list[1].args == (
+        "https://server.example",
+        "secret",
+        "socks5h://127.0.0.1:7890",
+    )
+
+
+async def test_ot3_redeem_and_purchase_routes_validate_input(cli):
+    missing_code = await cli.post(
+        "/api/ot3/redeem",
+        json={"server": "https://server.example", "code": 123},
+    )
+    invalid_product = await cli.post(
+        "/api/ot3/purchase/order",
+        json={"server": "https://server.example", "product": 123, "redeem": True},
+    )
+
+    assert missing_code.status == 400
+    assert invalid_product.status == 400
+
+
 async def test_save_settings_invalid_json(cli):
     resp = await cli.post("/api/settings", data="not json")
     assert resp.status == 400
@@ -85,6 +138,85 @@ async def test_save_settings_success(cli):
         assert data["ok"] is True
         assert mock_settings.update.called
         assert mock_settings.save.called
+
+
+async def test_ot3_settings_apply_without_restart(cli):
+    old = {"ot": {"online": False, "server": "https://old.example", "api_key": ""}}
+    new = {"ot": {"online": True, "server": "https://new.example", "api_key": "secret"}}
+    with (
+        patch("akagi_ng.dataserver.api.verify_settings", return_value=True),
+        patch("akagi_ng.dataserver.api.get_settings_dict", side_effect=[old, new]),
+        patch("akagi_ng.dataserver.api.local_settings"),
+    ):
+        resp = await cli.post("/api/settings", json=new)
+
+    assert resp.status == 200
+    data = await resp.json()
+    assert data["restartRequired"] is False
+
+
+async def test_proxy_settings_are_reconciled_at_runtime(cli):
+    old = {
+        "mitm": {"enabled": True, "host": "127.0.0.1", "port": 6789, "upstream": ""},
+        "mihomo": {"enabled": True},
+    }
+    new = {
+        "mitm": {
+            "enabled": True,
+            "host": "127.0.0.1",
+            "port": 6789,
+            "upstream": "http://127.0.0.1:7897",
+        },
+        "mihomo": {"enabled": True},
+    }
+    mock_app = MagicMock()
+    mock_settings = MagicMock()
+    mock_settings.mitm.enabled = True
+
+    with (
+        patch("akagi_ng.dataserver.api.verify_settings", return_value=True),
+        patch("akagi_ng.dataserver.api.get_settings_dict", side_effect=[old, new]),
+        patch("akagi_ng.dataserver.api.local_settings", mock_settings),
+        patch("akagi_ng.dataserver.api.get_app_context", return_value=mock_app),
+    ):
+        resp = await cli.post("/api/settings", json=new)
+
+    assert resp.status == 200
+    data = await resp.json()
+    assert data["proxyChanged"] is True
+    assert data["proxyError"] == ""
+    assert data["restartRequired"] is False
+    mock_app.mitm_client.stop.assert_called_once()
+    mock_app.mitm_client.start.assert_called_once()
+
+
+async def test_proxy_runtime_failure_is_reported_without_losing_saved_settings(cli):
+    old = {
+        "mitm": {"enabled": False, "host": "127.0.0.1", "port": 6789, "upstream": ""},
+        "mihomo": {"enabled": False},
+    }
+    new = {
+        "mitm": {"enabled": True, "host": "127.0.0.1", "port": 6789, "upstream": ""},
+        "mihomo": {"enabled": False},
+    }
+    mock_app = MagicMock()
+    mock_app.mitm_client.stop.side_effect = RuntimeError("transport details")
+    mock_settings = MagicMock()
+    mock_settings.mitm.enabled = True
+
+    with (
+        patch("akagi_ng.dataserver.api.verify_settings", return_value=True),
+        patch("akagi_ng.dataserver.api.get_settings_dict", side_effect=[old, new]),
+        patch("akagi_ng.dataserver.api.local_settings", mock_settings),
+        patch("akagi_ng.dataserver.api.get_app_context", return_value=mock_app),
+    ):
+        resp = await cli.post("/api/settings", json=new)
+
+    assert resp.status == 200
+    data = await resp.json()
+    assert data["proxyChanged"] is True
+    assert "transport details" not in data["proxyError"]
+    mock_settings.save.assert_called_once()
 
 
 async def test_reset_settings(cli):

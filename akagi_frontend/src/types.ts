@@ -46,6 +46,12 @@ export interface Settings {
     port: number;
     upstream: string;
   };
+  mihomo: {
+    enabled: boolean;
+    mixed_port: number;
+    controller_port: number;
+    strict_route: boolean;
+  };
   server: {
     host: string;
     port: number;
@@ -54,6 +60,11 @@ export interface Settings {
     online: boolean;
     server: string;
     api_key: string;
+    protocol: 'v3' | 'legacy';
+    model_4p: string;
+    model_3p: string;
+    proxy_enabled: boolean;
+    proxy: string;
   };
   model_config: {
     model_4p: string;
@@ -64,6 +75,64 @@ export interface Settings {
 
 export interface SaveSettingsResponse extends ApiResponse<Settings> {
   restartRequired?: boolean;
+  proxyChanged?: boolean;
+  proxyError?: string;
+}
+
+export interface OT3Health {
+  status: string;
+  models: string[];
+  queue_depth: Record<string, number>;
+}
+
+export interface OT3KeyStatus {
+  plan: string;
+  expires_at: string;
+  usage_today: number;
+  rpd: number;
+  rpm: number;
+  topk: number;
+}
+
+export interface OT3ModelInfo {
+  id: string;
+  game: string;
+  desc: string;
+}
+
+export interface OT3RedeemResponse {
+  key?: string | null;
+  key_last4: string;
+  plan: string;
+  expires_at: string;
+  extended: boolean;
+}
+
+export interface OT3CreatedOrder {
+  order_id: string;
+  approve_url: string;
+  claim_secret: string;
+}
+
+export interface OT3CreatedSubscription {
+  subscription_id: string;
+  approve_url: string;
+  claim_secret: string;
+}
+
+export interface OT3OrderResult {
+  status: string;
+  code?: string | null;
+  key?: string | null;
+  plan?: string | null;
+  days?: number | null;
+}
+
+export interface OT3SubscriptionResult {
+  status: string;
+  key?: string | null;
+  plan?: string | null;
+  next_billing?: string | null;
 }
 
 type Primitive = string | number | boolean | null | undefined | symbol | bigint;

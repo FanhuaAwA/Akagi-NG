@@ -248,6 +248,9 @@ class StateTracker(StateTrackerProtocol):
                 base_item["tile"] = last_kawa
 
     def _process_standard_recommendations(self) -> list[Recommendation]:
+        if "ot3_candidates" in self.meta:
+            return self._process_ot3_recommendations()
+
         recommendations: list[Recommendation] = []
         if "q_values" not in self.meta or "mask_bits" not in self.meta:
             return recommendations
@@ -275,6 +278,98 @@ class StateTracker(StateTrackerProtocol):
                     base_item["tile"] = "N"
                 recommendations.append(base_item)
         return recommendations
+
+    def _process_ot3_recommendations(self) -> list[Recommendation]:
+        """Convert OT3's already-ranked candidate list without re-softmaxing it."""
+        recommendations: list[Recommendation] = []
+        candidates = self.meta.get("ot3_candidates", [])
+        reaction = self.meta.get("ot3_reaction")
+        if isinstance(reaction, dict):
+            top_probability = float(candidates[0].get("prob", 0.0)) if candidates else 0.0
+            if exact := self._ot3_reaction_recommendation(reaction, top_probability):
+                recommendations.append(exact)
+
+        # candidates[0] describes the exact reaction rendered above.
+        start_index = 1 if recommendations else 0
+        for candidate in candidates[start_index:3]:
+            raw_action = str(candidate.get("action", ""))
+            confidence = float(candidate.get("prob", 0.0))
+
+            if raw_action.startswith("dahai:"):
+                recommendations.append({"action": raw_action.removeprefix("dahai:"), "confidence": confidence})
+                continue
+
+            action = raw_action
+            source_action = action
+            if action == "kan":
+                source_action = "kan_select"
+                action = "kan"
+            elif action.startswith("chi_"):
+                source_action = action
+                action = "chi"
+
+            base_item: Recommendation = {
+                "action": action,
+                "confidence": confidence,
+            }
+            fuuro_details = self._get_fuuro_details(source_action)
+            if fuuro_details:
+                recommendations.extend(base_item | detail for detail in fuuro_details)
+            else:
+                if action == "hora":
+                    self._handle_hora_action(base_item)
+                elif action == "nukidora":
+                    base_item["tile"] = "N"
+                recommendations.append(base_item)
+        return recommendations
+
+    def _ot3_reaction_recommendation(  # noqa: C901, PLR0911
+        self, reaction: dict[str, object], confidence: float
+    ) -> Recommendation | None:
+        """Render OT3's chosen reaction with its precise tile/meld details."""
+        event_type = str(reaction.get("type", ""))
+        if event_type == "dahai":
+            tile = reaction.get("pai")
+            return {"action": str(tile), "confidence": confidence} if tile else None
+        if event_type in {"chi", "pon", "daiminkan", "ankan", "kakan"}:
+            action = "kan" if event_type in {"daiminkan", "ankan", "kakan"} else event_type
+            consumed = reaction.get("consumed")
+            consumed_tiles = [str(tile) for tile in consumed] if isinstance(consumed, list) else []
+            called_tile = reaction.get("pai")
+            if not called_tile and consumed_tiles:
+                called_tile = consumed_tiles[0]
+            item: Recommendation = {
+                "action": action,
+                "confidence": confidence,
+                "consumed": consumed_tiles,
+            }
+            if called_tile:
+                item["tile"] = str(called_tile)
+            return item
+        if event_type == "hora":
+            item = {"action": "hora", "confidence": confidence}
+            self._handle_hora_action(item)
+            return item
+        if event_type == "nukidora":
+            return {"action": "nukidora", "confidence": confidence, "tile": "N"}
+        if event_type == "reach":
+            item = {"action": "reach", "confidence": confidence}
+            reach_candidates = [
+                SimCandidate(
+                    tile=str(candidate["action"]).removeprefix("dahai:"),
+                    confidence=float(candidate.get("prob", 0.0)),
+                )
+                for candidate in self.meta.get("ot3_reach_candidates", [])
+                if str(candidate.get("action", "")).startswith("dahai:")
+            ]
+            if not reach_candidates and reaction.get("pai"):
+                reach_candidates.append(SimCandidate(tile=str(reaction["pai"]), confidence=confidence))
+            if reach_candidates:
+                item["sim_candidates"] = reach_candidates
+            return item
+        if event_type in {"ryukyoku", "none"}:
+            return {"action": event_type, "confidence": confidence}
+        return None
 
     def _attach_riichi_lookahead(self, recommendations: list[Recommendation]):
         lookahead_meta = self.meta.get("riichi_lookahead")

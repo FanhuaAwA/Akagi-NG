@@ -73,6 +73,38 @@
       "required": ["enabled", "host", "port", "upstream"],
       "additionalProperties": false
     },
+    "mihomo": {
+      "type": "object",
+      "description": "Bundled mihomo TUN core configuration. Optional for backward compatibility.",
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "default": false,
+          "description": "Start the bundled mihomo core with Akagi-NG."
+        },
+        "mixed_port": {
+          "type": "integer",
+          "default": 7890,
+          "minimum": 1024,
+          "maximum": 65535,
+          "description": "Local mixed proxy port exposed by mihomo."
+        },
+        "controller_port": {
+          "type": "integer",
+          "default": 9090,
+          "minimum": 1024,
+          "maximum": 65535,
+          "description": "Loopback-only mihomo controller port."
+        },
+        "strict_route": {
+          "type": "boolean",
+          "default": false,
+          "description": "Enable strict TUN routing. This can conflict with virtualization software on Windows."
+        }
+      },
+      "required": ["enabled", "mixed_port", "controller_port", "strict_route"],
+      "additionalProperties": false
+    },
     "server": {
       "type": "object",
       "description": "Data server configuration.",
@@ -111,6 +143,33 @@
           "type": "string",
           "description": "The API key for the online service.",
           "default": ""
+        },
+        "protocol": {
+          "type": "string",
+          "enum": ["v3", "legacy"],
+          "description": "Online inference API protocol. OT3 uses v3.",
+          "default": "v3"
+        },
+        "model_4p": {
+          "type": "string",
+          "description": "Optional OT3 four-player model id; empty uses the server default.",
+          "default": ""
+        },
+        "model_3p": {
+          "type": "string",
+          "description": "Optional OT3 three-player model id; empty uses the server default.",
+          "default": ""
+        },
+        "proxy_enabled": {
+          "type": "boolean",
+          "description": "Route every OT3 request through the configured proxy.",
+          "default": false
+        },
+        "proxy": {
+          "type": "string",
+          "description": "OT3 proxy URL using HTTP, HTTPS, SOCKS5, or SOCKS5H.",
+          "default": "",
+          "pattern": "^(|(?:http|https|socks5|socks5h)://.+)$"
         }
       },
       "required": ["online"],

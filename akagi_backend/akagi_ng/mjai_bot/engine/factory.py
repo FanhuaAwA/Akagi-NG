@@ -163,7 +163,9 @@ def load_bot_and_engine(
 
     # 2. 准备 Online Engine (如果启用)
     online_engine = None
-    if local_settings.ot.online:
+    # OT3 uses the stateless MJAI /v3/react protocol at the MortalBot layer.
+    # Keep this obs/mask engine path only for explicitly migrated legacy servers.
+    if local_settings.ot.online and getattr(local_settings.ot, "protocol", "v3") == "legacy":
         client = _get_or_create_ot_client(local_settings.ot.server, local_settings.ot.api_key)
         # 创建全新的 Engine 实例，共享 client
         online_engine = AkagiOTEngine(status, is_3p, client)

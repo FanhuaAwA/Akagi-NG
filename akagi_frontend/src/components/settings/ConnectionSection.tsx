@@ -81,6 +81,50 @@ export function ConnectionSection({ settings, updateSetting }: ConnectionSection
 
       {settings.mitm.enabled && (
         <>
+          <SettingsItem
+            label={t('settings.connection.mihomo.enabled')}
+            description={t('settings.connection.mihomo.description')}
+          >
+            <CapsuleSwitch
+              checked={settings.mihomo.enabled}
+              onCheckedChange={(val) => updateSetting(['mihomo', 'enabled'], val)}
+              labelOn={t('common.enabled')}
+              labelOff={t('common.disabled')}
+            />
+          </SettingsItem>
+          {settings.mihomo.enabled && (
+            <>
+              <SettingsItem label={t('settings.connection.mihomo.mixed_port')}>
+                <Input
+                  type='number'
+                  value={settings.mihomo.mixed_port}
+                  onChange={(e) =>
+                    updateSetting(['mihomo', 'mixed_port'], parseInt(e.target.value) || 0)
+                  }
+                />
+              </SettingsItem>
+              <SettingsItem label={t('settings.connection.mihomo.controller_port')}>
+                <Input
+                  type='number'
+                  value={settings.mihomo.controller_port}
+                  onChange={(e) =>
+                    updateSetting(['mihomo', 'controller_port'], parseInt(e.target.value) || 0)
+                  }
+                />
+              </SettingsItem>
+              <SettingsItem
+                label={t('settings.connection.mihomo.strict_route')}
+                description={t('settings.connection.mihomo.strict_route_desc')}
+              >
+                <CapsuleSwitch
+                  checked={settings.mihomo.strict_route}
+                  onCheckedChange={(val) => updateSetting(['mihomo', 'strict_route'], val)}
+                  labelOn={t('common.enabled')}
+                  labelOff={t('common.disabled')}
+                />
+              </SettingsItem>
+            </>
+          )}
           <SettingsItem label={t('settings.connection.mitm.host')}>
             <Input
               value={settings.mitm.host}
@@ -102,10 +146,18 @@ export function ConnectionSection({ settings, updateSetting }: ConnectionSection
           <SettingsItem label={t('settings.connection.mitm.upstream')}>
             <Input
               value={settings.mitm.upstream}
-              placeholder='http://127.0.0.1:7890'
+              placeholder='http://127.0.0.1:7897'
               onChange={(e) => updateSetting(['mitm', 'upstream'], e.target.value)}
             />
           </SettingsItem>
+          {settings.mihomo.enabled && settings.mitm.upstream && (
+            <Alert variant='info'>
+              <Info className='h-4 w-4' />
+              <AlertDescription className='text-sm'>
+                {t('settings.connection.mihomo.clash_compatibility')}
+              </AlertDescription>
+            </Alert>
+          )}
         </>
       )}
     </div>

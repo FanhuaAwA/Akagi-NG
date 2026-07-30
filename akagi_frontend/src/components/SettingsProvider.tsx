@@ -185,6 +185,20 @@ export function SettingsProvider({ children, initialSettings }: SettingsProvider
         const result = await saveSettingsApi(nextSettings);
         if (currentSaveId !== saveSeqRef.current) return;
         if (result.restartRequired) dispatch({ type: 'SET_RESTART_REQUIRED' });
+        if (result.proxyChanged) {
+          try {
+            const status = await window.electron.invoke<{
+              running: boolean;
+              error?: string;
+            }>('mihomo-reconcile');
+            const runtimeError = result.proxyError ?? status.error;
+            if (runtimeError) {
+              notify.error(runtimeError);
+            }
+          } catch (proxyError) {
+            notify.error(proxyError instanceof Error ? proxyError.message : String(proxyError));
+          }
+        }
         if (result.data) dispatch({ type: 'INIT_SYNC', payload: result.data });
 
         dispatch({ type: 'SET_SAVE_STATUS', status: 'saved' });

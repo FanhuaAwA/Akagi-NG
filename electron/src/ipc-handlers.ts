@@ -3,12 +3,17 @@ import { app, BrowserWindow, ipcMain, shell } from 'electron';
 import type { BackendManager } from './backend-manager.js';
 import { EXIT_ANIMATION_DELAY_MS } from './constants.js';
 import { createLogger } from './logger.js';
+import type { MihomoManager } from './mihomo-manager.js';
 import { isSafeWindow, safeSend } from './utils.js';
 import type { WindowManager } from './window-manager.js';
 
 const logger = createLogger('IPC');
 
-export function registerIpcHandlers(windowManager: WindowManager, backendManager: BackendManager) {
+export function registerIpcHandlers(
+  windowManager: WindowManager,
+  backendManager: BackendManager,
+  mihomoManager: MihomoManager,
+) {
   // Toggle HUD Window
   ipcMain.handle('toggle-hud', async (_event, show: boolean) => {
     await windowManager.toggleHudWindow(show);
@@ -34,10 +39,19 @@ export function registerIpcHandlers(windowManager: WindowManager, backendManager
     await Promise.all([
       new Promise((resolve) => setTimeout(resolve, EXIT_ANIMATION_DELAY_MS)),
       backendManager.stop().catch((err: unknown) => logger.error('Backend stop error:', err)),
+      mihomoManager.stop().catch((err: unknown) => logger.error('mihomo stop error:', err)),
     ]);
 
     app.quit();
     return true;
+  });
+
+  ipcMain.handle('mihomo-status', async () => mihomoManager.getStatus());
+  ipcMain.handle('mihomo-start', async () => mihomoManager.start());
+  ipcMain.handle('mihomo-reconcile', async () => mihomoManager.reconcile());
+  ipcMain.handle('mihomo-stop', async () => {
+    await mihomoManager.stop();
+    return mihomoManager.getStatus();
   });
 
   // Manual Protocol Update
