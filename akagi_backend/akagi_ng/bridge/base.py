@@ -67,7 +67,7 @@ class BaseBridge:
         """构建 start_game（游戏开始）消息"""
         return StartGameEvent(id=seat, is_3p=is_3p, sync=self._resolve_sync(sync))
 
-    def make_start_kyoku(  # noqa: PLR0913
+    def make_start_kyoku(  # noqa
         self,
         bakaze: str,
         kyoku: int,

@@ -14,8 +14,15 @@ interface AppSettings {
     port?: number;
   };
   mitm?: {
+    enabled?: boolean;
     host?: string;
     port?: number;
+  };
+  mihomo?: {
+    enabled?: boolean;
+    mixed_port?: number;
+    controller_port?: number;
+    strict_route?: boolean;
   };
 }
 
@@ -74,6 +81,31 @@ export class BackendManager {
     return {
       host: settings.mitm?.host ?? '127.0.0.1',
       port: settings.mitm?.port ?? 6789,
+    };
+  }
+
+  public async getProxyConfig(): Promise<{
+    mitm: { enabled: boolean; host: string; port: number };
+    mihomo: {
+      enabled: boolean;
+      mixedPort: number;
+      controllerPort: number;
+      strictRoute: boolean;
+    };
+  }> {
+    const settings = await this.getSettings();
+    return {
+      mitm: {
+        enabled: settings.mitm?.enabled ?? false,
+        host: settings.mitm?.host ?? '127.0.0.1',
+        port: settings.mitm?.port ?? 6789,
+      },
+      mihomo: {
+        enabled: settings.mihomo?.enabled ?? false,
+        mixedPort: settings.mihomo?.mixed_port ?? 7890,
+        controllerPort: settings.mihomo?.controller_port ?? 9090,
+        strictRoute: settings.mihomo?.strict_route ?? false,
+      },
     };
   }
 

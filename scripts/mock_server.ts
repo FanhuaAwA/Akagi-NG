@@ -28,14 +28,25 @@ const defaultSettings: Settings = {
     port: 6789,
     upstream: '',
   },
+  mihomo: {
+    enabled: false,
+    mixed_port: 7890,
+    controller_port: 9090,
+    strict_route: false,
+  },
   server: {
     host: '127.0.0.1',
     port: 8765,
   },
   ot: {
     online: false,
-    server: '',
+    server: 'https://mjapi.shinkuan.me',
     api_key: '',
+    protocol: 'v3',
+    model_4p: '',
+    model_3p: '',
+    proxy_enabled: false,
+    proxy: '',
   },
   model_config: {
     model_4p: 'mortal.pth',

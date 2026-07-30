@@ -6,6 +6,7 @@ import { app, dialog } from 'electron';
 import { BackendManager } from './backend-manager.js';
 import { registerIpcHandlers } from './ipc-handlers.js';
 import { createLogger, initializeLogger } from './logger.js';
+import { MihomoManager } from './mihomo-manager.js';
 import { UpdaterManager } from './updater.js';
 import { getProjectRoot } from './utils.js';
 import { WindowManager } from './window-manager.js';
@@ -25,6 +26,7 @@ logger.info(`System: ${os.type()} ${os.release()} (${os.arch()})`);
 logger.info(`Node.js: ${process.versions.node} | Electron: ${process.versions.electron}`);
 
 const backendManager = new BackendManager();
+const mihomoManager = new MihomoManager(backendManager);
 const windowManager = new WindowManager(backendManager);
 const updaterManager = new UpdaterManager(windowManager);
 
@@ -51,10 +53,15 @@ process.on('unhandledRejection', (reason) => {
 
 app.whenReady().then(async () => {
   // 0. Register all IPC handlers
-  registerIpcHandlers(windowManager, backendManager);
+  registerIpcHandlers(windowManager, backendManager, mihomoManager);
 
   // 1. Start Python Backend
   backendManager.start();
+  const mihomoStatus = await mihomoManager.startIfEnabled();
+  if (mihomoStatus.error) {
+    logger.error(`mihomo initialization failed: ${mihomoStatus.error}`);
+    dialog.showErrorBox('Mihomo Initialization Failed', mihomoStatus.error);
+  }
 
   // 2. Setup Tray
   windowManager.setupTray(() => updaterManager.checkForUpdates());
@@ -82,12 +89,12 @@ app.on('before-quit', async (event) => {
   windowManager.setQuitting(true);
   if (isQuitting) return;
 
-  if (backendManager.isRunning()) {
+  if (backendManager.isRunning() || mihomoManager.isRunning()) {
     event.preventDefault();
     isQuitting = true;
 
     try {
-      await backendManager.stop();
+      await Promise.all([backendManager.stop(), mihomoManager.stop()]);
     } catch (err) {
       logger.error('Error during shutdown:', err);
     } finally {

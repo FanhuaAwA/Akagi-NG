@@ -1,6 +1,8 @@
+import asyncio
 import json
 import queue
 from collections.abc import Callable
+from typing import Any
 
 from aiohttp import web
 
@@ -9,6 +11,7 @@ from akagi_ng.core.logging import configure_logging
 from akagi_ng.core.paths import ensure_dir, get_assets_dir, get_models_dir
 from akagi_ng.dataserver.logger import logger
 from akagi_ng.mjai_bot.engine import clear_resource_cache
+from akagi_ng.mjai_bot.ot3_service import OT3ServiceClient, OT3ServiceError
 from akagi_ng.schema.types import (
     DebuggerDetachedMessage,
     SystemShutdownEvent,
@@ -61,13 +64,159 @@ async def cors_middleware(request: web.Request, handler: Callable[[web.Request],
     return response
 
 
-def _json_response(data: dict, status: int = 200) -> web.Response:
+def _json_response(data: object, status: int = 200) -> web.Response:
     """构造 ensure_ascii=False 的 JSON 响应。"""
     return web.json_response(
         data,
         status=status,
         dumps=lambda obj: json.dumps(obj, ensure_ascii=False),
     )
+
+
+async def _request_object(request: web.Request) -> dict[str, Any]:
+    try:
+        payload = await request.json()
+    except Exception as exc:
+        raise ValueError("Invalid JSON") from exc
+    if not isinstance(payload, dict):
+        raise ValueError("Request payload must be a JSON object")
+    return payload
+
+
+def _ot3_client(payload: dict[str, Any], *, require_key: bool = False) -> OT3ServiceClient:
+    server = payload.get("server", local_settings.ot.server)
+    key = payload.get("api_key", local_settings.ot.api_key)
+    proxy = payload.get("proxy", local_settings.ot.effective_proxy())
+    if not isinstance(server, str):
+        raise ValueError("server must be a string")
+    if not isinstance(key, str):
+        raise ValueError("api_key must be a string")
+    if not isinstance(proxy, str):
+        raise ValueError("proxy must be a string")
+    if require_key and not key.strip():
+        raise ValueError("API key is required")
+    return OT3ServiceClient(server, key, proxy)
+
+
+async def _ot3_response(operation: Callable[[], object]) -> web.Response:
+    try:
+        data = await asyncio.to_thread(operation)
+        return _json_response({"ok": True, "data": data})
+    except ValueError as exc:
+        return _json_response({"ok": False, "error": str(exc)}, status=400)
+    except OT3ServiceError as exc:
+        return _json_response({"ok": False, "error": str(exc)}, status=502)
+    except Exception:
+        logger.exception("Unexpected OT3 service API failure")
+        return _json_response({"ok": False, "error": "Internal server error"}, status=500)
+
+
+async def _reconcile_mitm_client() -> str:
+    """Apply MITM settings immediately and return a safe runtime warning."""
+    try:
+        app = get_app_context()
+        client = app.mitm_client
+        if not client:
+            return ""
+        await asyncio.to_thread(client.stop)
+        if local_settings.mitm.enabled:
+            client.start()
+        return ""
+    except Exception:
+        logger.exception("Failed to reload the MITM client after a settings update")
+        return "MITM runtime reload failed; restart Akagi-NG to apply the proxy settings"
+
+
+async def ot3_health_handler(request: web.Request) -> web.Response:
+    try:
+        payload = await _request_object(request)
+        client = _ot3_client(payload)
+    except ValueError as exc:
+        return _json_response({"ok": False, "error": str(exc)}, status=400)
+    return await _ot3_response(client.health)
+
+
+async def ot3_key_status_handler(request: web.Request) -> web.Response:
+    try:
+        payload = await _request_object(request)
+        client = _ot3_client(payload, require_key=True)
+    except ValueError as exc:
+        return _json_response({"ok": False, "error": str(exc)}, status=400)
+    return await _ot3_response(client.key_status)
+
+
+async def ot3_models_handler(request: web.Request) -> web.Response:
+    try:
+        payload = await _request_object(request)
+        client = _ot3_client(payload, require_key=True)
+    except ValueError as exc:
+        return _json_response({"ok": False, "error": str(exc)}, status=400)
+    return await _ot3_response(client.models)
+
+
+async def ot3_redeem_handler(request: web.Request) -> web.Response:
+    try:
+        payload = await _request_object(request)
+        client = _ot3_client(payload)
+        code = payload.get("code", "")
+        email = payload.get("email", "")
+        renew_key = payload.get("renew_key", "")
+        if not all(isinstance(value, str) for value in (code, email, renew_key)):
+            raise ValueError("code, email, and renew_key must be strings")
+    except ValueError as exc:
+        return _json_response({"ok": False, "error": str(exc)}, status=400)
+    return await _ot3_response(lambda: client.redeem(code, email=email, renew_key=renew_key))
+
+
+async def ot3_create_order_handler(request: web.Request) -> web.Response:
+    try:
+        payload = await _request_object(request)
+        client = _ot3_client(payload)
+        product = payload.get("product", "")
+        redeem = payload.get("redeem", True)
+        if not isinstance(product, str) or not isinstance(redeem, bool):
+            raise ValueError("product must be a string and redeem must be a boolean")
+    except ValueError as exc:
+        return _json_response({"ok": False, "error": str(exc)}, status=400)
+    return await _ot3_response(lambda: client.create_order(product, redeem=redeem))
+
+
+async def ot3_order_result_handler(request: web.Request) -> web.Response:
+    try:
+        payload = await _request_object(request)
+        client = _ot3_client(payload)
+        order_id = payload.get("order_id", "")
+        claim = payload.get("claim", "")
+        if not isinstance(order_id, str) or not isinstance(claim, str):
+            raise ValueError("order_id and claim must be strings")
+    except ValueError as exc:
+        return _json_response({"ok": False, "error": str(exc)}, status=400)
+    return await _ot3_response(lambda: client.order_result(order_id, claim))
+
+
+async def ot3_create_subscription_handler(request: web.Request) -> web.Response:
+    try:
+        payload = await _request_object(request)
+        client = _ot3_client(payload)
+        product = payload.get("product", "")
+        if not isinstance(product, str):
+            raise ValueError("product must be a string")
+    except ValueError as exc:
+        return _json_response({"ok": False, "error": str(exc)}, status=400)
+    return await _ot3_response(lambda: client.create_subscription(product))
+
+
+async def ot3_subscription_result_handler(request: web.Request) -> web.Response:
+    try:
+        payload = await _request_object(request)
+        client = _ot3_client(payload)
+        subscription_id = payload.get("subscription_id", "")
+        claim = payload.get("claim", "")
+        if not isinstance(subscription_id, str) or not isinstance(claim, str):
+            raise ValueError("subscription_id and claim must be strings")
+    except ValueError as exc:
+        return _json_response({"ok": False, "error": str(exc)}, status=400)
+    return await _ot3_response(lambda: client.subscription_result(subscription_id, claim))
 
 
 async def get_settings_handler(_request: web.Request) -> web.Response:
@@ -91,6 +240,9 @@ async def save_settings_handler(request: web.Request) -> web.Response:
 
     try:
         old_settings = get_settings_dict()
+        old_mitm = old_settings.get("mitm", {})
+        new_mitm = payload.get("mitm", {})
+        proxy_changed = new_mitm != old_mitm or payload.get("mihomo", {}) != old_settings.get("mihomo", {})
         local_settings.update(payload)
         local_settings.save()
 
@@ -104,17 +256,25 @@ async def save_settings_handler(request: web.Request) -> web.Response:
         if (
             payload.get("platform") != old_settings.get("platform")
             or payload.get("majsoul_server") != old_settings.get("majsoul_server")
-            or payload.get("mitm") != old_settings.get("mitm")
             or payload.get("server") != old_settings.get("server")
-            or payload.get("ot") != old_settings.get("ot")
             or payload.get("model_config", {}).get("model_4p") != old_settings.get("model_config", {}).get("model_4p")
             or payload.get("model_config", {}).get("model_3p") != old_settings.get("model_config", {}).get("model_3p")
+            or any(new_mitm.get(field) != old_mitm.get(field) for field in ("enabled", "host", "port"))
         ):
             restart_required = True
 
+        proxy_error = await _reconcile_mitm_client() if new_mitm != old_mitm else ""
         clear_resource_cache()
         logger.info("Resource cache cleared due to settings update.")
-        return _json_response({"ok": True, "data": get_settings_dict(), "restartRequired": restart_required})
+        return _json_response(
+            {
+                "ok": True,
+                "data": get_settings_dict(),
+                "restartRequired": restart_required,
+                "proxyChanged": proxy_changed,
+                "proxyError": proxy_error,
+            }
+        )
     except Exception:
         logger.exception("Failed to save settings")
         return _json_response({"ok": False, "error": "Internal server error"}, status=500)
@@ -267,6 +427,14 @@ def setup_routes(app: web.Application):
     app.router.add_post("/api/settings", save_settings_handler)
     app.router.add_post("/api/settings/reset", reset_settings_handler)
     app.router.add_get("/api/models", get_models_handler)
+    app.router.add_post("/api/ot3/health", ot3_health_handler)
+    app.router.add_post("/api/ot3/key-status", ot3_key_status_handler)
+    app.router.add_post("/api/ot3/models", ot3_models_handler)
+    app.router.add_post("/api/ot3/redeem", ot3_redeem_handler)
+    app.router.add_post("/api/ot3/purchase/order", ot3_create_order_handler)
+    app.router.add_post("/api/ot3/purchase/order/result", ot3_order_result_handler)
+    app.router.add_post("/api/ot3/purchase/subscription", ot3_create_subscription_handler)
+    app.router.add_post("/api/ot3/purchase/subscription/result", ot3_subscription_result_handler)
     app.router.add_post("/api/ingest", ingest_mjai_handler)
     app.router.add_post("/api/protocol/update", update_protocol_handler)
     app.router.add_post("/api/shutdown", shutdown_handler)

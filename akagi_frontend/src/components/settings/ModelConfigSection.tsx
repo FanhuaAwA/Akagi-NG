@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
+import { OT3ServicePanel } from '@/components/settings/OT3ServicePanel';
 import { CapsuleSwitch } from '@/components/ui/capsule-switch';
 import { Input } from '@/components/ui/input';
 import {
@@ -22,9 +23,17 @@ interface ModelConfigSectionProps {
     value: PathValue<Settings, P>,
     shouldDebounce?: boolean,
   ) => void;
+  updateSettingsBatch: (
+    updates: { path: readonly string[]; value: unknown }[],
+    shouldDebounce?: boolean,
+  ) => void;
 }
 
-export function ModelConfigSection({ settings, updateSetting }: ModelConfigSectionProps) {
+export function ModelConfigSection({
+  settings,
+  updateSetting,
+  updateSettingsBatch,
+}: ModelConfigSectionProps) {
   const { t } = useTranslation();
   const { availableModels } = useSettings();
   const [tempInput, setTempInput] = useState(settings.model_config.temperature.toString());
@@ -41,7 +50,10 @@ export function ModelConfigSection({ settings, updateSetting }: ModelConfigSecti
           <SettingsItem label={t('settings.model_config.mode_selection')}>
             <CapsuleSwitch
               checked={settings.ot.online}
-              onCheckedChange={(val) => updateSetting(['ot', 'online'], val)}
+              onCheckedChange={(val) => {
+                updateSetting(['ot', 'online'], val);
+                if (val) updateSetting(['ot', 'protocol'], 'v3');
+              }}
               labelOn={t('settings.model_config.online_mode')}
               labelOff={t('settings.model_config.local_mode')}
             />
@@ -69,6 +81,26 @@ export function ModelConfigSection({ settings, updateSetting }: ModelConfigSecti
                   onChange={(e) => updateSetting(['ot', 'api_key'], e.target.value)}
                   placeholder='<YOUR_API_KEY>'
                 />
+              </SettingsItem>
+              <SettingsItem
+                label={t('settings.model_config.ot3_proxy')}
+                description={t('settings.model_config.ot3_proxy_desc')}
+              >
+                <div className='flex w-full items-center gap-3'>
+                  <CapsuleSwitch
+                    checked={settings.ot.proxy_enabled}
+                    onCheckedChange={(val) => updateSetting(['ot', 'proxy_enabled'], val)}
+                    labelOn={t('common.enabled')}
+                    labelOff={t('common.disabled')}
+                  />
+                  <Input
+                    className='flex-1'
+                    disabled={!settings.ot.proxy_enabled}
+                    value={settings.ot.proxy}
+                    onChange={(e) => updateSetting(['ot', 'proxy'], e.target.value)}
+                    placeholder='socks5h://127.0.0.1:7890'
+                  />
+                </div>
               </SettingsItem>
             </>
           ) : (
@@ -171,6 +203,10 @@ export function ModelConfigSection({ settings, updateSetting }: ModelConfigSecti
           </SettingsItem>
         </div>
       </div>
+
+      {settings.ot.online && (
+        <OT3ServicePanel settings={settings} updateSettingsBatch={updateSettingsBatch} />
+      )}
     </div>
   );
 }

@@ -1,7 +1,7 @@
 {
   "name": "akagi-ng-desktop",
   "private": true,
-  "version": "1.0.8",
+  "version": "1.0.9",
   "description": "Akagi-NG Electron Desktop App",
   "author": "Akagi-NG Contributors",
   "license": "AGPL-3.0",
@@ -72,6 +72,7 @@
     "win": {
       "target": "zip",
       "icon": "../assets/torii.ico",
+      "requestedExecutionLevel": "requireAdministrator",
       "extraFiles": [
         {
           "from": "../README.txt",

@@ -173,6 +173,49 @@ def test_response_missing_type_is_dropped(mock_engine_setup) -> None:
     assert NotificationCode.BOT_RUNTIME_ERROR not in status.flags
 
 
+def test_ot3_bare_reach_uses_followup_discard_and_candidates() -> None:
+    status = BotStatusContext()
+    bot = MortalBot(status=status, is_3p=False)
+    bot.player_id = 0
+    bot.game_start_event = StartGameEvent(id=0, is_3p=False)
+    bot.history = [TsumoEvent(actor=0, pai="5m")]
+
+    client = MagicMock()
+    client.circuit_open = False
+    client.react.side_effect = [
+        {
+            "reaction": {"type": "reach", "actor": 0},
+            "candidates": [{"action": "reach", "prob": 0.8}],
+            "model": "ot3-4p",
+        },
+        {
+            "reaction": {"type": "dahai", "actor": 0, "pai": "5m", "tsumogiri": False},
+            "candidates": [
+                {"action": "dahai:5m", "prob": 0.7},
+                {"action": "dahai:1p", "prob": 0.3},
+            ],
+            "model": "ot3-4p",
+        },
+    ]
+    local_response = {
+        "type": "reach",
+        "actor": 0,
+        "meta": {"q_values": [0.0], "mask_bits": 1},
+    }
+
+    with patch.object(bot, "_refresh_ot3_session", return_value=(client, "ot3-4p")):
+        response = bot._try_ot3(TsumoEvent(actor=0, pai="5m"), local_response)
+
+    assert response["type"] == "reach"
+    assert response["pai"] == "5m"
+    assert response["meta"]["ot3_reach_candidates"][0]["action"] == "dahai:5m"
+    assert client.react.call_count == 2
+    assert client.react.call_args_list[1].kwargs["events"][-1] == {
+        "type": "reach",
+        "actor": 0,
+    }
+
+
 # ===== 错误处理 & 边界情况 =====
 
 

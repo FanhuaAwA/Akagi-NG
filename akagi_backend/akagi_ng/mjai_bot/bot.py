@@ -3,8 +3,15 @@ import json
 from akagi_ng.mjai_bot.engine.factory import load_bot_and_engine
 from akagi_ng.mjai_bot.logger import logger
 from akagi_ng.mjai_bot.lookahead import LookaheadBot
+from akagi_ng.mjai_bot.ot3 import (
+    OT3Client,
+    apply_player_actor,
+    build_ot3_events,
+    is_local_decision,
+)
 from akagi_ng.mjai_bot.status import BotStatusContext
 from akagi_ng.mjai_bot.utils import meta_to_recommend, serialize_mjai_event
+from akagi_ng.schema.constants import MahjongConstants
 from akagi_ng.schema.notifications import NotificationCode
 from akagi_ng.schema.protocols import EngineProtocol, MJAIBotProtocol
 from akagi_ng.schema.types import (
@@ -38,6 +45,8 @@ class MortalBot:
         self.history: list[MJAIEvent] = []
         self.bot: MJAIBotProtocol | None = None
         self.game_start_event: StartGameEvent | None = None
+        self.ot3_client: OT3Client | None = None
+        self._ot3_signature: tuple[str, str, str, str] | None = None
 
         self.logger = logger
 
@@ -51,6 +60,7 @@ class MortalBot:
             response: MJAIResponse | None = self._think(event)
             if not response:
                 return None
+            response = self._try_ot3(event, response)
 
             # 3. 增强：注入元数据与执行前瞻逻辑
             meta: MJAIMetadata | None = response.get("meta")
@@ -140,13 +150,17 @@ class MortalBot:
         self.bot, self.engine = load_bot_and_engine(self.status, self.player_id, self.is_3p)
         self.history = []
         self.game_start_event = e
+        self.ot3_client = None
+        self._ot3_signature = None
+        if self._refresh_ot3_session():
+            self.status.set_metadata(NotificationCode.ENGINE_TYPE, "akagiot")
 
         # 检测加载的模型类型并设置通知
         if self.engine:
             engine_meta = self.status.metadata
             engine_type = engine_meta.get(NotificationCode.ENGINE_TYPE, "unknown")
 
-            match engine_type:
+            match "akagiot" if self.ot3_client else engine_type:
                 case "akagiot":
                     self.status.set_flag(NotificationCode.MODEL_LOADED_ONLINE)
                 case "mortal":
@@ -159,7 +173,144 @@ class MortalBot:
         self.player_id = None
         self.bot = None
         self.engine = None
+        self.ot3_client = None
+        self._ot3_signature = None
         self.game_start_event = None
+
+    def _ot3_enabled(self) -> bool:
+        ot = local_settings.ot
+        return (
+            ot.online and getattr(ot, "protocol", "v3") == "v3" and bool(ot.server.strip()) and bool(ot.api_key.strip())
+        )
+
+    def _refresh_ot3_session(self) -> tuple[OT3Client, str] | None:
+        """Apply online config changes on the next decision without restarting."""
+        if not self._ot3_enabled():
+            self.ot3_client = None
+            self._ot3_signature = None
+            return None
+
+        ot = local_settings.ot
+        model = ot.model_for(self.is_3p).strip()
+        proxy = ot.effective_proxy()
+        signature = (ot.server.strip().rstrip("/"), ot.api_key.strip(), model, proxy)
+        if signature != self._ot3_signature:
+            self.ot3_client = OT3Client(ot.server, ot.api_key, proxy)
+            self._ot3_signature = signature
+        return (self.ot3_client, model) if self.ot3_client else None
+
+    def _try_ot3(self, event: MJAIEvent, local_response: MJAIResponse) -> MJAIResponse:
+        """Use OT3 at real decision points and preserve the local response as fallback."""
+        session = self._refresh_ot3_session()
+        if (
+            not session
+            or self.player_id is None
+            or self.game_start_event is None
+            or getattr(event, "sync", False)
+            or not is_local_decision(local_response, is_3p=self.is_3p)
+        ):
+            return local_response
+
+        try:
+            client, model = session
+            events = build_ot3_events(
+                self.game_start_event,
+                self.history,
+                player_id=self.player_id,
+                is_3p=self.is_3p,
+            )
+            result = client.react(
+                player_id=self.player_id,
+                events=events,
+                status=self.status,
+                model=model,
+            )
+            reaction = result.get("reaction")
+            if not isinstance(reaction, dict):
+                raise RuntimeError("OT3 returned no reaction at a local decision point")
+
+            remote_response = apply_player_actor(reaction, self.player_id)
+            reach_candidates: list[dict[str, str | float]] = []
+            partial_fallback = False
+            if remote_response.get("type") == "reach" and not remote_response.get("pai"):
+                reach_candidates, discard, partial_fallback = self._resolve_ot3_reach(
+                    client,
+                    model,
+                    events,
+                )
+                if not discard:
+                    raise RuntimeError("OT3 reach reaction could not be resolved to a discard")
+                remote_response["pai"] = discard
+
+            local_meta = local_response.get("meta") or {}
+            remote_response["meta"] = {
+                key: local_meta[key]
+                for key in ("q_values", "mask_bits", "shanten", "waits", "at_furiten")
+                if key in local_meta
+            }
+            remote_response["meta"].update(
+                {
+                    "ot3_candidates": result["candidates"],
+                    "ot3_reaction": {key: value for key, value in remote_response.items() if key != "meta"},
+                    "ot3_model": result.get("model") or "OT3",
+                    NotificationCode.ENGINE_TYPE: "akagiot",
+                    NotificationCode.FALLBACK_USED: partial_fallback,
+                    NotificationCode.RECONNECTING: client.circuit_open,
+                }
+            )
+            if reach_candidates:
+                remote_response["meta"]["ot3_reach_candidates"] = reach_candidates
+            self.status.set_metadata(NotificationCode.ENGINE_TYPE, "akagiot")
+            self.status.set_metadata(NotificationCode.FALLBACK_USED, partial_fallback)
+            self.status.set_metadata(NotificationCode.RECONNECTING, client.circuit_open)
+            return remote_response
+        except Exception:
+            self.logger.exception("OT3 inference failed; using the local Mortal decision")
+            self.status.set_metadata(NotificationCode.ENGINE_TYPE, "akagiot")
+            self.status.set_metadata(NotificationCode.FALLBACK_USED, True)
+            if meta := local_response.get("meta"):
+                meta.update(self.status.metadata)
+            return local_response
+
+    def _resolve_ot3_reach(
+        self,
+        client: OT3Client,
+        model: str,
+        events: list[dict[str, object]],
+    ) -> tuple[list[dict[str, str | float]], str | None, bool]:
+        """Resolve OT3's bare reach with one follow-up call, then local fallback."""
+        if self.player_id is None:
+            return [], None, True
+
+        followup_events = [*events, {"type": "reach", "actor": self.player_id}]
+        try:
+            followup = client.react(
+                player_id=self.player_id,
+                events=followup_events,
+                status=self.status,
+                model=model,
+            )
+            reaction = followup.get("reaction")
+            if isinstance(reaction, dict) and reaction.get("type") == "dahai" and isinstance(reaction.get("pai"), str):
+                return followup["candidates"], reaction["pai"], False
+            self.logger.warning("OT3 reach follow-up returned no valid discard; using local lookahead")
+        except Exception:
+            self.logger.exception("OT3 reach follow-up failed; using local lookahead")
+
+        local_meta = self._run_riichi_lookahead()
+        if not local_meta:
+            return [], None, True
+        local_candidates = [
+            {"action": f"dahai:{action}", "prob": float(confidence)}
+            for action, confidence in meta_to_recommend(
+                local_meta,
+                is_3p=self.is_3p,
+                temperature=local_settings.model_config.temperature,
+            )
+            if action in MahjongConstants.BASE_TILES
+        ]
+        discard = str(local_candidates[0]["action"]).removeprefix("dahai:") if local_candidates else None
+        return local_candidates, discard, True
 
     def _handle_riichi_lookahead(self, meta: MJAIMetadata):
         """

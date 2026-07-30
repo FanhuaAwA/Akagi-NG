@@ -1,6 +1,6 @@
 import asyncio
 from dataclasses import dataclass
-from typing import Annotated, Literal, NamedTuple, NotRequired, Self, TypedDict
+from typing import Annotated, Any, Literal, NamedTuple, NotRequired, Self, TypedDict
 
 from aiohttp import web
 
@@ -125,6 +125,12 @@ class MJAIMetadata(TypedDict, total=False):
 
     # 嵌套前瞻结果
     riichi_lookahead: Self
+
+    # OT3 v3 API prediction details (already normalized probabilities).
+    ot3_candidates: list[dict[str, str | float]]
+    ot3_reach_candidates: list[dict[str, str | float]]
+    ot3_reaction: dict[str, Any]
+    ot3_model: str
 
 
 class MJAIResponse(TypedDict):

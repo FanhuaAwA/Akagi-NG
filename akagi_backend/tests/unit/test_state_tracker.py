@@ -334,6 +334,86 @@ def test_build_recommendations_with_valid_meta(tracker):
             assert result["engine_type"] == "test"
 
 
+def test_ot3_recommendations_use_exact_reaction_and_skip_duplicate_top_candidate(tracker):
+    tracker.player_state.self_riichi_accepted = False
+    response = {
+        "meta": {
+            "engine_type": "akagiot",
+            "ot3_reaction": {"type": "dahai", "actor": 0, "pai": "5mr", "tsumogiri": False},
+            "ot3_candidates": [
+                {"action": "dahai:5m", "prob": 0.8},
+                {"action": "dahai:1p", "prob": 0.15},
+                {"action": "reach", "prob": 0.05},
+            ],
+        }
+    }
+
+    result = tracker.build_recommendations(response)
+
+    assert result is not None
+    assert result["recommendations"] == [
+        {"action": "5mr", "confidence": 0.8},
+        {"action": "1p", "confidence": 0.15},
+        {"action": "reach", "confidence": 0.05},
+    ]
+
+
+def test_ot3_recommendation_preserves_exact_meld_tiles(tracker):
+    tracker.player_state.self_riichi_accepted = False
+    response = {
+        "meta": {
+            "engine_type": "akagiot",
+            "ot3_reaction": {
+                "type": "chi",
+                "actor": 0,
+                "target": 3,
+                "pai": "3m",
+                "consumed": ["1m", "2m"],
+            },
+            "ot3_candidates": [{"action": "chi_low", "prob": 0.9}],
+        }
+    }
+
+    result = tracker.build_recommendations(response)
+
+    assert result is not None
+    assert result["recommendations"] == [
+        {
+            "action": "chi",
+            "confidence": 0.9,
+            "tile": "3m",
+            "consumed": ["1m", "2m"],
+        }
+    ]
+
+
+def test_ot3_reach_displays_followup_discard_candidates(tracker):
+    tracker.player_state.self_riichi_accepted = False
+    response = {
+        "meta": {
+            "engine_type": "akagiot",
+            "ot3_reaction": {"type": "reach", "actor": 0, "pai": "5m"},
+            "ot3_candidates": [{"action": "reach", "prob": 0.8}],
+            "ot3_reach_candidates": [
+                {"action": "dahai:5m", "prob": 0.7},
+                {"action": "dahai:1p", "prob": 0.3},
+            ],
+        }
+    }
+
+    result = tracker.build_recommendations(response)
+
+    assert result is not None
+    assert result["recommendations"][0] == {
+        "action": "reach",
+        "confidence": 0.8,
+        "sim_candidates": [
+            {"tile": "5m", "confidence": 0.7},
+            {"tile": "1p", "confidence": 0.3},
+        ],
+    }
+
+
 def test_build_recommendations_riichi_filter(tracker):
     mjai_response = {
         "meta": {

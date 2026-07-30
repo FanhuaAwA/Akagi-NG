@@ -16,7 +16,9 @@ from unittest.mock import mock_open, patch
 import pytest
 
 from akagi_ng.settings.settings import (
+    DEFAULT_OT3_SERVER,
     SETTINGS_JSON_PATH,
+    MihomoConfig,
     MITMConfig,
     ModelConfig,
     OTConfig,
@@ -39,8 +41,13 @@ class TestSettingsDataclasses(unittest.TestCase):
     def test_ot_config_defaults(self):
         config = OTConfig(online=False)
         self.assertFalse(config.online)
-        self.assertEqual(config.server, "")
+        self.assertEqual(config.server, DEFAULT_OT3_SERVER)
         self.assertEqual(config.api_key, "")
+        self.assertEqual(config.protocol, "v3")
+        self.assertEqual(config.model_for(False), "")
+        self.assertEqual(config.model_for(True), "")
+        self.assertFalse(config.proxy_enabled)
+        self.assertEqual(config.effective_proxy(), "")
 
     def test_mitm_config_creation(self):
         config = MITMConfig(enabled=True, host="127.0.0.1", port=6789, upstream="")
@@ -71,6 +78,7 @@ class TestSettingsClass(unittest.TestCase):
             majsoul_server="cn",
             platform="majsoul",
             mitm=MITMConfig(enabled=False, host="127.0.0.1", port=6789, upstream=""),
+            mihomo=MihomoConfig(),
             server=ServerConfig(host="127.0.0.1", port=8765),
             ot=OTConfig(online=False),
             model_config=ModelConfig(
@@ -138,6 +146,65 @@ class TestSettingsLifecycle(unittest.TestCase):
         self.assertEqual(defaults["log_level"], "INFO")
         self.assertEqual(defaults["majsoul_server"], "cn")
         self.assertEqual(defaults["game_url"], "https://game.maj-soul.com/1/")
+        self.assertFalse(defaults["mihomo"]["enabled"])
+        self.assertEqual(defaults["ot"]["server"], "https://mjapi.shinkuan.me")
+        self.assertFalse(defaults["ot"]["proxy_enabled"])
+
+    def test_old_settings_without_mihomo_are_migrated_in_memory(self):
+        legacy = get_default_settings_dict()
+        legacy.pop("mihomo")
+        self.assertTrue(verify_settings(legacy))
+        settings = Settings.from_dict(legacy)
+        self.assertFalse(settings.mihomo.enabled)
+        self.assertEqual(settings.mihomo.mixed_port, 7890)
+
+    def test_pre_ot3_online_settings_stay_on_legacy_protocol(self):
+        settings = Settings.from_dict(
+            {
+                "ot": {
+                    "online": True,
+                    "server": "http://legacy.example",
+                    "api_key": "legacy-key",
+                }
+            }
+        )
+        self.assertEqual(settings.ot.protocol, "legacy")
+
+    def test_blocked_placeholder_server_is_migrated(self):
+        settings = Settings.from_dict(
+            {
+                "ot": {
+                    "online": True,
+                    "server": "https://server.akagiot.org/",
+                    "api_key": "key",
+                    "protocol": "v3",
+                }
+            }
+        )
+        self.assertEqual(settings.ot.server, DEFAULT_OT3_SERVER)
+
+    def test_ot3_proxy_validation(self):
+        settings = get_default_settings_dict()
+        settings["ot"]["proxy_enabled"] = True
+        self.assertFalse(verify_settings(settings))
+
+        settings["ot"]["proxy"] = "socks5h://127.0.0.1:7890"
+        self.assertTrue(verify_settings(settings))
+
+        settings["ot"]["proxy"] = "ftp://127.0.0.1:21"
+        self.assertFalse(verify_settings(settings))
+
+    def test_mihomo_requires_mitm_and_unique_ports(self):
+        invalid = get_default_settings_dict()
+        invalid["mihomo"]["enabled"] = True
+        self.assertFalse(verify_settings(invalid))
+
+        invalid["mitm"]["enabled"] = True
+        invalid["mihomo"]["mixed_port"] = invalid["mitm"]["port"]
+        self.assertFalse(verify_settings(invalid))
+
+        invalid["mihomo"]["mixed_port"] = 7890
+        self.assertTrue(verify_settings(invalid))
 
     def test_verify_settings_valid(self):
         valid_data = get_default_settings_dict()
