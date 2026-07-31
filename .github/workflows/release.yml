@@ -93,7 +93,7 @@ jobs:
             dist/release/*.dmg
             dist/release/*.tar.gz
             dist/release/*.AppImage
-          generate_release_notes: true
+          generate_release_notes: ${{ matrix.os == 'ubuntu-24.04' }}
           draft: false
           prerelease: ${{ contains(github.ref_name, 'alpha') || contains(github.ref_name, 'beta') || contains(github.ref_name, 'rc') }}
           name: ${{ steps.version.outputs.VERSION }}
