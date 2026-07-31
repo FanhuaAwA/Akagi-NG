@@ -5,18 +5,20 @@ export interface DesktopConfig {
   overlayMode: OverlayMode;
   advancedHost: AdvancedOverlayHost;
   captureProtection: boolean;
-  privacyMode: boolean;
   trayVisible: boolean;
-  startHidden: boolean;
-  restoreShortcut: string;
 }
 
 export const DEFAULT_DESKTOP_CONFIG: DesktopConfig = {
   overlayMode: 'standard',
   advancedHost: 'auto',
   captureProtection: true,
-  privacyMode: false,
   trayVisible: true,
-  startHidden: false,
-  restoreShortcut: 'CommandOrControl+Shift+A',
 };
+
+export function getDashboardWindowPolicy(config: DesktopConfig) {
+  return {
+    skipTaskbar: false,
+    startVisible: true,
+    closeAction: config.trayVisible ? ('hide' as const) : ('minimize' as const),
+  };
+}

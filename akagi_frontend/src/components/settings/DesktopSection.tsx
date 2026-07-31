@@ -3,7 +3,6 @@ import { useTranslation } from 'react-i18next';
 
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Checkbox } from '@/components/ui/checkbox';
-import { Input } from '@/components/ui/input';
 import {
   Select,
   SelectContent,
@@ -88,42 +87,10 @@ export function DesktopSection({ settings, updateSetting }: DesktopSectionProps)
         />
       </SettingsItem>
 
-      <SettingsItem
-        layout='row'
-        label={t('settings.desktop.privacy_mode')}
-        description={t('settings.desktop.privacy_mode_desc')}
-      >
+      <SettingsItem layout='row' label={t('settings.desktop.tray_visible')}>
         <Checkbox
-          checked={desktop.privacy_mode}
-          onCheckedChange={(value) => updateSetting(['desktop', 'privacy_mode'], value === true)}
-        />
-      </SettingsItem>
-
-      <div className='grid grid-cols-2 gap-4'>
-        <SettingsItem layout='row' label={t('settings.desktop.tray_visible')}>
-          <Checkbox
-            checked={desktop.tray_visible}
-            onCheckedChange={(value) => updateSetting(['desktop', 'tray_visible'], value === true)}
-          />
-        </SettingsItem>
-        <SettingsItem layout='row' label={t('settings.desktop.start_hidden')}>
-          <Checkbox
-            checked={desktop.start_hidden}
-            onCheckedChange={(value) => updateSetting(['desktop', 'start_hidden'], value === true)}
-          />
-        </SettingsItem>
-      </div>
-
-      <SettingsItem
-        label={t('settings.desktop.restore_shortcut')}
-        description={t('settings.desktop.restore_shortcut_desc')}
-      >
-        <Input
-          value={desktop.restore_shortcut}
-          onChange={(event) =>
-            updateSetting(['desktop', 'restore_shortcut'], event.target.value, true)
-          }
-          placeholder='CommandOrControl+Shift+A'
+          checked={desktop.tray_visible}
+          onCheckedChange={(value) => updateSetting(['desktop', 'tray_visible'], value === true)}
         />
       </SettingsItem>
 

@@ -257,6 +257,7 @@ export function SettingsProvider({ children, initialSettings }: SettingsProvider
     try {
       const data = await resetSettingsApi();
       dispatch({ type: 'RESTORE_SUCCESS', payload: data });
+      await window.electron.invoke('desktop-reconcile');
     } catch (e) {
       console.error('Restore Defaults error:', e);
     }

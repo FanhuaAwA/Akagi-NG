@@ -114,7 +114,7 @@
       "product_pro_yearly": "Pro・年額契約"
     },
     "desktop": {
-      "title": "オーバーレイとプライバシー",
+      "title": "オーバーレイとトレイ",
       "overlay_mode": "オーバーレイモード",
       "overlay_mode_desc": "標準は既存の Electron HUD、詳細は Windows ネイティブ D3D11 描画を使用します。",
       "overlay_standard": "標準オーバーレイ",

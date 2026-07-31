@@ -14,8 +14,7 @@ All notable changes to Akagi-NG are documented in this file.
   `WDA_EXCLUDEFROMCAPTURE` when capture protection is enabled.
 - Added an independent SSE client for the native overlay with reconnect handling,
   cached recommendation delivery, top-three rendering, and stale-data expiry.
-- Added Privacy Mode, optional tray removal, start-hidden behavior, taskbar
-  suppression, and a configurable global dashboard recovery shortcut.
+- Added an optional tray icon without hiding the dashboard or its taskbar entry.
 - Added automatic fallback from an unavailable advanced renderer to the existing
   Electron HUD.
 
@@ -23,6 +22,10 @@ All notable changes to Akagi-NG are documented in this file.
 
 - Standard Electron HUD windows now enable Electron content protection when
   configured and are excluded from the taskbar.
+- Removed the experimental dashboard Privacy Mode, start-hidden behavior, and
+  recovery shortcut after they could leave the main interface inaccessible.
+- When the tray icon is disabled, closing the dashboard now minimizes it to the
+  taskbar instead of hiding it in the background.
 - Desktop settings can be reconciled without restarting the Python backend.
 - Windows packages now include `AkagiAdvancedOverlay.exe`.
 - Update checks and packaged publishing metadata now target
@@ -30,8 +33,6 @@ All notable changes to Akagi-NG are documented in this file.
 
 ### Security and limitations
 
-- Privacy Mode hides application UI surfaces but does not hide Akagi-NG processes
-  from Task Manager, operating-system process enumeration, or security software.
 - Capture protection is a best-effort Windows feature and is not DRM. It cannot
   guarantee exclusion from every OBS capture method or external camera.
 - A Discord-owned window cannot receive Akagi's display-affinity setting. When

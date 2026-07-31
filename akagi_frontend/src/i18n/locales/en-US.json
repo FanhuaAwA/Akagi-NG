@@ -114,7 +114,7 @@
       "product_pro_yearly": "Pro · yearly subscription"
     },
     "desktop": {
-      "title": "Overlay & Privacy",
+      "title": "Overlay & Tray",
       "overlay_mode": "Overlay mode",
       "overlay_mode_desc": "Standard uses the existing Electron HUD; Advanced uses native Windows D3D11 rendering.",
       "overlay_standard": "Standard overlay",

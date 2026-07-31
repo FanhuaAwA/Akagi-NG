@@ -96,7 +96,13 @@ const server = createServer((req, res) => {
           const newSettings = JSON.parse(body);
           mockSettings = { ...mockSettings, ...newSettings };
           console.log('Updated mock settings:', mockSettings);
-          jsonResponse({ ok: true, data: mockSettings, restartRequired: false });
+          jsonResponse({
+            ok: true,
+            data: mockSettings,
+            restartRequired: false,
+            proxyChanged: false,
+            desktopChanged: true,
+          });
         } catch {
           jsonResponse({ ok: false, error: 'Invalid JSON' }, 400);
         }

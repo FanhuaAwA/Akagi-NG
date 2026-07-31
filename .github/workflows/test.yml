@@ -155,6 +155,9 @@ jobs:
       - name: Run TypeScript check
         run: npm run typecheck
 
+      - name: Run frontend regression tests
+        run: npm run test:frontend-regressions
+
   test-native-overlay:
     runs-on: windows-latest
 

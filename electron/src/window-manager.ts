@@ -1,15 +1,6 @@
 import { join } from 'node:path';
 
-import {
-  app,
-  BrowserWindow,
-  globalShortcut,
-  Menu,
-  nativeImage,
-  nativeTheme,
-  screen,
-  Tray,
-} from 'electron';
+import { app, BrowserWindow, Menu, nativeImage, nativeTheme, screen, Tray } from 'electron';
 
 import { AdvancedOverlayManager } from './advanced-overlay-manager.js';
 import type { BackendManager } from './backend-manager.js';
@@ -29,7 +20,11 @@ import {
   HUD_WINDOW_HEIGHT,
   HUD_WINDOW_WIDTH,
 } from './constants.js';
-import { DEFAULT_DESKTOP_CONFIG, type DesktopConfig } from './desktop-config.js';
+import {
+  DEFAULT_DESKTOP_CONFIG,
+  type DesktopConfig,
+  getDashboardWindowPolicy,
+} from './desktop-config.js';
 import { GameHandler } from './game-handler.js';
 import { createLogger } from './logger.js';
 import { getAssetPath, isSafeWindow, safeSend } from './utils.js';
@@ -44,7 +39,6 @@ export class WindowManager {
   private gameHandler: GameHandler | null = null;
   private advancedOverlayManager: AdvancedOverlayManager;
   private desktopConfig: DesktopConfig = DEFAULT_DESKTOP_CONFIG;
-  private restoreShortcut: string | null = null;
   private onCheckForUpdates: (() => void) | undefined;
   private hudRequestedVisible = false;
   private lastHudPosition: { x: number; y: number } | null = null;
@@ -64,7 +58,7 @@ export class WindowManager {
 
   public setupTray(onCheckForUpdates?: () => void): void {
     this.onCheckForUpdates = onCheckForUpdates;
-    if (!this.desktopConfig.trayVisible || this.desktopConfig.privacyMode) {
+    if (!this.desktopConfig.trayVisible) {
       this.destroyTray();
       return;
     }
@@ -142,14 +136,13 @@ export class WindowManager {
     if (onCheckForUpdates) this.onCheckForUpdates = onCheckForUpdates;
     this.desktopConfig = await this.backendManager.getDesktopConfig();
 
-    if (this.desktopConfig.trayVisible && !this.desktopConfig.privacyMode) {
+    if (this.desktopConfig.trayVisible) {
       this.setupTray(this.onCheckForUpdates);
     } else {
       this.destroyTray();
     }
 
-    this.registerRestoreShortcut();
-    this.applyDesktopWindowFlags();
+    this.applyOverlayWindowFlags();
 
     if (this.hudRequestedVisible) {
       await this.toggleHudWindow(true);
@@ -164,27 +157,28 @@ export class WindowManager {
       this.dashboardWindow.focus();
       return;
     }
-    void this.createDashboardWindow(true);
+    void this.createDashboardWindow();
   }
 
   public getGameWindow(): BrowserWindow | null {
     return this.gameWindow;
   }
 
-  public async createDashboardWindow(forceShow = false): Promise<void> {
+  public async createDashboardWindow(): Promise<void> {
     if (this.dashboardWindow) {
       this.dashboardWindow.show();
       this.dashboardWindow.focus();
       return;
     }
 
+    const dashboardPolicy = getDashboardWindowPolicy(this.desktopConfig);
     this.dashboardWindow = new BrowserWindow({
       width: DASHBOARD_WINDOW_WIDTH,
       height: DASHBOARD_WINDOW_HEIGHT,
       minWidth: DASHBOARD_WINDOW_MIN_WIDTH,
       minHeight: DASHBOARD_WINDOW_MIN_HEIGHT,
       frame: false,
-      skipTaskbar: this.desktopConfig.privacyMode,
+      skipTaskbar: dashboardPolicy.skipTaskbar,
       autoHideMenuBar: true,
       backgroundColor: nativeTheme.shouldUseDarkColors ? '#18181b' : '#ffffff',
       show: false,
@@ -196,9 +190,7 @@ export class WindowManager {
     });
 
     this.dashboardWindow.once('ready-to-show', () => {
-      if (forceShow || (!this.desktopConfig.startHidden && !this.desktopConfig.privacyMode)) {
-        this.dashboardWindow?.show();
-      }
+      if (dashboardPolicy.startVisible) this.dashboardWindow?.show();
     });
 
     const isDev = !app.isPackaged;
@@ -220,7 +212,12 @@ export class WindowManager {
     this.dashboardWindow.on('close', (event) => {
       if (!this.isQuitting) {
         event.preventDefault();
-        this.dashboardWindow?.hide();
+        const closeAction = getDashboardWindowPolicy(this.desktopConfig).closeAction;
+        if (closeAction === 'hide') {
+          this.dashboardWindow?.hide();
+        } else {
+          this.dashboardWindow?.minimize();
+        }
       }
     });
 
@@ -361,8 +358,6 @@ export class WindowManager {
   }
 
   public async shutdown(): Promise<void> {
-    globalShortcut.unregisterAll();
-    this.restoreShortcut = null;
     this.destroyTray();
     await this.advancedOverlayManager.stop();
   }
@@ -373,27 +368,9 @@ export class WindowManager {
     this.tray = null;
   }
 
-  private registerRestoreShortcut(): void {
-    if (this.restoreShortcut) {
-      globalShortcut.unregister(this.restoreShortcut);
-      this.restoreShortcut = null;
-    }
-
-    const shortcut = this.desktopConfig.restoreShortcut.trim();
-    if (!shortcut) return;
-    const registered = globalShortcut.register(shortcut, () => this.showDashboard());
-    if (registered) {
-      this.restoreShortcut = shortcut;
-      logger.info(`Dashboard restore shortcut registered: ${shortcut}`);
-    } else {
-      logger.warn(`Failed to register dashboard restore shortcut: ${shortcut}`);
-    }
-  }
-
-  private applyDesktopWindowFlags(): void {
+  private applyOverlayWindowFlags(): void {
     if (isSafeWindow(this.dashboardWindow)) {
-      this.dashboardWindow.setSkipTaskbar(this.desktopConfig.privacyMode);
-      if (this.desktopConfig.privacyMode) this.dashboardWindow.hide();
+      this.dashboardWindow.setSkipTaskbar(false);
     }
     if (isSafeWindow(this.hudWindow)) {
       this.hudWindow.setSkipTaskbar(true);

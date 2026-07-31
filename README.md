@@ -71,7 +71,7 @@ Core Philosophy of Akagi-NG:
   - Comprehensive Fuuro Support - Clear action prompts for Chi, Pon and all Kan variants
   - Windows Advanced Overlay - Native D3D11 rendering with an optional Discord Overlay host
   - Capture Protection - System-level capture exclusion for the standard HUD and Akagi-owned native window
-  - Privacy Mode - Optional tray, taskbar, and dashboard hiding with a recovery shortcut
+  - Optional Tray Icon - Hide the tray icon without hiding the dashboard or taskbar entry
   - Modern Glassmorphism Style - Smooth and transparent visual experience
   - Multi-language support - Simplified Chinese / Traditional Chinese / Japanese / English
 
@@ -179,7 +179,7 @@ Click the monitor icon in the top right corner of the Dashboard to open the HUD 
 
 #### Standard and Advanced Overlay
 
-Open Settings → Overlay & Privacy:
+Open Settings → Overlay & Tray:
 
 - **Standard Overlay** uses the existing cross-platform Electron HUD.
 - **Advanced Overlay** is a Windows-only D3D11/ImGui renderer. It can target Discord Overlay or an Akagi-owned protected window.
@@ -187,12 +187,12 @@ Open Settings → Overlay & Privacy:
 
 Discord mode requires the Discord desktop client's Game Overlay and works best with windowed or borderless games. Exclusive fullscreen, Discord updates, graphics drivers, and OBS capture methods may affect compatibility.
 
-#### Privacy Mode
+#### Dashboard and Tray Behavior
 
-Privacy Mode can hide the dashboard, taskbar entry, and tray icon. Verify the dashboard recovery shortcut before enabling it; the default is `Ctrl+Shift+A`. Starting Akagi-NG again also restores the existing instance.
+The dashboard always opens normally and remains available from the Windows taskbar. When the tray icon is enabled, closing the dashboard hides it to the tray. When the tray icon is disabled, closing the dashboard minimizes it to the taskbar instead, so the application cannot become an inaccessible background process.
 
 > [!IMPORTANT]
-> Privacy Mode does not hide Electron, Python, mihomo, or overlay processes from Task Manager or security software. Capture protection is also best effort and cannot cover every OBS version, capture method, or external camera.
+> Capture protection applies only to the HUD/advanced overlay and is best effort. It cannot cover every OBS version, capture method, or external camera.
 
 ### 4. Configuration
 

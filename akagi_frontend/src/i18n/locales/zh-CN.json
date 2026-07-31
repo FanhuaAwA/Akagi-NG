@@ -114,7 +114,7 @@
       "product_pro_yearly": "Pro · 年度订阅"
     },
     "desktop": {
-      "title": "叠加层与隐私",
+      "title": "叠加层与托盘",
       "overlay_mode": "叠加层模式",
       "overlay_mode_desc": "标准模式使用现有 Electron 小窗；高级模式使用 Windows 原生 D3D11 绘制。",
       "overlay_standard": "标准叠加层",
