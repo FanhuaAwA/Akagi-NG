@@ -17,11 +17,7 @@ export function setBaseUrl(url: string) {
   baseUrl = url;
 }
 
-export async function fetchJson<T>(
-  url: string,
-  options: RequestInit = {},
-  responseMode: 'data' | 'envelope' = 'data',
-): Promise<T> {
+export async function fetchJson<T>(url: string, options: RequestInit = {}): Promise<T> {
   const fullUrl = url.startsWith('http') ? url : `${baseUrl}${url}`;
   let res: Response;
   try {
@@ -70,7 +66,7 @@ export async function fetchJson<T>(
       throw new ApiError('api_error', apiBody.error || 'Server reported an error', res.status);
     }
     // 如果存在 data 字段则返回，否则返回整个 body
-    if (responseMode === 'data' && 'data' in apiBody) {
+    if ('data' in apiBody) {
       return apiBody.data as T;
     }
   }

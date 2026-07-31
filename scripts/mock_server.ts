@@ -94,19 +94,9 @@ const server = createServer((req, res) => {
       req.on('end', () => {
         try {
           const newSettings = JSON.parse(body);
-          const previousSettings = mockSettings;
           mockSettings = { ...mockSettings, ...newSettings };
           console.log('Updated mock settings:', mockSettings);
-          jsonResponse({
-            ok: true,
-            data: mockSettings,
-            restartRequired: false,
-            desktopChanged:
-              JSON.stringify(previousSettings.desktop) !== JSON.stringify(mockSettings.desktop),
-            proxyChanged:
-              JSON.stringify(previousSettings.mitm) !== JSON.stringify(mockSettings.mitm) ||
-              JSON.stringify(previousSettings.mihomo) !== JSON.stringify(mockSettings.mihomo),
-          });
+          jsonResponse({ ok: true, data: mockSettings, restartRequired: false });
         } catch {
           jsonResponse({ ok: false, error: 'Invalid JSON' }, 400);
         }

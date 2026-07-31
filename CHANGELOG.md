@@ -2,31 +2,6 @@
 
 All notable changes to Akagi-NG are documented in this file.
 
-## [1.1.1] - 2026-07-31
-
-### Fixed
-
-- Fixed desktop settings saves dropping `desktopChanged` and `proxyChanged`
-  response metadata, which prevented immediate tray, dashboard, taskbar, HUD,
-  mihomo, and MITM reconciliation.
-- Fixed Privacy Mode and tray visibility appearing to save successfully without
-  changing the running Electron window and tray lifecycle.
-- Fixed explicit dashboard restore incorrectly re-enabling its taskbar entry
-  while Privacy Mode was active.
-
-### Changed
-
-- Advanced Overlay now renders the same SVG mahjong-tile resources used by the
-  standard HUD, including white tile bodies, borders, depth, action styling,
-  discard tiles, call combinations, riichi candidates, and confidence displays.
-- The Akagi-owned advanced-overlay window can now be freely dragged from its top
-  area and resized from every edge or corner. Bounds are persisted between runs.
-- Discord-hosted panels now use ImGui's movable and resizable window behavior
-  with persistent layout state.
-- Native self-test coverage now validates drag/resize hit testing, extended
-  recommendation parsing, shared tile-resource loading, D3D rendering, and
-  optional swap-chain snapshot export.
-
 ## [1.1.0] - 2026-07-31
 
 ### Added
@@ -107,4 +82,3 @@ All notable changes to Akagi-NG are documented in this file.
 
 [1.0.9]: https://github.com/FanhuaAwA/Akagi-NG/releases/tag/v1.0.9
 [1.1.0]: https://github.com/FanhuaAwA/Akagi-NG/releases/tag/v1.1.0
-[1.1.1]: https://github.com/FanhuaAwA/Akagi-NG/releases/tag/v1.1.1

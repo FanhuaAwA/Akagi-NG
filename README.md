@@ -183,7 +183,6 @@ Open Settings → Overlay & Privacy:
 
 - **Standard Overlay** uses the existing cross-platform Electron HUD.
 - **Advanced Overlay** is a Windows-only D3D11/ImGui renderer. It can target Discord Overlay or an Akagi-owned protected window.
-- Advanced Overlay uses the same mahjong-tile artwork and recommendation structure as the standard HUD. Drag the top area to move the Akagi-owned window and drag any edge or corner to resize it; the layout is restored on the next launch.
 - **Auto host** prefers Discord when capture protection is disabled. With protection enabled it selects Akagi's own window, because Windows only allows an application to set display affinity on windows it owns.
 
 Discord mode requires the Discord desktop client's Game Overlay and works best with windowed or borderless games. Exclusive fullscreen, Discord updates, graphics drivers, and OBS capture methods may affect compatibility.
@@ -191,8 +190,6 @@ Discord mode requires the Discord desktop client's Game Overlay and works best w
 #### Privacy Mode
 
 Privacy Mode can hide the dashboard, taskbar entry, and tray icon. Verify the dashboard recovery shortcut before enabling it; the default is `Ctrl+Shift+A`. Starting Akagi-NG again also restores the existing instance.
-
-Desktop privacy and tray changes are applied after the settings save completes. “Start with dashboard hidden” applies on the next application launch; Privacy Mode hides the currently running dashboard immediately.
 
 > [!IMPORTANT]
 > Privacy Mode does not hide Electron, Python, mihomo, or overlay processes from Task Manager or security software. Capture protection is also best effort and cannot cover every OBS version, capture method, or external camera.

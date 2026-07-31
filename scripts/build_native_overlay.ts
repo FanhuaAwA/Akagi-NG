@@ -1,16 +1,7 @@
 import { spawnSync } from 'node:child_process';
-import {
-  copyFileSync,
-  existsSync,
-  mkdirSync,
-  readdirSync,
-  readFileSync,
-  writeFileSync,
-} from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync } from 'node:fs';
 import { platform } from 'node:os';
 import { join, resolve } from 'node:path';
-
-import { Resvg } from '@resvg/resvg-js';
 
 const root = resolve(__dirname, '..');
 
@@ -23,8 +14,6 @@ const source = join(root, 'native', 'advanced-overlay');
 const build = join(root, 'build', 'native-overlay');
 const output = join(root, 'dist', 'native');
 const licenses = join(output, 'licenses');
-const tileSource = join(root, 'akagi_frontend', 'public', 'Resources');
-const tileOutput = join(output, 'tiles');
 
 function run(command: string, args: string[]) {
   const result = spawnSync(command, args, {
@@ -48,15 +37,6 @@ if (!existsSync(executable)) {
 
 mkdirSync(output, { recursive: true });
 copyFileSync(executable, join(output, 'AkagiAdvancedOverlay.exe'));
-mkdirSync(tileOutput, { recursive: true });
-for (const file of readdirSync(tileSource).filter((name) => name.endsWith('.svg'))) {
-  const rendered = new Resvg(readFileSync(join(tileSource, file)), {
-    fitTo: { mode: 'width', value: 160 },
-  })
-    .render()
-    .asPng();
-  writeFileSync(join(tileOutput, file.replace(/\.svg$/i, '.png')), rendered);
-}
 mkdirSync(licenses, { recursive: true });
 copyFileSync(join(source, 'THIRD_PARTY_NOTICES.md'), join(licenses, 'THIRD_PARTY_NOTICES.md'));
 copyFileSync(join(source, 'REFERENCE_LICENSE.txt'), join(licenses, 'discord-overlay-example.txt'));
@@ -65,9 +45,4 @@ copyFileSync(
   join(build, '_deps', 'nlohmann_json-src', 'LICENSE.MIT'),
   join(licenses, 'nlohmann-json.txt'),
 );
-copyFileSync(
-  join(root, 'node_modules', '@resvg', 'resvg-js', 'LICENSE'),
-  join(licenses, 'resvg-js.txt'),
-);
 console.log(`Native overlay copied to ${join(output, 'AkagiAdvancedOverlay.exe')}`);
-console.log(`Rendered native tile assets to ${tileOutput}`);

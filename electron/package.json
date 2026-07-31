@@ -1,7 +1,7 @@
 {
   "name": "akagi-ng-desktop",
   "private": true,
-  "version": "1.1.1",
+  "version": "1.1.0",
   "description": "Akagi-NG Electron Desktop App",
   "author": "Akagi-NG Contributors",
   "license": "AGPL-3.0",
@@ -77,10 +77,6 @@
         {
           "from": "../dist/native/AkagiAdvancedOverlay.exe",
           "to": "bin/AkagiAdvancedOverlay.exe"
-        },
-        {
-          "from": "../dist/native/tiles",
-          "to": "bin/tiles"
         },
         {
           "from": "../dist/native/licenses",

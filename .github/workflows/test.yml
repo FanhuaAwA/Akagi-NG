@@ -155,9 +155,6 @@ jobs:
       - name: Run TypeScript check
         run: npm run typecheck
 
-      - name: Run frontend regression tests
-        run: npm run test:frontend-regressions
-
   test-native-overlay:
     runs-on: windows-latest
 
@@ -181,11 +178,7 @@ jobs:
       - name: Run native overlay self-test
         shell: pwsh
         run: |
-          $snapshot = Join-Path $env:RUNNER_TEMP 'advanced-overlay-self-test.png'
-          & '.\dist\native\AkagiAdvancedOverlay.exe' --self-test "--snapshot=$snapshot"
+          & '.\dist\native\AkagiAdvancedOverlay.exe' --self-test
           if ($LASTEXITCODE -ne 0) {
             throw "Advanced overlay self-test failed with exit code $LASTEXITCODE"
-          }
-          if (-not (Test-Path $snapshot)) {
-            throw "Advanced overlay self-test did not produce a rendered frame"
           }
