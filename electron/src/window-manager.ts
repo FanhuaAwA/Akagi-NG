@@ -142,9 +142,6 @@ export class WindowManager {
     }
 
     this.applyWindowProtection();
-    if (!this.desktopConfig.captureProtection) {
-      this.hudClickThroughEnabled = false;
-    }
     this.applyHudMouseInteraction();
 
     if (this.hudRequestedVisible) {
@@ -349,14 +346,13 @@ export class WindowManager {
 
   public getHudClickThroughStatus() {
     return getHudMouseInteractionPolicy({
-      captureProtection: this.desktopConfig.captureProtection,
       clickThroughEnabled: this.hudClickThroughEnabled,
       controlsInteractive: this.hudControlsInteractive,
     });
   }
 
   public setHudClickThrough(enabled: boolean) {
-    this.hudClickThroughEnabled = enabled && this.desktopConfig.captureProtection;
+    this.hudClickThroughEnabled = enabled;
     this.applyHudMouseInteraction();
     return this.getHudClickThroughStatus();
   }

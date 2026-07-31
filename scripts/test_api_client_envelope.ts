@@ -55,30 +55,25 @@ async function main() {
     assert.equal(unprotectedPolicy.contentProtection, false);
 
     const clickThrough = getHudMouseInteractionPolicy({
-      captureProtection: true,
       clickThroughEnabled: true,
       controlsInteractive: false,
     });
-    assert.equal(clickThrough.available, true);
     assert.equal(clickThrough.enabled, true);
     assert.equal(clickThrough.ignoreMouseEvents, true);
 
     const interactiveControls = getHudMouseInteractionPolicy({
-      captureProtection: true,
       clickThroughEnabled: true,
       controlsInteractive: true,
     });
     assert.equal(interactiveControls.enabled, true);
     assert.equal(interactiveControls.ignoreMouseEvents, false);
 
-    const unavailableWithoutProtection = getHudMouseInteractionPolicy({
-      captureProtection: false,
-      clickThroughEnabled: true,
+    const clickThroughDisabled = getHudMouseInteractionPolicy({
+      clickThroughEnabled: false,
       controlsInteractive: false,
     });
-    assert.equal(unavailableWithoutProtection.available, false);
-    assert.equal(unavailableWithoutProtection.enabled, false);
-    assert.equal(unavailableWithoutProtection.ignoreMouseEvents, false);
+    assert.equal(clickThroughDisabled.enabled, false);
+    assert.equal(clickThroughDisabled.ignoreMouseEvents, false);
     console.log('API response envelope regression test passed.');
   } finally {
     globalThis.fetch = originalFetch;

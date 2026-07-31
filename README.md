@@ -183,11 +183,10 @@ Click the monitor icon in the top right corner of the Dashboard to open the HUD 
 Akagi-NG uses the standard cross-platform Electron HUD. It keeps the existing
 Mahjong tile and recommendation display and can be freely dragged and resized.
 
-When capture protection is enabled in Settings → Overlay & Tray, a mouse-pointer
-button appears in the HUD's upper-right control group. Enable it to pass clicks
-through the HUD to the game or window underneath. Move the pointer over the
-control group to disable click-through or close the HUD. The option is hidden
-when capture protection is disabled.
+A mouse-pointer button is always available in the HUD's upper-right control
+group. Enable it to pass clicks through the HUD to the game or window underneath.
+Move the pointer over the control group to disable click-through or close the
+HUD. Click-through and capture protection are independent features.
 
 #### Dashboard and Tray Behavior
 

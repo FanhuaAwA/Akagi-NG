@@ -8,14 +8,12 @@ import { ModelStatusIndicator } from '@/components/ui/model-status-indicator';
 import { cn } from '@/lib/utils';
 
 interface HudClickThroughStatus {
-  available: boolean;
   enabled: boolean;
 }
 
 export default function Hud() {
   const { t } = useTranslation();
   const [clickThrough, setClickThrough] = useState<HudClickThroughStatus>({
-    available: false,
     enabled: false,
   });
 
@@ -48,31 +46,29 @@ export default function Hud() {
         onPointerEnter={() => setControlsInteractive(true)}
         onPointerLeave={() => setControlsInteractive(false)}
       >
-        {clickThrough.available && (
-          <HudControlButton
-            className={cn(clickThrough.enabled && 'bg-emerald-500/40 opacity-100')}
-            title={
-              clickThrough.enabled
-                ? t('app.hud_click_through_disable')
-                : t('app.hud_click_through_enable')
-            }
-            aria-label={
-              clickThrough.enabled
-                ? t('app.hud_click_through_disable')
-                : t('app.hud_click_through_enable')
-            }
-            aria-pressed={clickThrough.enabled}
-            onClick={async () => {
-              const status = await window.electron.invoke<HudClickThroughStatus>(
-                'hud-set-click-through',
-                !clickThrough.enabled,
-              );
-              setClickThrough(status);
-            }}
-          >
-            <MousePointer2 className='h-4 w-4' />
-          </HudControlButton>
-        )}
+        <HudControlButton
+          className={cn(clickThrough.enabled && 'bg-emerald-500/40 opacity-100')}
+          title={
+            clickThrough.enabled
+              ? t('app.hud_click_through_disable')
+              : t('app.hud_click_through_enable')
+          }
+          aria-label={
+            clickThrough.enabled
+              ? t('app.hud_click_through_disable')
+              : t('app.hud_click_through_enable')
+          }
+          aria-pressed={clickThrough.enabled}
+          onClick={async () => {
+            const status = await window.electron.invoke<HudClickThroughStatus>(
+              'hud-set-click-through',
+              !clickThrough.enabled,
+            );
+            setClickThrough(status);
+          }}
+        >
+          <MousePointer2 className='h-4 w-4' />
+        </HudControlButton>
         <HudControlButton
           title={t('common.close')}
           aria-label={t('common.close')}

@@ -7,9 +7,9 @@ All notable changes to Akagi-NG are documented in this file.
 ### Added
 
 - Added an optional tray icon without hiding the dashboard or its taskbar entry.
-- Added a mouse click-through toggle to the standard HUD while capture protection
-  is enabled. The control island remains interactive so click-through can always
-  be disabled and the HUD can be closed.
+- Added an independent mouse click-through toggle to the standard HUD. The
+  control island remains interactive so click-through can always be disabled
+  and the HUD can be closed.
 
 ### Changed
 
@@ -34,7 +34,7 @@ All notable changes to Akagi-NG are documented in this file.
 
 - Capture protection is a best-effort Windows feature and is not DRM. It cannot
   guarantee exclusion from every OBS capture method or external camera.
-- Click-through is deliberately unavailable when capture protection is disabled.
+- Capture protection and HUD click-through are independent settings.
 
 ## [1.0.9] - 2026-07-31
 

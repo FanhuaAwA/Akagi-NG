@@ -18,17 +18,13 @@ export function getDashboardWindowPolicy(config: DesktopConfig) {
 }
 
 export interface HudMouseInteractionInput {
-  captureProtection: boolean;
   clickThroughEnabled: boolean;
   controlsInteractive: boolean;
 }
 
 export function getHudMouseInteractionPolicy(input: HudMouseInteractionInput) {
-  const available = input.captureProtection;
-  const enabled = available && input.clickThroughEnabled;
   return {
-    available,
-    enabled,
-    ignoreMouseEvents: enabled && !input.controlsInteractive,
+    enabled: input.clickThroughEnabled,
+    ignoreMouseEvents: input.clickThroughEnabled && !input.controlsInteractive,
   };
 }
