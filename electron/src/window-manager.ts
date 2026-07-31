@@ -91,7 +91,7 @@ export class WindowManager {
       {
         label: 'Show Dashboard',
         click: () => {
-          this.createDashboardWindow();
+          void this.createDashboardWindow(true);
         },
       },
       {
@@ -133,7 +133,7 @@ export class WindowManager {
         }
         window.focus();
       } else {
-        this.createDashboardWindow();
+        void this.createDashboardWindow(true);
       }
     });
   }
@@ -150,6 +150,10 @@ export class WindowManager {
 
     this.registerRestoreShortcut();
     this.applyDesktopWindowFlags();
+    logger.info(
+      `Desktop settings applied: privacy=${this.desktopConfig.privacyMode}, ` +
+        `tray=${this.desktopConfig.trayVisible}, startHidden=${this.desktopConfig.startHidden}`,
+    );
 
     if (this.hudRequestedVisible) {
       await this.toggleHudWindow(true);
@@ -159,7 +163,7 @@ export class WindowManager {
   public showDashboard(): void {
     if (this.dashboardWindow) {
       if (this.dashboardWindow.isMinimized()) this.dashboardWindow.restore();
-      this.dashboardWindow.setSkipTaskbar(false);
+      this.dashboardWindow.setSkipTaskbar(this.desktopConfig.privacyMode);
       this.dashboardWindow.show();
       this.dashboardWindow.focus();
       return;
@@ -173,8 +177,11 @@ export class WindowManager {
 
   public async createDashboardWindow(forceShow = false): Promise<void> {
     if (this.dashboardWindow) {
-      this.dashboardWindow.show();
-      this.dashboardWindow.focus();
+      if (forceShow) {
+        this.dashboardWindow.setSkipTaskbar(this.desktopConfig.privacyMode);
+        this.dashboardWindow.show();
+        this.dashboardWindow.focus();
+      }
       return;
     }
 
@@ -369,8 +376,10 @@ export class WindowManager {
 
   private destroyTray(): void {
     if (!this.tray) return;
+    this.tray.removeAllListeners();
     this.tray.destroy();
     this.tray = null;
+    logger.info('Tray icon destroyed.');
   }
 
   private registerRestoreShortcut(): void {

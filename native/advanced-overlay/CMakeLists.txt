@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.24)
 
-project(AkagiAdvancedOverlay VERSION 1.1.0 LANGUAGES CXX)
+project(AkagiAdvancedOverlay VERSION 1.1.1 LANGUAGES CXX)
 
 if(NOT WIN32)
   message(FATAL_ERROR "Akagi Advanced Overlay is only supported on Windows.")
@@ -49,7 +49,9 @@ add_executable(AkagiAdvancedOverlay src/main.cpp)
 target_link_libraries(AkagiAdvancedOverlay PRIVATE
   akagi_imgui
   nlohmann_json::nlohmann_json
+  ole32
   winhttp
+  windowscodecs
   user32
 )
 

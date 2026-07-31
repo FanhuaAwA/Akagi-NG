@@ -12,5 +12,9 @@ The native executable statically links:
 - [Dear ImGui](https://github.com/ocornut/imgui), MIT License, pinned to v1.92.8.
 - [JSON for Modern C++](https://github.com/nlohmann/json), MIT License, pinned to v3.12.0.
 
+The Windows build uses
+[resvg-js](https://github.com/yisibl/resvg-js), Mozilla Public License 2.0,
+to rasterize the same SVG mahjong-tile resources used by the standard HUD.
+
 The complete upstream license files are copied into the Windows package by
 `scripts/build_native_overlay.ts`.

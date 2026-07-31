@@ -1,7 +1,7 @@
 {
   "name": "akagi-ng-root",
   "private": true,
-  "version": "1.1.0",
+  "version": "1.1.1",
   "description": "Akagi-NG is a next-generation rewrite inspired by Akagi and MajsoulHelper, focusing on modern architecture and UI.",
   "author": "Akagi-NG Contributors",
   "license": "AGPL-3.0",
@@ -24,6 +24,7 @@
     "prepare-release": "tsx scripts/prepare_release.ts",
     "build:backend": "tsx scripts/build_backend.ts",
     "build:native-overlay": "tsx scripts/build_native_overlay.ts",
+    "test:frontend-regressions": "tsx scripts/test_api_client_envelope.ts",
     "build": "npm run clean && npm run sync-version && npm run build -w akagi-frontend && npm run build:backend && npm run build:native-overlay && npm run build -w akagi-ng-desktop && npm run prepare-release && npm run package -w akagi-ng-desktop",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
@@ -34,6 +35,7 @@
   "devDependencies": {
     "@eslint-react/eslint-plugin": "^5.6.0",
     "@eslint/js": "^10.0.1",
+    "@resvg/resvg-js": "^2.6.2",
     "concurrently": "^9.2.1",
     "eslint": "^10.2.1",
     "eslint-config-prettier": "^10.1.8",

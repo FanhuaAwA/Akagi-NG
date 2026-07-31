@@ -60,13 +60,21 @@ export class AdvancedOverlayManager {
           : 'discord'
         : config.advancedHost;
     const host = requestedHost === 'discord' ? 'discord' : 'protected';
-    const fallbackUsed = config.advancedHost === 'auto' && host === 'protected';
+    const fallbackUsed = false;
     const clientId = `advanced-overlay-${process.pid}-${Date.now()}`;
+    const locale = await this.backendManager.getLocale();
+    const tileRoot = app.isPackaged
+      ? getAssetPath('bin', 'tiles')
+      : join(getProjectRoot(), 'dist', 'native', 'tiles');
+    const stateRoot = app.getPath('userData');
     const args = [
       `--sse=http://${backend.host}:${backend.port}/sse?clientId=${clientId}`,
       `--host=${host}`,
       `--capture-protection=${config.captureProtection ? 'true' : 'false'}`,
-      '--parent-pid=' + process.pid,
+      `--parent-pid=${process.pid}`,
+      `--tiles=${tileRoot}`,
+      `--locale=${locale}`,
+      `--state=${join(stateRoot, 'advanced-overlay')}`,
     ];
 
     logger.info(`Starting ${executable} with host=${host}`);

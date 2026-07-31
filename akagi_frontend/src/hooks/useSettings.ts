@@ -9,11 +9,15 @@ export async function fetchSettingsApi(): Promise<Settings> {
 }
 
 export async function saveSettingsApi(settings: Settings): Promise<SaveSettingsResponse> {
-  return await fetchJson(`/api/settings`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(settings),
-  });
+  return await fetchJson(
+    `/api/settings`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(settings),
+    },
+    'envelope',
+  );
 }
 
 export async function resetSettingsApi(): Promise<Settings> {

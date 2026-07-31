@@ -10,6 +10,7 @@ import { DEFAULT_DESKTOP_CONFIG, type DesktopConfig } from './desktop-config.js'
 import { createLogger } from './logger.js';
 
 interface AppSettings {
+  locale?: string;
   server?: {
     host?: string;
     port?: number;
@@ -106,6 +107,11 @@ export class BackendManager {
       startHidden: desktop?.start_hidden ?? DEFAULT_DESKTOP_CONFIG.startHidden,
       restoreShortcut: desktop?.restore_shortcut?.trim() || DEFAULT_DESKTOP_CONFIG.restoreShortcut,
     };
+  }
+
+  public async getLocale(): Promise<string> {
+    const settings = await this.getSettings();
+    return settings.locale?.trim() || 'zh-CN';
   }
 
   public async getProxyConfig(): Promise<{
