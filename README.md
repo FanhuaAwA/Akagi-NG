@@ -69,8 +69,9 @@ Core Philosophy of Akagi-NG:
   - Real-time hand analysis and AI discard recommendations
   - Riichi Lookahead - Intelligent recommendation for the best discard after reaching
   - Comprehensive Fuuro Support - Clear action prompts for Chi, Pon and all Kan variants
-  - Windows Advanced Overlay - Native D3D11 rendering with an optional Discord Overlay host
-  - Capture Protection - System-level capture exclusion for the visible Dashboard, standard HUD, and Akagi-owned native window
+  - Standard Overlay - Draggable and resizable HUD using the full Mahjong recommendation display
+  - Capture Protection - Best-effort system capture exclusion for the visible Dashboard and standard HUD
+  - HUD Click-through - Click content behind the protected HUD while its control buttons remain accessible
   - Optional Tray Icon - Hide the tray icon without hiding the dashboard or taskbar entry
   - Modern Glassmorphism Style - Smooth and transparent visual experience
   - Multi-language support - Simplified Chinese / Traditional Chinese / Japanese / English
@@ -177,15 +178,16 @@ Click the monitor icon in the top right corner of the Dashboard to open the HUD 
 > [!TIP]
 > **HUD (Heads-Up Display)** is a core feature of Akagi-NG. It can directly overlay auxiliary information in a semi-transparent form over the game screen, without the need to manually pin windows to the top.
 
-#### Standard and Advanced Overlay
+#### Standard Overlay and Click-through
 
-Open Settings → Overlay & Tray:
+Akagi-NG uses the standard cross-platform Electron HUD. It keeps the existing
+Mahjong tile and recommendation display and can be freely dragged and resized.
 
-- **Standard Overlay** uses the existing cross-platform Electron HUD.
-- **Advanced Overlay** is a Windows-only D3D11/ImGui renderer. It can target Discord Overlay or an Akagi-owned protected window.
-- **Auto host** prefers Discord when capture protection is disabled. With protection enabled it selects Akagi's own window, because Windows only allows an application to set display affinity on windows it owns.
-
-Discord mode requires the Discord desktop client's Game Overlay and works best with windowed or borderless games. Exclusive fullscreen, Discord updates, graphics drivers, and OBS capture methods may affect compatibility.
+When capture protection is enabled in Settings → Overlay & Tray, a mouse-pointer
+button appears in the HUD's upper-right control group. Enable it to pass clicks
+through the HUD to the game or window underneath. Move the pointer over the
+control group to disable click-through or close the HUD. The option is hidden
+when capture protection is disabled.
 
 #### Dashboard and Tray Behavior
 

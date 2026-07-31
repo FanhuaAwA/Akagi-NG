@@ -17,15 +17,21 @@ export function registerIpcHandlers(
   // Toggle HUD Window
   ipcMain.handle('toggle-hud', async (_event, show: boolean) => {
     await windowManager.toggleHudWindow(show);
-    return windowManager.getAdvancedOverlayStatus();
+    return windowManager.getHudClickThroughStatus();
   });
 
   ipcMain.handle('desktop-reconcile', async () => {
     await windowManager.reconcileDesktopSettings();
-    return windowManager.getAdvancedOverlayStatus();
+    return windowManager.getHudClickThroughStatus();
   });
 
-  ipcMain.handle('advanced-overlay-status', () => windowManager.getAdvancedOverlayStatus());
+  ipcMain.handle('hud-click-through-status', () => windowManager.getHudClickThroughStatus());
+  ipcMain.handle('hud-set-click-through', (_event, enabled: boolean) =>
+    windowManager.setHudClickThrough(enabled),
+  );
+  ipcMain.handle('hud-set-controls-interactive', (_event, interactive: boolean) =>
+    windowManager.setHudControlsInteractive(interactive),
+  );
 
   // Start Game Window / Browser Mode
   ipcMain.handle(

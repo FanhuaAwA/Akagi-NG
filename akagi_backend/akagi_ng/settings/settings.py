@@ -153,8 +153,8 @@ class Settings:
                 strict_route=mihomo_data.get("strict_route", False),
             ),
             desktop=DesktopConfig(
-                overlay_mode=desktop_data.get("overlay_mode", "standard"),
-                advanced_host=desktop_data.get("advanced_host", "auto"),
+                overlay_mode="standard",
+                advanced_host="auto",
                 capture_protection=desktop_data.get("capture_protection", True),
                 privacy_mode=False,
                 tray_visible=desktop_data.get("tray_visible", True),
@@ -397,8 +397,8 @@ def _update_settings(settings: Settings, data: dict):
     settings.mihomo.strict_route = mihomo_data.get("strict_route", False)
 
     desktop_data = data.get("desktop", {})
-    settings.desktop.overlay_mode = desktop_data.get("overlay_mode", "standard")
-    settings.desktop.advanced_host = desktop_data.get("advanced_host", "auto")
+    settings.desktop.overlay_mode = "standard"
+    settings.desktop.advanced_host = "auto"
     settings.desktop.capture_protection = desktop_data.get("capture_protection", True)
     settings.desktop.privacy_mode = False
     settings.desktop.tray_visible = desktop_data.get("tray_visible", True)

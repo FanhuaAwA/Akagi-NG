@@ -2,7 +2,6 @@ import { join } from 'node:path';
 
 import { app, BrowserWindow, Menu, nativeImage, nativeTheme, screen, Tray } from 'electron';
 
-import { AdvancedOverlayManager } from './advanced-overlay-manager.js';
 import type { BackendManager } from './backend-manager.js';
 import {
   DASHBOARD_WINDOW_HEIGHT,
@@ -24,6 +23,7 @@ import {
   DEFAULT_DESKTOP_CONFIG,
   type DesktopConfig,
   getDashboardWindowPolicy,
+  getHudMouseInteractionPolicy,
 } from './desktop-config.js';
 import { GameHandler } from './game-handler.js';
 import { createLogger } from './logger.js';
@@ -37,16 +37,15 @@ export class WindowManager {
   private gameWindow: BrowserWindow | null = null;
   private hudWindow: BrowserWindow | null = null;
   private gameHandler: GameHandler | null = null;
-  private advancedOverlayManager: AdvancedOverlayManager;
   private desktopConfig: DesktopConfig = DEFAULT_DESKTOP_CONFIG;
   private onCheckForUpdates: (() => void) | undefined;
   private hudRequestedVisible = false;
+  private hudClickThroughEnabled = false;
+  private hudControlsInteractive = false;
   private lastHudPosition: { x: number; y: number } | null = null;
   private isQuitting: boolean = false;
 
-  constructor(private backendManager: BackendManager) {
-    this.advancedOverlayManager = new AdvancedOverlayManager(backendManager);
-  }
+  constructor(private backendManager: BackendManager) {}
 
   public setQuitting(quitting: boolean) {
     this.isQuitting = quitting;
@@ -143,6 +142,10 @@ export class WindowManager {
     }
 
     this.applyWindowProtection();
+    if (!this.desktopConfig.captureProtection) {
+      this.hudClickThroughEnabled = false;
+    }
+    this.applyHudMouseInteraction();
 
     if (this.hudRequestedVisible) {
       await this.toggleHudWindow(true);
@@ -241,25 +244,12 @@ export class WindowManager {
   public async toggleHudWindow(show: boolean): Promise<void> {
     this.hudRequestedVisible = show;
     if (!show) {
-      await this.advancedOverlayManager.stop();
       if (this.hudWindow?.isVisible()) this.hudWindow.hide();
       safeSend(this.dashboardWindow, 'hud-visibility-changed', false);
       return;
     }
 
     this.desktopConfig = await this.backendManager.getDesktopConfig();
-    if (this.desktopConfig.overlayMode === 'advanced' && process.platform === 'win32') {
-      if (this.hudWindow?.isVisible()) this.hudWindow.hide();
-      const status = await this.advancedOverlayManager.restart(this.desktopConfig);
-      safeSend(this.dashboardWindow, 'advanced-overlay-status', status);
-      if (status.running) {
-        safeSend(this.dashboardWindow, 'hud-visibility-changed', true);
-        return;
-      }
-      logger.warn(`Advanced overlay unavailable; using standard HUD: ${status.error ?? 'unknown'}`);
-    }
-
-    await this.advancedOverlayManager.stop();
     if (!this.hudWindow) {
       await this.createHudWindow();
     }
@@ -277,6 +267,7 @@ export class WindowManager {
             }
           }, 50);
         }
+        this.applyHudMouseInteraction();
         this.hudWindow.focus();
         safeSend(this.dashboardWindow, 'hud-visibility-changed', true);
       }
@@ -318,6 +309,7 @@ export class WindowManager {
     // Enforce high-level always-on-top (works over fullscreen apps/games on most OS)
     this.hudWindow.setAlwaysOnTop(true, 'screen-saver');
     this.hudWindow.setContentProtection(this.desktopConfig.captureProtection);
+    this.applyHudMouseInteraction();
 
     // Ensure visibility across virtual desktops (Mac/Win)
     this.hudWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
@@ -351,16 +343,32 @@ export class WindowManager {
 
     this.hudWindow.on('closed', () => {
       this.hudWindow = null;
+      this.hudControlsInteractive = false;
     });
   }
 
-  public getAdvancedOverlayStatus() {
-    return this.advancedOverlayManager.getStatus();
+  public getHudClickThroughStatus() {
+    return getHudMouseInteractionPolicy({
+      captureProtection: this.desktopConfig.captureProtection,
+      clickThroughEnabled: this.hudClickThroughEnabled,
+      controlsInteractive: this.hudControlsInteractive,
+    });
+  }
+
+  public setHudClickThrough(enabled: boolean) {
+    this.hudClickThroughEnabled = enabled && this.desktopConfig.captureProtection;
+    this.applyHudMouseInteraction();
+    return this.getHudClickThroughStatus();
+  }
+
+  public setHudControlsInteractive(interactive: boolean) {
+    this.hudControlsInteractive = interactive;
+    this.applyHudMouseInteraction();
+    return this.getHudClickThroughStatus();
   }
 
   public async shutdown(): Promise<void> {
     this.destroyTray();
-    await this.advancedOverlayManager.stop();
   }
 
   private destroyTray(): void {
@@ -377,6 +385,14 @@ export class WindowManager {
     if (isSafeWindow(this.hudWindow)) {
       this.hudWindow.setSkipTaskbar(true);
       this.hudWindow.setContentProtection(this.desktopConfig.captureProtection);
+    }
+  }
+
+  private applyHudMouseInteraction(): void {
+    const status = this.getHudClickThroughStatus();
+    if (isSafeWindow(this.hudWindow)) {
+      this.hudWindow.setIgnoreMouseEvents(status.ignoreMouseEvents, { forward: true });
+      safeSend(this.hudWindow, 'hud-click-through-changed', status);
     }
   }
 

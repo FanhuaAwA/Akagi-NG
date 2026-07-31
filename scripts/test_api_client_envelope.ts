@@ -1,7 +1,11 @@
 import assert from 'node:assert/strict';
 
 import { fetchJson } from '../akagi_frontend/src/lib/api-client';
-import { DEFAULT_DESKTOP_CONFIG, getDashboardWindowPolicy } from '../electron/src/desktop-config';
+import {
+  DEFAULT_DESKTOP_CONFIG,
+  getDashboardWindowPolicy,
+  getHudMouseInteractionPolicy,
+} from '../electron/src/desktop-config';
 
 const payload = {
   ok: true,
@@ -49,6 +53,32 @@ async function main() {
     assert.equal(unprotectedPolicy.startVisible, true);
     assert.equal(unprotectedPolicy.skipTaskbar, false);
     assert.equal(unprotectedPolicy.contentProtection, false);
+
+    const clickThrough = getHudMouseInteractionPolicy({
+      captureProtection: true,
+      clickThroughEnabled: true,
+      controlsInteractive: false,
+    });
+    assert.equal(clickThrough.available, true);
+    assert.equal(clickThrough.enabled, true);
+    assert.equal(clickThrough.ignoreMouseEvents, true);
+
+    const interactiveControls = getHudMouseInteractionPolicy({
+      captureProtection: true,
+      clickThroughEnabled: true,
+      controlsInteractive: true,
+    });
+    assert.equal(interactiveControls.enabled, true);
+    assert.equal(interactiveControls.ignoreMouseEvents, false);
+
+    const unavailableWithoutProtection = getHudMouseInteractionPolicy({
+      captureProtection: false,
+      clickThroughEnabled: true,
+      controlsInteractive: false,
+    });
+    assert.equal(unavailableWithoutProtection.available, false);
+    assert.equal(unavailableWithoutProtection.enabled, false);
+    assert.equal(unavailableWithoutProtection.ignoreMouseEvents, false);
     console.log('API response envelope regression test passed.');
   } finally {
     globalThis.fetch = originalFetch;

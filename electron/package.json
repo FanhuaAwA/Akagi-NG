@@ -75,14 +75,6 @@
       "requestedExecutionLevel": "requireAdministrator",
       "extraFiles": [
         {
-          "from": "../dist/native/AkagiAdvancedOverlay.exe",
-          "to": "bin/AkagiAdvancedOverlay.exe"
-        },
-        {
-          "from": "../dist/native/licenses",
-          "to": "licenses/advanced-overlay"
-        },
-        {
           "from": "../README.txt",
           "to": "."
         },

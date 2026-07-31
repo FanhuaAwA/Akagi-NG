@@ -6,22 +6,16 @@ All notable changes to Akagi-NG are documented in this file.
 
 ### Added
 
-- Added a selectable Advanced Overlay mode for Windows, implemented as a native
-  Direct3D 11 and Dear ImGui renderer.
-- Added optional Discord Overlay hosting based on the external HWND and swap-chain
-  lifecycle demonstrated by `FanhuaAwA/discord-overlay-example`.
-- Added a protected native-window host that applies
-  `WDA_EXCLUDEFROMCAPTURE` when capture protection is enabled.
-- Added an independent SSE client for the native overlay with reconnect handling,
-  cached recommendation delivery, top-three rendering, and stale-data expiry.
 - Added an optional tray icon without hiding the dashboard or its taskbar entry.
-- Added automatic fallback from an unavailable advanced renderer to the existing
-  Electron HUD.
+- Added a mouse click-through toggle to the standard HUD while capture protection
+  is enabled. The control island remains interactive so click-through can always
+  be disabled and the HUD can be closed.
 
 ### Changed
 
-- Standard Electron HUD windows now enable Electron content protection when
-  configured and are excluded from the taskbar.
+- The standard Electron HUD is now the only overlay mode. It remains draggable,
+  resizable, excluded from the taskbar, and uses the existing Mahjong display.
+- Standard HUD windows now enable Electron content protection when configured.
 - Capture protection now also applies to the visible Dashboard without hiding
   it or removing its taskbar entry.
 - Removed the experimental dashboard Privacy Mode, start-hidden behavior, and
@@ -31,7 +25,8 @@ All notable changes to Akagi-NG are documented in this file.
 - When the tray icon is disabled, closing the dashboard now minimizes it to the
   taskbar instead of hiding it in the background.
 - Desktop settings can be reconciled without restarting the Python backend.
-- Windows packages now include `AkagiAdvancedOverlay.exe`.
+- Removed the experimental native/Discord advanced overlay implementation,
+  settings, CI job, and packaged binary.
 - Update checks and packaged publishing metadata now target
   `FanhuaAwA/Akagi-NG`.
 
@@ -39,9 +34,7 @@ All notable changes to Akagi-NG are documented in this file.
 
 - Capture protection is a best-effort Windows feature and is not DRM. It cannot
   guarantee exclusion from every OBS capture method or external camera.
-- A Discord-owned window cannot receive Akagi's display-affinity setting. When
-  capture protection is enabled, Auto host mode therefore selects Akagi's own
-  protected native window.
+- Click-through is deliberately unavailable when capture protection is disabled.
 
 ## [1.0.9] - 2026-07-31
 

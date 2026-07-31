@@ -179,6 +179,19 @@ class TestSettingsLifecycle(unittest.TestCase):
         self.assertFalse(settings.desktop.start_hidden)
         self.assertEqual(settings.desktop.restore_shortcut, "CommandOrControl+Shift+A")
 
+    def test_deprecated_advanced_overlay_settings_are_normalized(self):
+        legacy = get_default_settings_dict()
+        legacy["desktop"]["overlay_mode"] = "advanced"
+        legacy["desktop"]["advanced_host"] = "discord"
+
+        settings = Settings.from_dict(legacy)
+        self.assertEqual(settings.desktop.overlay_mode, "standard")
+        self.assertEqual(settings.desktop.advanced_host, "auto")
+
+        settings.update(legacy)
+        self.assertEqual(settings.desktop.overlay_mode, "standard")
+        self.assertEqual(settings.desktop.advanced_host, "auto")
+
         settings.update(legacy)
         self.assertFalse(settings.desktop.privacy_mode)
         self.assertFalse(settings.desktop.start_hidden)

@@ -26,8 +26,6 @@ interface AppSettings {
     strict_route?: boolean;
   };
   desktop?: {
-    overlay_mode?: DesktopConfig['overlayMode'];
-    advanced_host?: DesktopConfig['advancedHost'];
     capture_protection?: boolean;
     tray_visible?: boolean;
   };
@@ -95,8 +93,6 @@ export class BackendManager {
     const settings = await this.getSettings();
     const desktop = settings.desktop;
     return {
-      overlayMode: desktop?.overlay_mode ?? DEFAULT_DESKTOP_CONFIG.overlayMode,
-      advancedHost: desktop?.advanced_host ?? DEFAULT_DESKTOP_CONFIG.advancedHost,
       captureProtection: desktop?.capture_protection ?? DEFAULT_DESKTOP_CONFIG.captureProtection,
       trayVisible: desktop?.tray_visible ?? DEFAULT_DESKTOP_CONFIG.trayVisible,
     };
