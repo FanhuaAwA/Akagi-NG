@@ -34,7 +34,7 @@ export function UpdateBadge() {
   const handleClick = () => {
     window.electron.invoke(
       'open-external',
-      `https://github.com/Xe-Persistent/Akagi-NG/releases/tag/v${version}`,
+      `https://github.com/FanhuaAwA/Akagi-NG/releases/tag/v${version}`,
     );
   };
 

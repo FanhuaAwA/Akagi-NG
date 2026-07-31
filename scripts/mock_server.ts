@@ -34,6 +34,15 @@ const defaultSettings: Settings = {
     controller_port: 9090,
     strict_route: false,
   },
+  desktop: {
+    overlay_mode: 'standard',
+    advanced_host: 'auto',
+    capture_protection: true,
+    privacy_mode: false,
+    tray_visible: true,
+    start_hidden: false,
+    restore_shortcut: 'CommandOrControl+Shift+A',
+  },
   server: {
     host: '127.0.0.1',
     port: 8765,

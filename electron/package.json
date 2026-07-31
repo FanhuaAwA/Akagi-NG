@@ -1,7 +1,7 @@
 {
   "name": "akagi-ng-desktop",
   "private": true,
-  "version": "1.0.9",
+  "version": "1.1.0",
   "description": "Akagi-NG Electron Desktop App",
   "author": "Akagi-NG Contributors",
   "license": "AGPL-3.0",
@@ -22,7 +22,7 @@
     "publish": [
       {
         "provider": "github",
-        "owner": "Xe-Persistent",
+        "owner": "FanhuaAwA",
         "repo": "Akagi-NG"
       }
     ],
@@ -74,6 +74,14 @@
       "icon": "../assets/torii.ico",
       "requestedExecutionLevel": "requireAdministrator",
       "extraFiles": [
+        {
+          "from": "../dist/native/AkagiAdvancedOverlay.exe",
+          "to": "bin/AkagiAdvancedOverlay.exe"
+        },
+        {
+          "from": "../dist/native/licenses",
+          "to": "licenses/advanced-overlay"
+        },
         {
           "from": "../README.txt",
           "to": "."

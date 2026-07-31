@@ -17,8 +17,15 @@ export function registerIpcHandlers(
   // Toggle HUD Window
   ipcMain.handle('toggle-hud', async (_event, show: boolean) => {
     await windowManager.toggleHudWindow(show);
-    return true;
+    return windowManager.getAdvancedOverlayStatus();
   });
+
+  ipcMain.handle('desktop-reconcile', async () => {
+    await windowManager.reconcileDesktopSettings();
+    return windowManager.getAdvancedOverlayStatus();
+  });
+
+  ipcMain.handle('advanced-overlay-status', () => windowManager.getAdvancedOverlayStatus());
 
   // Start Game Window / Browser Mode
   ipcMain.handle(
@@ -40,6 +47,7 @@ export function registerIpcHandlers(
       new Promise((resolve) => setTimeout(resolve, EXIT_ANIMATION_DELAY_MS)),
       backendManager.stop().catch((err: unknown) => logger.error('Backend stop error:', err)),
       mihomoManager.stop().catch((err: unknown) => logger.error('mihomo stop error:', err)),
+      windowManager.shutdown().catch((err: unknown) => logger.error('Window stop error:', err)),
     ]);
 
     app.quit();

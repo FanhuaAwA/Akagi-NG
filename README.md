@@ -9,9 +9,9 @@
 <p><i>「死ねば助かるのに……」— 赤木しげる</i></p>
 
 <p>
-<a href="https://github.com/Xe-Persistent/Akagi-NG/actions/workflows/test.yml"><img src="https://img.shields.io/github/actions/workflow/status/Xe-Persistent/Akagi-NG/test.yml?branch=master&label=CI&labelColor=181717&logo=github" alt="CI Status"></a>
-<a href="https://github.com/Xe-Persistent/Akagi-NG/releases"><img src="https://img.shields.io/github/v/release/Xe-Persistent/Akagi-NG?labelColor=181717&logo=github&display_name=tag" alt="GitHub release"></a>
-<a href="https://github.com/Xe-Persistent/Akagi-NG/stargazers"><img src="https://img.shields.io/github/stars/Xe-Persistent/Akagi-NG?style=social" alt="GitHub stars"></a>
+<a href="https://github.com/FanhuaAwA/Akagi-NG/actions/workflows/test.yml"><img src="https://img.shields.io/github/actions/workflow/status/FanhuaAwA/Akagi-NG/test.yml?branch=master&label=CI&labelColor=181717&logo=github" alt="CI Status"></a>
+<a href="https://github.com/FanhuaAwA/Akagi-NG/releases"><img src="https://img.shields.io/github/v/release/FanhuaAwA/Akagi-NG?labelColor=181717&logo=github&display_name=tag" alt="GitHub release"></a>
+<a href="https://github.com/FanhuaAwA/Akagi-NG/stargazers"><img src="https://img.shields.io/github/stars/FanhuaAwA/Akagi-NG?style=social" alt="GitHub stars"></a>
 <br>
 <img src="https://img.shields.io/badge/Windows-0078D6?logo=windows&logoColor=white" alt="Windows">
 <img src="https://img.shields.io/badge/macOS-000000?logo=apple&logoColor=white" alt="macOS">
@@ -25,9 +25,9 @@
 <img src="https://img.shields.io/badge/Python-3776AB?logo=python&logoColor=white" alt="Python">
 <img src="https://img.shields.io/badge/PyTorch-EE4C2C?logo=pytorch&logoColor=white" alt="PyTorch">
 <br>
-<img src="https://img.shields.io/github/license/Xe-Persistent/Akagi-NG?labelColor=808080&color=663366" alt="License">
+<img src="https://img.shields.io/github/license/FanhuaAwA/Akagi-NG?labelColor=808080&color=663366" alt="License">
 <a href="https://discord.gg/Z2wjXUK8bN"><img src="https://img.shields.io/discord/1192792431364673577?label=Discord&labelColor=5865F2&logo=discord&logoColor=white" alt="Discord"></a>
-<a href="https://codecov.io/gh/Xe-Persistent/Akagi-NG"><img src="https://img.shields.io/codecov/c/github/Xe-Persistent/Akagi-NG?labelColor=F01F7A&logo=Codecov&logoColor=white" alt="Codecov"></a>
+<a href="https://codecov.io/gh/FanhuaAwA/Akagi-NG"><img src="https://img.shields.io/codecov/c/github/FanhuaAwA/Akagi-NG?labelColor=F01F7A&logo=Codecov&logoColor=white" alt="Codecov"></a>
 </p>
 
 <p align="center">
@@ -69,6 +69,9 @@ Core Philosophy of Akagi-NG:
   - Real-time hand analysis and AI discard recommendations
   - Riichi Lookahead - Intelligent recommendation for the best discard after reaching
   - Comprehensive Fuuro Support - Clear action prompts for Chi, Pon and all Kan variants
+  - Windows Advanced Overlay - Native D3D11 rendering with an optional Discord Overlay host
+  - Capture Protection - System-level capture exclusion for the standard HUD and Akagi-owned native window
+  - Privacy Mode - Optional tray, taskbar, and dashboard hiding with a recovery shortcut
   - Modern Glassmorphism Style - Smooth and transparent visual experience
   - Multi-language support - Simplified Chinese / Traditional Chinese / Japanese / English
 
@@ -173,6 +176,23 @@ Click the monitor icon in the top right corner of the Dashboard to open the HUD 
 
 > [!TIP]
 > **HUD (Heads-Up Display)** is a core feature of Akagi-NG. It can directly overlay auxiliary information in a semi-transparent form over the game screen, without the need to manually pin windows to the top.
+
+#### Standard and Advanced Overlay
+
+Open Settings → Overlay & Privacy:
+
+- **Standard Overlay** uses the existing cross-platform Electron HUD.
+- **Advanced Overlay** is a Windows-only D3D11/ImGui renderer. It can target Discord Overlay or an Akagi-owned protected window.
+- **Auto host** prefers Discord when capture protection is disabled. With protection enabled it selects Akagi's own window, because Windows only allows an application to set display affinity on windows it owns.
+
+Discord mode requires the Discord desktop client's Game Overlay and works best with windowed or borderless games. Exclusive fullscreen, Discord updates, graphics drivers, and OBS capture methods may affect compatibility.
+
+#### Privacy Mode
+
+Privacy Mode can hide the dashboard, taskbar entry, and tray icon. Verify the dashboard recovery shortcut before enabling it; the default is `Ctrl+Shift+A`. Starting Akagi-NG again also restores the existing instance.
+
+> [!IMPORTANT]
+> Privacy Mode does not hide Electron, Python, mihomo, or overlay processes from Task Manager or security software. Capture protection is also best effort and cannot cover every OBS version, capture method, or external camera.
 
 ### 4. Configuration
 
@@ -366,7 +386,7 @@ To coexist with Clash/Clash Verge:
 Clone the repository and enter the directory:
 
 ```bash
-git clone https://github.com/Xe-Persistent/Akagi-NG.git
+git clone https://github.com/FanhuaAwA/Akagi-NG.git
 cd Akagi-NG
 ```
 

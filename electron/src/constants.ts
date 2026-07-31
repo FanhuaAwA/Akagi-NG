@@ -32,7 +32,7 @@ export const DEV_SERVER_URL = 'http://localhost:5173';
 export const DEV_HUD_URL = `${DEV_SERVER_URL}/#/hud`;
 
 // GitHub 仓库信息
-export const GITHUB_OWNER = 'Xe-Persistent';
+export const GITHUB_OWNER = 'FanhuaAwA';
 export const GITHUB_REPO = 'Akagi-NG';
 export const GITHUB_RELEASES_API = `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/releases/latest`;
 

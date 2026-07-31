@@ -147,6 +147,8 @@ class TestSettingsLifecycle(unittest.TestCase):
         self.assertEqual(defaults["majsoul_server"], "cn")
         self.assertEqual(defaults["game_url"], "https://game.maj-soul.com/1/")
         self.assertFalse(defaults["mihomo"]["enabled"])
+        self.assertEqual(defaults["desktop"]["overlay_mode"], "standard")
+        self.assertTrue(defaults["desktop"]["capture_protection"])
         self.assertEqual(defaults["ot"]["server"], "https://mjapi.shinkuan.me")
         self.assertFalse(defaults["ot"]["proxy_enabled"])
 
@@ -157,6 +159,23 @@ class TestSettingsLifecycle(unittest.TestCase):
         settings = Settings.from_dict(legacy)
         self.assertFalse(settings.mihomo.enabled)
         self.assertEqual(settings.mihomo.mixed_port, 7890)
+
+    def test_old_settings_without_desktop_are_migrated_in_memory(self):
+        legacy = get_default_settings_dict()
+        legacy.pop("desktop")
+        self.assertTrue(verify_settings(legacy))
+        settings = Settings.from_dict(legacy)
+        self.assertEqual(settings.desktop.overlay_mode, "standard")
+        self.assertTrue(settings.desktop.capture_protection)
+
+    def test_privacy_mode_requires_restore_shortcut(self):
+        invalid = get_default_settings_dict()
+        invalid["desktop"]["privacy_mode"] = True
+        invalid["desktop"]["restore_shortcut"] = ""
+        self.assertFalse(verify_settings(invalid))
+
+        invalid["desktop"]["restore_shortcut"] = "CommandOrControl+Shift+A"
+        self.assertTrue(verify_settings(invalid))
 
     def test_pre_ot3_online_settings_stay_on_legacy_protocol(self):
         settings = Settings.from_dict(

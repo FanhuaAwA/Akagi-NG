@@ -27,6 +27,7 @@ import { Separator } from '@/components/ui/separator';
 import { useSettings } from '@/hooks/useSettings';
 
 import { ConnectionSection } from './settings/ConnectionSection';
+import { DesktopSection } from './settings/DesktopSection';
 import { GeneralSection } from './settings/GeneralSection';
 import { ModelConfigSection } from './settings/ModelConfigSection';
 import { ServiceSection } from './settings/ServiceSection';
@@ -122,6 +123,10 @@ export default function SettingsPanel({ open, onClose }: SettingsPanelProps) {
 
               <div className='col-span-2'>
                 <ServiceSection settings={settings} updateSetting={updateSetting} />
+              </div>
+
+              <div className='col-span-2'>
+                <DesktopSection settings={settings} updateSetting={updateSetting} />
               </div>
 
               <div className='col-span-2'>

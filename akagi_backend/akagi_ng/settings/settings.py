@@ -2,7 +2,7 @@ import ctypes
 import json
 import locale
 import os
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Self
 
@@ -64,6 +64,17 @@ class MihomoConfig:
 
 
 @dataclass(slots=True)
+class DesktopConfig:
+    overlay_mode: str = "standard"
+    advanced_host: str = "auto"
+    capture_protection: bool = True
+    privacy_mode: bool = False
+    tray_visible: bool = True
+    start_hidden: bool = False
+    restore_shortcut: str = "CommandOrControl+Shift+A"
+
+
+@dataclass(slots=True)
 class ServerConfig:
     host: str
     port: int
@@ -88,6 +99,7 @@ class Settings:
     server: ServerConfig
     ot: OTConfig
     model_config: ModelConfig
+    desktop: DesktopConfig = field(default_factory=DesktopConfig)
 
     def update(self, data: dict):
         """从字典更新设置"""
@@ -111,6 +123,7 @@ class Settings:
         """从字典创建 Settings 对象"""
         mitm_data = data.get("mitm", {})
         mihomo_data = data.get("mihomo", {})
+        desktop_data = data.get("desktop", {})
         server_data = data.get("server", {})
         model_config_data = data.get("model_config", {})
         ot_data = data.get("ot", {})
@@ -138,6 +151,15 @@ class Settings:
                 mixed_port=mihomo_data.get("mixed_port", 7890),
                 controller_port=mihomo_data.get("controller_port", 9090),
                 strict_route=mihomo_data.get("strict_route", False),
+            ),
+            desktop=DesktopConfig(
+                overlay_mode=desktop_data.get("overlay_mode", "standard"),
+                advanced_host=desktop_data.get("advanced_host", "auto"),
+                capture_protection=desktop_data.get("capture_protection", True),
+                privacy_mode=desktop_data.get("privacy_mode", False),
+                tray_visible=desktop_data.get("tray_visible", True),
+                start_hidden=desktop_data.get("start_hidden", False),
+                restore_shortcut=desktop_data.get("restore_shortcut", "CommandOrControl+Shift+A"),
             ),
             server=ServerConfig(
                 host=server_data.get("host", "127.0.0.1"),
@@ -235,6 +257,15 @@ def get_default_settings_dict() -> dict:
             "controller_port": 9090,
             "strict_route": False,
         },
+        "desktop": {
+            "overlay_mode": "standard",
+            "advanced_host": "auto",
+            "capture_protection": True,
+            "privacy_mode": False,
+            "tray_visible": True,
+            "start_hidden": False,
+            "restore_shortcut": "CommandOrControl+Shift+A",
+        },
         "server": {"host": "127.0.0.1", "port": 8765},
         "ot": {
             "online": False,
@@ -291,6 +322,11 @@ def verify_settings(data: dict) -> bool:
 
     if mihomo_data.get("enabled") and not data.get("mitm", {}).get("enabled"):
         logger.error("Settings validation error: mihomo requires the MITM proxy to be enabled")
+        return False
+
+    desktop_data = data.get("desktop", {})
+    if desktop_data.get("privacy_mode") and not str(desktop_data.get("restore_shortcut", "")).strip():
+        logger.error("Settings validation error: privacy mode requires a restore shortcut")
         return False
 
     return _verify_ot3_proxy(data.get("ot", {}))
@@ -364,6 +400,15 @@ def _update_settings(settings: Settings, data: dict):
     settings.mihomo.mixed_port = mihomo_data.get("mixed_port", 7890)
     settings.mihomo.controller_port = mihomo_data.get("controller_port", 9090)
     settings.mihomo.strict_route = mihomo_data.get("strict_route", False)
+
+    desktop_data = data.get("desktop", {})
+    settings.desktop.overlay_mode = desktop_data.get("overlay_mode", "standard")
+    settings.desktop.advanced_host = desktop_data.get("advanced_host", "auto")
+    settings.desktop.capture_protection = desktop_data.get("capture_protection", True)
+    settings.desktop.privacy_mode = desktop_data.get("privacy_mode", False)
+    settings.desktop.tray_visible = desktop_data.get("tray_visible", True)
+    settings.desktop.start_hidden = desktop_data.get("start_hidden", False)
+    settings.desktop.restore_shortcut = desktop_data.get("restore_shortcut", "CommandOrControl+Shift+A")
 
     server_data = data.get("server", {})
     settings.server.host = server_data.get("host", "127.0.0.1")

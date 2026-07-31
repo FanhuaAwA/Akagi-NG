@@ -6,6 +6,7 @@ import { delimiter, join } from 'node:path';
 
 import { app, dialog } from 'electron';
 
+import { DEFAULT_DESKTOP_CONFIG, type DesktopConfig } from './desktop-config.js';
 import { createLogger } from './logger.js';
 
 interface AppSettings {
@@ -23,6 +24,15 @@ interface AppSettings {
     mixed_port?: number;
     controller_port?: number;
     strict_route?: boolean;
+  };
+  desktop?: {
+    overlay_mode?: DesktopConfig['overlayMode'];
+    advanced_host?: DesktopConfig['advancedHost'];
+    capture_protection?: boolean;
+    privacy_mode?: boolean;
+    tray_visible?: boolean;
+    start_hidden?: boolean;
+    restore_shortcut?: string;
   };
 }
 
@@ -81,6 +91,20 @@ export class BackendManager {
     return {
       host: settings.mitm?.host ?? '127.0.0.1',
       port: settings.mitm?.port ?? 6789,
+    };
+  }
+
+  public async getDesktopConfig(): Promise<DesktopConfig> {
+    const settings = await this.getSettings();
+    const desktop = settings.desktop;
+    return {
+      overlayMode: desktop?.overlay_mode ?? DEFAULT_DESKTOP_CONFIG.overlayMode,
+      advancedHost: desktop?.advanced_host ?? DEFAULT_DESKTOP_CONFIG.advancedHost,
+      captureProtection: desktop?.capture_protection ?? DEFAULT_DESKTOP_CONFIG.captureProtection,
+      privacyMode: desktop?.privacy_mode ?? DEFAULT_DESKTOP_CONFIG.privacyMode,
+      trayVisible: desktop?.tray_visible ?? DEFAULT_DESKTOP_CONFIG.trayVisible,
+      startHidden: desktop?.start_hidden ?? DEFAULT_DESKTOP_CONFIG.startHidden,
+      restoreShortcut: desktop?.restore_shortcut?.trim() || DEFAULT_DESKTOP_CONFIG.restoreShortcut,
     };
   }
 

@@ -33,12 +33,12 @@ export function Footer() {
       </div>
       <div className='h-3 w-px bg-zinc-300 dark:bg-zinc-700' />
       <ExternalLink
-        href='https://github.com/Xe-Persistent/Akagi-NG'
+        href='https://github.com/FanhuaAwA/Akagi-NG'
         icon={<AppWindow className='h-3.5 w-3.5' />}
         text='Homepage'
       />
       <ExternalLink
-        href='https://github.com/Xe-Persistent/Akagi-NG?tab=AGPL-3.0-1-ov-file'
+        href='https://github.com/FanhuaAwA/Akagi-NG?tab=AGPL-3.0-1-ov-file'
         icon={<Scale className='h-3.5 w-3.5' />}
         text='License'
       />

@@ -32,14 +32,7 @@ const updaterManager = new UpdaterManager(windowManager);
 
 app.on('second-instance', () => {
   logger.info('Second instance detected. Focusing existing window...');
-  const mainWindow = windowManager.getMainWindow();
-  if (mainWindow) {
-    if (mainWindow.isMinimized()) mainWindow.restore();
-    if (!mainWindow.isVisible()) mainWindow.show();
-    mainWindow.focus();
-  } else {
-    windowManager.createDashboardWindow();
-  }
+  windowManager.showDashboard();
 });
 
 process.on('uncaughtException', (error) => {
@@ -63,8 +56,8 @@ app.whenReady().then(async () => {
     dialog.showErrorBox('Mihomo Initialization Failed', mihomoStatus.error);
   }
 
-  // 2. Setup Tray
-  windowManager.setupTray(() => updaterManager.checkForUpdates());
+  // 2. Apply tray, privacy, capture, and restore-shortcut settings.
+  await windowManager.reconcileDesktopSettings(() => updaterManager.checkForUpdates());
 
   // 3. Create Dashboard Window
   windowManager.createDashboardWindow();
@@ -73,7 +66,7 @@ app.whenReady().then(async () => {
   updaterManager.checkForUpdates();
 
   app.on('activate', () => {
-    windowManager.createDashboardWindow();
+    windowManager.showDashboard();
   });
 });
 
@@ -89,16 +82,14 @@ app.on('before-quit', async (event) => {
   windowManager.setQuitting(true);
   if (isQuitting) return;
 
-  if (backendManager.isRunning() || mihomoManager.isRunning()) {
-    event.preventDefault();
-    isQuitting = true;
+  event.preventDefault();
+  isQuitting = true;
 
-    try {
-      await Promise.all([backendManager.stop(), mihomoManager.stop()]);
-    } catch (err) {
-      logger.error('Error during shutdown:', err);
-    } finally {
-      app.quit();
-    }
+  try {
+    await Promise.all([windowManager.shutdown(), backendManager.stop(), mihomoManager.stop()]);
+  } catch (err) {
+    logger.error('Error during shutdown:', err);
+  } finally {
+    app.quit();
   }
 });

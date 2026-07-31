@@ -9,9 +9,9 @@
 <p><i>「死ねば助かるのに……」— 赤木しげる</i></p>
 
 <p>
-<a href="https://github.com/Xe-Persistent/Akagi-NG/actions/workflows/test.yml"><img src="https://img.shields.io/github/actions/workflow/status/Xe-Persistent/Akagi-NG/test.yml?branch=master&label=CI&labelColor=181717&logo=github" alt="CI Status"></a>
-<a href="https://github.com/Xe-Persistent/Akagi-NG/releases"><img src="https://img.shields.io/github/v/release/Xe-Persistent/Akagi-NG?labelColor=181717&logo=github&display_name=tag" alt="GitHub release"></a>
-<a href="https://github.com/Xe-Persistent/Akagi-NG/stargazers"><img src="https://img.shields.io/github/stars/Xe-Persistent/Akagi-NG?style=social" alt="GitHub stars"></a>
+<a href="https://github.com/FanhuaAwA/Akagi-NG/actions/workflows/test.yml"><img src="https://img.shields.io/github/actions/workflow/status/FanhuaAwA/Akagi-NG/test.yml?branch=master&label=CI&labelColor=181717&logo=github" alt="CI Status"></a>
+<a href="https://github.com/FanhuaAwA/Akagi-NG/releases"><img src="https://img.shields.io/github/v/release/FanhuaAwA/Akagi-NG?labelColor=181717&logo=github&display_name=tag" alt="GitHub release"></a>
+<a href="https://github.com/FanhuaAwA/Akagi-NG/stargazers"><img src="https://img.shields.io/github/stars/FanhuaAwA/Akagi-NG?style=social" alt="GitHub stars"></a>
 <br>
 <img src="https://img.shields.io/badge/Windows-0078D6?logo=windows&logoColor=white" alt="Windows">
 <img src="https://img.shields.io/badge/macOS-000000?logo=apple&logoColor=white" alt="macOS">
@@ -25,9 +25,9 @@
 <img src="https://img.shields.io/badge/Python-3776AB?logo=python&logoColor=white" alt="Python">
 <img src="https://img.shields.io/badge/PyTorch-EE4C2C?logo=pytorch&logoColor=white" alt="PyTorch">
 <br>
-<img src="https://img.shields.io/github/license/Xe-Persistent/Akagi-NG?labelColor=808080&color=663366" alt="License">
+<img src="https://img.shields.io/github/license/FanhuaAwA/Akagi-NG?labelColor=808080&color=663366" alt="License">
 <a href="https://discord.gg/Z2wjXUK8bN"><img src="https://img.shields.io/discord/1192792431364673577?label=Discord&labelColor=5865F2&logo=discord&logoColor=white" alt="Discord"></a>
-<a href="https://codecov.io/gh/Xe-Persistent/Akagi-NG"><img src="https://img.shields.io/codecov/c/github/Xe-Persistent/Akagi-NG?labelColor=F01F7A&logo=Codecov&logoColor=white" alt="Codecov"></a>
+<a href="https://codecov.io/gh/FanhuaAwA/Akagi-NG"><img src="https://img.shields.io/codecov/c/github/FanhuaAwA/Akagi-NG?labelColor=F01F7A&logo=Codecov&logoColor=white" alt="Codecov"></a>
 </p>
 
 <p align="center">
@@ -69,6 +69,9 @@ Akagi-NG 的核心理念：
   - 实时手牌分析与 AI 何切推荐
   - 立直前瞻 - 智能推荐最佳立直舍牌
   - 完整的副露支持 - 吃/碰/杠操作提示一目了然
+  - Windows 高级叠加层 - 原生 D3D11 绘制，可选 Discord Overlay 宿主
+  - 反截图保护 - 标准 HUD 与自有原生窗口支持系统级捕获排除
+  - 隐私模式 - 可隐藏托盘、任务栏入口和主界面，并通过快捷键恢复
   - 全新毛玻璃风格界面 - 丝滑且通透的视觉体验
   - 多语言支持 - 简体中文 / 繁體中文 / 日本語 / English
 
@@ -173,6 +176,23 @@ Akagi-NG/
 
 > [!TIP]
 > **HUD (Heads-Up Display)** 是 Akagi-NG 的一项核心特性。它能够将辅助信息直接以半透明形式覆盖在游戏画面上，无需手动置顶窗口。
+
+#### 标准叠加层与高级叠加层
+
+在“设置 → 叠加层与隐私”中可以选择：
+
+- **标准叠加层**：使用现有 Electron HUD，跨平台可用。
+- **高级叠加层**：Windows 专用的 D3D11/ImGui 渲染器。可以使用 Discord Overlay，也可以使用 Akagi 自有的受保护窗口。
+- **自动宿主**：未启用反截图时优先使用 Discord Overlay；启用反截图后使用 Akagi 自有窗口，因为 Windows 只允许程序为自己拥有的窗口设置捕获保护。
+
+Discord 模式要求 Discord 桌面版已开启 Game Overlay，并建议游戏使用窗口化或无边框模式。独占全屏、Discord 更新、显卡驱动和 OBS 捕获方式都可能影响兼容性。
+
+#### 隐私模式
+
+隐私模式可以隐藏主界面、任务栏入口和托盘图标。启用前请确认“恢复界面快捷键”可用，默认是 `Ctrl+Shift+A`。再次启动 Akagi-NG 也会恢复现有实例的主界面。
+
+> [!IMPORTANT]
+> 隐私模式不会让 Electron、Python、mihomo 或高级叠加层进程从任务管理器和系统安全工具中消失。反截图也是 Windows 提供的尽力保护，不能保证对所有 OBS 版本、捕获方式或外部摄像设备有效。
 
 ### 4. 配置
 
@@ -366,7 +386,7 @@ Akagi-NG 支持通过中间人攻击 (MITM) 方式截获游戏数据，这允许
 克隆仓库并进入根目录：
 
 ```bash
-git clone https://github.com/Xe-Persistent/Akagi-NG.git
+git clone https://github.com/FanhuaAwA/Akagi-NG.git
 cd Akagi-NG
 ```
 

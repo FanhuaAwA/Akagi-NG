@@ -243,6 +243,7 @@ async def save_settings_handler(request: web.Request) -> web.Response:
         old_mitm = old_settings.get("mitm", {})
         new_mitm = payload.get("mitm", {})
         proxy_changed = new_mitm != old_mitm or payload.get("mihomo", {}) != old_settings.get("mihomo", {})
+        desktop_changed = payload.get("desktop", {}) != old_settings.get("desktop", {})
         local_settings.update(payload)
         local_settings.save()
 
@@ -273,6 +274,7 @@ async def save_settings_handler(request: web.Request) -> web.Response:
                 "restartRequired": restart_required,
                 "proxyChanged": proxy_changed,
                 "proxyError": proxy_error,
+                "desktopChanged": desktop_changed,
             }
         )
     except Exception:

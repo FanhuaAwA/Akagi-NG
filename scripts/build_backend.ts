@@ -28,6 +28,11 @@ function buildBackend() {
 
     const result = spawnSync(pythonPath, [buildScript], {
       cwd: projectRoot,
+      env: {
+        ...process.env,
+        PYTHONIOENCODING: 'utf-8',
+        PYTHONUTF8: '1',
+      },
       stdio: 'inherit',
       shell: false,
     });

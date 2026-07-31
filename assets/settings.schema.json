@@ -105,6 +105,53 @@
       "required": ["enabled", "mixed_port", "controller_port", "strict_route"],
       "additionalProperties": false
     },
+    "desktop": {
+      "type": "object",
+      "description": "Desktop overlay and privacy behavior. Optional for backward compatibility.",
+      "properties": {
+        "overlay_mode": {
+          "type": "string",
+          "enum": ["standard", "advanced"],
+          "default": "standard"
+        },
+        "advanced_host": {
+          "type": "string",
+          "enum": ["auto", "discord", "protected"],
+          "default": "auto"
+        },
+        "capture_protection": {
+          "type": "boolean",
+          "default": true
+        },
+        "privacy_mode": {
+          "type": "boolean",
+          "default": false
+        },
+        "tray_visible": {
+          "type": "boolean",
+          "default": true
+        },
+        "start_hidden": {
+          "type": "boolean",
+          "default": false
+        },
+        "restore_shortcut": {
+          "type": "string",
+          "minLength": 1,
+          "default": "CommandOrControl+Shift+A"
+        }
+      },
+      "required": [
+        "overlay_mode",
+        "advanced_host",
+        "capture_protection",
+        "privacy_mode",
+        "tray_visible",
+        "start_hidden",
+        "restore_shortcut"
+      ],
+      "additionalProperties": false
+    },
     "server": {
       "type": "object",
       "description": "Data server configuration.",

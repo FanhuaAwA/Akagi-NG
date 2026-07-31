@@ -199,6 +199,15 @@ export function SettingsProvider({ children, initialSettings }: SettingsProvider
             notify.error(proxyError instanceof Error ? proxyError.message : String(proxyError));
           }
         }
+        if (result.desktopChanged) {
+          try {
+            await window.electron.invoke('desktop-reconcile');
+          } catch (desktopError) {
+            notify.error(
+              desktopError instanceof Error ? desktopError.message : String(desktopError),
+            );
+          }
+        }
         if (result.data) dispatch({ type: 'INIT_SYNC', payload: result.data });
 
         dispatch({ type: 'SET_SAVE_STATUS', status: 'saved' });

@@ -85,11 +85,21 @@ function Dashboard({ settingsPromise, isSplashActive = false }: DashboardProps) 
       setShowShutdownConfirm(true);
     });
 
+    const unsubAdvancedOverlay = window.electron.on(
+      'advanced-overlay-status',
+      (status: { running: boolean; fallbackUsed: boolean; error?: string }) => {
+        if (status.error) {
+          notify.warn(`${t('settings.desktop.overlay_advanced')}: ${status.error}`);
+        }
+      },
+    );
+
     return () => {
       if (unsubHud) unsubHud();
       if (unsubQuit) unsubQuit();
+      if (unsubAdvancedOverlay) unsubAdvancedOverlay();
     };
-  }, [setIsHudActive]);
+  }, [setIsHudActive, t]);
 
   // 3. 资源状态通知
   useEffect(() => {

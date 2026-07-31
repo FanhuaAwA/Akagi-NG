@@ -52,6 +52,15 @@ export interface Settings {
     controller_port: number;
     strict_route: boolean;
   };
+  desktop: {
+    overlay_mode: 'standard' | 'advanced';
+    advanced_host: 'auto' | 'discord' | 'protected';
+    capture_protection: boolean;
+    privacy_mode: boolean;
+    tray_visible: boolean;
+    start_hidden: boolean;
+    restore_shortcut: string;
+  };
   server: {
     host: string;
     port: number;
@@ -77,6 +86,7 @@ export interface SaveSettingsResponse extends ApiResponse<Settings> {
   restartRequired?: boolean;
   proxyChanged?: boolean;
   proxyError?: string;
+  desktopChanged?: boolean;
 }
 
 export interface OT3Health {
