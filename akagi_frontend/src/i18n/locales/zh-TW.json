@@ -125,7 +125,7 @@
       "host_discord": "Discord Overlay",
       "host_protected": "受保護原生視窗",
       "capture_protection": "反截圖保護",
-      "capture_protection_desc": "盡可能從系統截圖和常見擷取 API 中排除疊加層。",
+      "capture_protection_desc": "盡可能從系統截圖和常見擷取 API 中排除可見的主介面與疊加層。",
       "privacy_mode": "隱私模式",
       "privacy_mode_desc": "隱藏主視窗、工作列入口和普通介面；系統程序清單仍會顯示程式。",
       "tray_visible": "顯示系統匣圖示",

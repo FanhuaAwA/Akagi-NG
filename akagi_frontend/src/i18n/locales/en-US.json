@@ -125,7 +125,7 @@
       "host_discord": "Discord Overlay",
       "host_protected": "Protected native window",
       "capture_protection": "Capture protection",
-      "capture_protection_desc": "Best-effort exclusion from OS screenshots and common capture APIs.",
+      "capture_protection_desc": "Best-effort exclusion of the visible Dashboard and overlays from OS screenshots and common capture APIs.",
       "privacy_mode": "Privacy mode",
       "privacy_mode_desc": "Hides normal windows and taskbar entries. The process remains visible to the operating system.",
       "tray_visible": "Show tray icon",

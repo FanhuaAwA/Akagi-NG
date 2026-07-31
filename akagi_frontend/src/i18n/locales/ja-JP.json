@@ -125,7 +125,7 @@
       "host_discord": "Discord Overlay",
       "host_protected": "保護されたネイティブウィンドウ",
       "capture_protection": "キャプチャ保護",
-      "capture_protection_desc": "OS のスクリーンショットや一般的なキャプチャ API から可能な限り除外します。",
+      "capture_protection_desc": "表示中のメイン画面とオーバーレイを、OS のスクリーンショットや一般的なキャプチャ API から可能な限り除外します。",
       "privacy_mode": "プライバシーモード",
       "privacy_mode_desc": "通常のウィンドウとタスクバー項目を隠します。プロセスは OS から引き続き確認できます。",
       "tray_visible": "トレイアイコンを表示",

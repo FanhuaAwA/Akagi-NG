@@ -19,6 +19,7 @@ export function getDashboardWindowPolicy(config: DesktopConfig) {
   return {
     skipTaskbar: false,
     startVisible: true,
+    contentProtection: config.captureProtection,
     closeAction: config.trayVisible ? ('hide' as const) : ('minimize' as const),
   };
 }

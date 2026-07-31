@@ -22,6 +22,8 @@ All notable changes to Akagi-NG are documented in this file.
 
 - Standard Electron HUD windows now enable Electron content protection when
   configured and are excluded from the taskbar.
+- Capture protection now also applies to the visible Dashboard without hiding
+  it or removing its taskbar entry.
 - Removed the experimental dashboard Privacy Mode, start-hidden behavior, and
   recovery shortcut after they could leave the main interface inaccessible.
 - Legacy `privacy_mode` and `start_hidden` values are now ignored and normalized

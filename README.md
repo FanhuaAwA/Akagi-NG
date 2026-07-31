@@ -70,7 +70,7 @@ Core Philosophy of Akagi-NG:
   - Riichi Lookahead - Intelligent recommendation for the best discard after reaching
   - Comprehensive Fuuro Support - Clear action prompts for Chi, Pon and all Kan variants
   - Windows Advanced Overlay - Native D3D11 rendering with an optional Discord Overlay host
-  - Capture Protection - System-level capture exclusion for the standard HUD and Akagi-owned native window
+  - Capture Protection - System-level capture exclusion for the visible Dashboard, standard HUD, and Akagi-owned native window
   - Optional Tray Icon - Hide the tray icon without hiding the dashboard or taskbar entry
   - Modern Glassmorphism Style - Smooth and transparent visual experience
   - Multi-language support - Simplified Chinese / Traditional Chinese / Japanese / English
@@ -192,7 +192,7 @@ Discord mode requires the Discord desktop client's Game Overlay and works best w
 The dashboard always opens normally and remains available from the Windows taskbar. When the tray icon is enabled, closing the dashboard hides it to the tray. When the tray icon is disabled, closing the dashboard minimizes it to the taskbar instead, so the application cannot become an inaccessible background process.
 
 > [!IMPORTANT]
-> Capture protection applies only to the HUD/advanced overlay and is best effort. It cannot cover every OBS version, capture method, or external camera.
+> Capture protection does not hide the Dashboard from the user: the window remains visible and interactive while Windows is asked to exclude it from supported capture APIs. This is best effort and cannot cover every OBS version, capture method, or external camera.
 
 ### 4. Configuration
 

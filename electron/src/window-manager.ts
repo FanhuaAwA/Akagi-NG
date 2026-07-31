@@ -142,7 +142,7 @@ export class WindowManager {
       this.destroyTray();
     }
 
-    this.applyOverlayWindowFlags();
+    this.applyWindowProtection();
 
     if (this.hudRequestedVisible) {
       await this.toggleHudWindow(true);
@@ -188,6 +188,7 @@ export class WindowManager {
         contextIsolation: true,
       },
     });
+    this.dashboardWindow.setContentProtection(dashboardPolicy.contentProtection);
 
     this.dashboardWindow.once('ready-to-show', () => {
       if (dashboardPolicy.startVisible) this.dashboardWindow?.show();
@@ -368,9 +369,10 @@ export class WindowManager {
     this.tray = null;
   }
 
-  private applyOverlayWindowFlags(): void {
+  private applyWindowProtection(): void {
     if (isSafeWindow(this.dashboardWindow)) {
       this.dashboardWindow.setSkipTaskbar(false);
+      this.dashboardWindow.setContentProtection(this.desktopConfig.captureProtection);
     }
     if (isSafeWindow(this.hudWindow)) {
       this.hudWindow.setSkipTaskbar(true);

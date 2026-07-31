@@ -30,6 +30,7 @@ async function main() {
     const trayPolicy = getDashboardWindowPolicy(DEFAULT_DESKTOP_CONFIG);
     assert.equal(trayPolicy.startVisible, true);
     assert.equal(trayPolicy.skipTaskbar, false);
+    assert.equal(trayPolicy.contentProtection, true);
     assert.equal(trayPolicy.closeAction, 'hide');
 
     const noTrayPolicy = getDashboardWindowPolicy({
@@ -38,7 +39,16 @@ async function main() {
     });
     assert.equal(noTrayPolicy.startVisible, true);
     assert.equal(noTrayPolicy.skipTaskbar, false);
+    assert.equal(noTrayPolicy.contentProtection, true);
     assert.equal(noTrayPolicy.closeAction, 'minimize');
+
+    const unprotectedPolicy = getDashboardWindowPolicy({
+      ...DEFAULT_DESKTOP_CONFIG,
+      captureProtection: false,
+    });
+    assert.equal(unprotectedPolicy.startVisible, true);
+    assert.equal(unprotectedPolicy.skipTaskbar, false);
+    assert.equal(unprotectedPolicy.contentProtection, false);
     console.log('API response envelope regression test passed.');
   } finally {
     globalThis.fetch = originalFetch;
