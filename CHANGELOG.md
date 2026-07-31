@@ -24,6 +24,8 @@ All notable changes to Akagi-NG are documented in this file.
   configured and are excluded from the taskbar.
 - Removed the experimental dashboard Privacy Mode, start-hidden behavior, and
   recovery shortcut after they could leave the main interface inaccessible.
+- Legacy `privacy_mode` and `start_hidden` values are now ignored and normalized
+  to disabled when settings are loaded or saved.
 - When the tray icon is disabled, closing the dashboard now minimizes it to the
   taskbar instead of hiding it in the background.
 - Desktop settings can be reconciled without restarting the Python backend.

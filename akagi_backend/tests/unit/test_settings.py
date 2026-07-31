@@ -168,14 +168,21 @@ class TestSettingsLifecycle(unittest.TestCase):
         self.assertEqual(settings.desktop.overlay_mode, "standard")
         self.assertTrue(settings.desktop.capture_protection)
 
-    def test_privacy_mode_requires_restore_shortcut(self):
-        invalid = get_default_settings_dict()
-        invalid["desktop"]["privacy_mode"] = True
-        invalid["desktop"]["restore_shortcut"] = ""
-        self.assertFalse(verify_settings(invalid))
+    def test_deprecated_dashboard_privacy_settings_are_ignored(self):
+        legacy = get_default_settings_dict()
+        legacy["desktop"]["privacy_mode"] = True
+        legacy["desktop"]["start_hidden"] = True
+        legacy["desktop"]["restore_shortcut"] = "CommandOrControl+Shift+H"
 
-        invalid["desktop"]["restore_shortcut"] = "CommandOrControl+Shift+A"
-        self.assertTrue(verify_settings(invalid))
+        settings = Settings.from_dict(legacy)
+        self.assertFalse(settings.desktop.privacy_mode)
+        self.assertFalse(settings.desktop.start_hidden)
+        self.assertEqual(settings.desktop.restore_shortcut, "CommandOrControl+Shift+A")
+
+        settings.update(legacy)
+        self.assertFalse(settings.desktop.privacy_mode)
+        self.assertFalse(settings.desktop.start_hidden)
+        self.assertEqual(settings.desktop.restore_shortcut, "CommandOrControl+Shift+A")
 
     def test_pre_ot3_online_settings_stay_on_legacy_protocol(self):
         settings = Settings.from_dict(

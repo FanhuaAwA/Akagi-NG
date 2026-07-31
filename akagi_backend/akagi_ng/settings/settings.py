@@ -156,10 +156,10 @@ class Settings:
                 overlay_mode=desktop_data.get("overlay_mode", "standard"),
                 advanced_host=desktop_data.get("advanced_host", "auto"),
                 capture_protection=desktop_data.get("capture_protection", True),
-                privacy_mode=desktop_data.get("privacy_mode", False),
+                privacy_mode=False,
                 tray_visible=desktop_data.get("tray_visible", True),
-                start_hidden=desktop_data.get("start_hidden", False),
-                restore_shortcut=desktop_data.get("restore_shortcut", "CommandOrControl+Shift+A"),
+                start_hidden=False,
+                restore_shortcut="CommandOrControl+Shift+A",
             ),
             server=ServerConfig(
                 host=server_data.get("host", "127.0.0.1"),
@@ -324,11 +324,6 @@ def verify_settings(data: dict) -> bool:
         logger.error("Settings validation error: mihomo requires the MITM proxy to be enabled")
         return False
 
-    desktop_data = data.get("desktop", {})
-    if desktop_data.get("privacy_mode") and not str(desktop_data.get("restore_shortcut", "")).strip():
-        logger.error("Settings validation error: privacy mode requires a restore shortcut")
-        return False
-
     return _verify_ot3_proxy(data.get("ot", {}))
 
 
@@ -405,10 +400,10 @@ def _update_settings(settings: Settings, data: dict):
     settings.desktop.overlay_mode = desktop_data.get("overlay_mode", "standard")
     settings.desktop.advanced_host = desktop_data.get("advanced_host", "auto")
     settings.desktop.capture_protection = desktop_data.get("capture_protection", True)
-    settings.desktop.privacy_mode = desktop_data.get("privacy_mode", False)
+    settings.desktop.privacy_mode = False
     settings.desktop.tray_visible = desktop_data.get("tray_visible", True)
-    settings.desktop.start_hidden = desktop_data.get("start_hidden", False)
-    settings.desktop.restore_shortcut = desktop_data.get("restore_shortcut", "CommandOrControl+Shift+A")
+    settings.desktop.start_hidden = False
+    settings.desktop.restore_shortcut = "CommandOrControl+Shift+A"
 
     server_data = data.get("server", {})
     settings.server.host = server_data.get("host", "127.0.0.1")
