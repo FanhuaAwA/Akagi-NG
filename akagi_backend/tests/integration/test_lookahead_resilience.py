@@ -364,7 +364,7 @@ class TestLookaheadInternal(unittest.TestCase):
 
         self.factory_patcher = patch("akagi_ng.mjai_bot.bot.load_bot_and_engine")
         self.mock_loader = self.factory_patcher.start()
-        self.mock_loader.side_effect = lambda s, p, i: (real_bot_cls(self.provider, p), self.provider)
+        self.mock_loader.side_effect = lambda s, p, i, **_kwargs: (real_bot_cls(self.provider, p), self.provider)
 
     def tearDown(self):
         if hasattr(self, "factory_patcher"):

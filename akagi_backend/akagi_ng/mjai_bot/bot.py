@@ -37,10 +37,13 @@ class MortalBot:
         status: BotStatusContext,
         engine: EngineProtocol | None = None,
         is_3p: bool = False,
+        *,
+        flya_probe: bool = False,
     ):
         self.status = status
         self.engine = engine
         self.is_3p = is_3p
+        self.flya_probe = flya_probe
         self.player_id: int | None = None
         self.history: list[MJAIEvent] = []
         self.bot: MJAIBotProtocol | None = None
@@ -147,7 +150,12 @@ class MortalBot:
     def _handle_start_game(self, e: StartGameEvent):
         """处理游戏开始事件，初始化模型和引擎"""
         self.player_id = e.id
-        self.bot, self.engine = load_bot_and_engine(self.status, self.player_id, self.is_3p)
+        self.bot, self.engine = load_bot_and_engine(
+            self.status,
+            self.player_id,
+            self.is_3p,
+            flya_probe=self.flya_probe,
+        )
         self.history = []
         self.game_start_event = e
         self.ot3_client = None
@@ -160,7 +168,17 @@ class MortalBot:
             engine_meta = self.status.metadata
             engine_type = engine_meta.get(NotificationCode.ENGINE_TYPE, "unknown")
 
-            match "akagiot" if self.ot3_client else engine_type:
+            flya_configured = bool(
+                self.flya_probe
+                and local_settings.ot.online
+                and local_settings.ot.provider == "flya_test_api"
+                and local_settings.ot.flya_server.strip()
+                and local_settings.ot.flya_api_key.strip()
+                and engine_type == "mortal"
+            )
+            match "flya" if flya_configured else "akagiot" if self.ot3_client else engine_type:
+                case "flya":
+                    self.status.set_flag(NotificationCode.MODEL_LOADED_ONLINE)
                 case "akagiot":
                     self.status.set_flag(NotificationCode.MODEL_LOADED_ONLINE)
                 case "mortal":
@@ -180,7 +198,11 @@ class MortalBot:
     def _ot3_enabled(self) -> bool:
         ot = local_settings.ot
         return (
-            ot.online and getattr(ot, "protocol", "v3") == "v3" and bool(ot.server.strip()) and bool(ot.api_key.strip())
+            ot.online
+            and ot.provider == "akagi_ot3"
+            and getattr(ot, "protocol", "v3") == "v3"
+            and bool(ot.server.strip())
+            and bool(ot.api_key.strip())
         )
 
     def _refresh_ot3_session(self) -> tuple[OT3Client, str] | None:
@@ -321,8 +343,10 @@ class MortalBot:
 
         recommendations = meta_to_recommend(meta, is_3p=self.is_3p, temperature=local_settings.model_config.temperature)
         top_3_actions = [rec[0] for rec in recommendations[:3]]
+        flya_enabled = local_settings.ot.online and local_settings.ot.provider == "flya_test_api"
+        eligible_actions = [action for action, _confidence in recommendations] if flya_enabled else top_3_actions
 
-        if "reach" not in top_3_actions:
+        if "reach" not in eligible_actions:
             return
 
         self.logger.info(f"Riichi Lookahead: Reach is in Top 3 ({top_3_actions}). Starting simulation.")

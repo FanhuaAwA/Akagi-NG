@@ -73,7 +73,7 @@ def mock_mortal_engine(monkeypatch):
     mock_engine.get_additional_meta.return_value = {"engine_type": "mortal_mock"}
     mock_engine.get_notification_flags.return_value = {}
 
-    def mock_loader(status, player_id, is_3p=False):
+    def mock_loader(status, player_id, is_3p=False, **_kwargs):
         status.set_metadata("engine_type", "mortal_mock")
         return mock_model, mock_engine
 

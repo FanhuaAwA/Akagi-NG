@@ -13,13 +13,18 @@ from akagi_ng.core.paths import ensure_dir, get_assets_dir, get_settings_dir
 from akagi_ng.mjai_bot.ot3_proxy import normalize_ot3_proxy
 from akagi_ng.schema.constants import MajsoulServer, Platform, get_game_url
 from akagi_ng.settings.logger import logger
+from akagi_ng.settings.secrets import delete_secret, get_secret, set_secret
 
 CONFIG_DIR: Path = ensure_dir(get_settings_dir())
 SETTINGS_JSON_PATH: Path = CONFIG_DIR / "settings.json"
 
 SCHEMA_PATH: Path = get_assets_dir() / "settings.schema.json"
 DEFAULT_OT3_SERVER = "https://mjapi.shinkuan.me"
+DEFAULT_FLYA_SERVER = "https://api.nashout.com"
 LEGACY_BLOCKED_OT3_SERVER = "https://server.akagiot.org"
+FLYA_API_KEY_SECRET = "flya_test_api_key"
+ONLINE_PROVIDER_OT3 = "akagi_ot3"
+ONLINE_PROVIDER_FLYA = "flya_test_api"
 
 # Windows 语言区域 ID（LCID）
 LCID_ZH_CN = 2052  # 简体中文 (0x0804)
@@ -32,11 +37,18 @@ LCID_JA_JP = 1041  # 日文 (0x0411)
 @dataclass(slots=True)
 class OTConfig:
     online: bool
+    provider: str = ONLINE_PROVIDER_OT3
     server: str = DEFAULT_OT3_SERVER
     api_key: str = ""
     protocol: str = "v3"
     model_4p: str = ""
     model_3p: str = ""
+    flya_server: str = DEFAULT_FLYA_SERVER
+    flya_api_key: str = ""
+    flya_api_key_configured: bool = False
+    flya_api_key_last4: str = ""
+    flya_model_4p: str = ""
+    flya_model_3p: str = ""
     proxy_enabled: bool = False
     proxy: str = ""
 
@@ -45,6 +57,9 @@ class OTConfig:
 
     def effective_proxy(self) -> str:
         return self.proxy.strip() if self.proxy_enabled else ""
+
+    def flya_model_for(self, is_3p: bool) -> str:
+        return self.flya_model_3p if is_3p else self.flya_model_4p
 
 
 @dataclass(slots=True)
@@ -101,9 +116,21 @@ class Settings:
     model_config: ModelConfig
     desktop: DesktopConfig = field(default_factory=DesktopConfig)
 
-    def update(self, data: dict):
+    def update(self, data: dict, *, clear_flya_api_key: bool = False):
         """从字典更新设置"""
+        ot_data = data.get("ot", {})
+        next_flya_server = ot_data.get("flya_server", self.ot.flya_server)
+        flya_server_changed = isinstance(next_flya_server, str) and (
+            next_flya_server.strip().rstrip("/") != self.ot.flya_server.strip().rstrip("/")
+        )
+        flya_api_key = self._update_flya_api_key(
+            ot_data,
+            clear=clear_flya_api_key or flya_server_changed,
+        )
         _update_settings(self, data)
+        self.ot.flya_api_key = flya_api_key
+        self.ot.flya_api_key_configured = bool(flya_api_key)
+        self.ot.flya_api_key_last4 = flya_api_key[-4:]
         self._normalize_game_url()
 
     def __post_init__(self):
@@ -115,8 +142,28 @@ class Settings:
 
     def save(self):
         """保存设置到 settings.json 文件"""
-        _save_settings(asdict(self))
+        _save_settings(self.to_public_dict())
         logger.info(f"Saved settings to {SETTINGS_JSON_PATH}")
+
+    def to_public_dict(self) -> dict:
+        data = asdict(self)
+        data["ot"]["flya_api_key"] = ""
+        data["ot"]["flya_api_key_configured"] = bool(self.ot.flya_api_key)
+        data["ot"]["flya_api_key_last4"] = self.ot.flya_api_key[-4:]
+        return data
+
+    def _update_flya_api_key(self, ot_data: dict, *, clear: bool = False) -> str:
+        incoming = ot_data.get("flya_api_key", "")
+        if not isinstance(incoming, str):
+            raise ValueError("FlyA API key must be a string")
+        incoming = incoming.strip()
+        if incoming:
+            set_secret(FLYA_API_KEY_SECRET, incoming)
+            return incoming
+        if clear:
+            delete_secret(FLYA_API_KEY_SECRET)
+            return ""
+        return self.ot.flya_api_key
 
     @classmethod
     def from_dict(cls, data: dict) -> Self:
@@ -127,6 +174,7 @@ class Settings:
         server_data = data.get("server", {})
         model_config_data = data.get("model_config", {})
         ot_data = data.get("ot", {})
+        flya_api_key = _load_flya_api_key(ot_data)
         game_url = data.get("game_url", "")
 
         platform_val = data.get("platform")
@@ -167,6 +215,7 @@ class Settings:
             ),
             ot=OTConfig(
                 online=ot_data.get("online", False),
+                provider=ot_data.get("provider", ONLINE_PROVIDER_OT3),
                 server=_migrate_ot3_server(ot_data.get("server", DEFAULT_OT3_SERVER)),
                 api_key=ot_data.get("api_key", ""),
                 # Existing pre-OT3 settings have no protocol marker and must
@@ -174,6 +223,12 @@ class Settings:
                 protocol=ot_data.get("protocol", "legacy" if ot_data else "v3"),
                 model_4p=ot_data.get("model_4p", ""),
                 model_3p=ot_data.get("model_3p", ""),
+                flya_server=ot_data.get("flya_server") or DEFAULT_FLYA_SERVER,
+                flya_api_key=flya_api_key,
+                flya_api_key_configured=bool(flya_api_key),
+                flya_api_key_last4=flya_api_key[-4:],
+                flya_model_4p=ot_data.get("flya_model_4p", ""),
+                flya_model_3p=ot_data.get("flya_model_3p", ""),
                 proxy_enabled=ot_data.get("proxy_enabled", False),
                 proxy=ot_data.get("proxy", ""),
             ),
@@ -269,11 +324,18 @@ def get_default_settings_dict() -> dict:
         "server": {"host": "127.0.0.1", "port": 8765},
         "ot": {
             "online": False,
+            "provider": ONLINE_PROVIDER_OT3,
             "server": DEFAULT_OT3_SERVER,
             "api_key": "",
             "protocol": "v3",
             "model_4p": "",
             "model_3p": "",
+            "flya_server": DEFAULT_FLYA_SERVER,
+            "flya_api_key": "",
+            "flya_api_key_configured": False,
+            "flya_api_key_last4": "",
+            "flya_model_4p": "",
+            "flya_model_3p": "",
             "proxy_enabled": False,
             "proxy": "",
         },
@@ -287,7 +349,7 @@ def get_default_settings_dict() -> dict:
 
 def get_settings_dict() -> dict:
     """从 settings.json 读取设置"""
-    return asdict(Settings.from_dict(json.loads(SETTINGS_JSON_PATH.read_text(encoding="utf-8"))))
+    return Settings.from_dict(json.loads(SETTINGS_JSON_PATH.read_text(encoding="utf-8"))).to_public_dict()
 
 
 def verify_settings(data: dict) -> bool:
@@ -416,11 +478,15 @@ def _update_settings(settings: Settings, data: dict):
 
     ot_data = data.get("ot", {})
     settings.ot.online = ot_data.get("online", False)
+    settings.ot.provider = ot_data.get("provider", ONLINE_PROVIDER_OT3)
     settings.ot.server = _migrate_ot3_server(ot_data.get("server", DEFAULT_OT3_SERVER))
     settings.ot.api_key = ot_data.get("api_key", "")
     settings.ot.protocol = ot_data.get("protocol", "legacy" if ot_data else "v3")
     settings.ot.model_4p = ot_data.get("model_4p", "")
     settings.ot.model_3p = ot_data.get("model_3p", "")
+    settings.ot.flya_server = ot_data.get("flya_server") or DEFAULT_FLYA_SERVER
+    settings.ot.flya_model_4p = ot_data.get("flya_model_4p", "")
+    settings.ot.flya_model_3p = ot_data.get("flya_model_3p", "")
     settings.ot.proxy_enabled = ot_data.get("proxy_enabled", False)
     settings.ot.proxy = ot_data.get("proxy", "")
 
@@ -433,6 +499,20 @@ def _migrate_ot3_server(value: object) -> str:
     if server.rstrip("/").lower() == LEGACY_BLOCKED_OT3_SERVER.lower():
         return DEFAULT_OT3_SERVER
     return server
+
+
+def _load_flya_api_key(ot_data: dict) -> str:
+    try:
+        stored = get_secret(FLYA_API_KEY_SECRET)
+        if stored:
+            return stored
+        legacy = ot_data.get("flya_api_key", "")
+        if isinstance(legacy, str) and legacy.strip():
+            set_secret(FLYA_API_KEY_SECRET, legacy.strip())
+            return legacy.strip()
+    except (OSError, ValueError):
+        logger.exception("Failed to load the encrypted FlyA API key")
+    return ""
 
 
 def _save_settings(data: dict):

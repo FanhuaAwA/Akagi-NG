@@ -71,6 +71,18 @@ class NullEngine(BaseEngine):
         return actions, q_out, clean_masks, is_greedy
 
 
+class FlyAProbeEngine(NullEngine):
+    """Expose libriichi's legal mask without loading or running PyTorch."""
+
+    def __init__(self, status: BotStatusContext, is_3p: bool):
+        super().__init__(status, is_3p)
+        self.name = "FlyAProbe"
+        self.engine_type = "flya"
+
+    def fork(self, status: BotStatusContext | None = None) -> Self:
+        return FlyAProbeEngine(status or self.status, self.is_3p)
+
+
 class LazyLocalEngine(BaseEngine):
     """
     轻量级延迟加载引擎。
@@ -143,7 +155,11 @@ def _get_or_create_ot_client(url: str, api_key: str) -> AkagiOTClient:
 
 
 def load_bot_and_engine(
-    status: BotStatusContext, player_id: int, is_3p: bool = False
+    status: BotStatusContext,
+    player_id: int,
+    is_3p: bool = False,
+    *,
+    flya_probe: bool = False,
 ) -> tuple[MJAIBotProtocol, EngineProtocol]:
     """加载引擎的统一入口"""
     if is_3p:
@@ -158,14 +174,27 @@ def load_bot_and_engine(
     consts = libs.consts
     model_path = get_models_dir() / model_filename
 
-    # 1. 准备 Lazy Local Engine (持有资源引用，按需加载)
-    local_engine = LazyLocalEngine(status, model_path, consts, is_3p)
+    # FlyA only needs libriichi's legal mask. Warm Mortal in parallel for failure fallback.
+    if flya_probe:
+        local_engine = FlyAProbeEngine(status, is_3p)
+        threading.Thread(
+            target=_get_or_load_model_resource,
+            args=(model_path, consts, is_3p),
+            name=f"flya-mortal-prewarm-{'3p' if is_3p else '4p'}",
+            daemon=True,
+        ).start()
+    else:
+        local_engine = LazyLocalEngine(status, model_path, consts, is_3p)
 
     # 2. 准备 Online Engine (如果启用)
     online_engine = None
     # OT3 uses the stateless MJAI /v3/react protocol at the MortalBot layer.
     # Keep this obs/mask engine path only for explicitly migrated legacy servers.
-    if local_settings.ot.online and getattr(local_settings.ot, "protocol", "v3") == "legacy":
+    if (
+        local_settings.ot.online
+        and local_settings.ot.provider == "akagi_ot3"
+        and getattr(local_settings.ot, "protocol", "v3") == "legacy"
+    ):
         client = _get_or_create_ot_client(local_settings.ot.server, local_settings.ot.api_key)
         # 创建全新的 Engine 实例，共享 client
         online_engine = AkagiOTEngine(status, is_3p, client)

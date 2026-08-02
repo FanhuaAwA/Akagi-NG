@@ -17,6 +17,7 @@ from akagi_ng.mjai_bot.controller import Controller
 from akagi_ng.mjai_bot.status import BotStatusContext
 from akagi_ng.schema.notifications import NotificationCode
 from akagi_ng.schema.types import DahaiEvent, StartGameEvent, StartKyokuEvent, TsumoEvent
+from akagi_ng.settings import local_settings
 
 
 @pytest.fixture
@@ -102,6 +103,49 @@ def test_controller_lifecycle_replay():
         MockBotClass.assert_called_once()
         # 重放时 bot.react 被调用一次（传入 start_game）
         mock_instance.react.assert_called_once_with(start_game)
+
+
+def test_controller_enables_probe_only_for_configured_flya(monkeypatch):
+    controller = Controller(BotStatusContext(), flya_probe=True)
+    monkeypatch.setattr("akagi_ng.mjai_bot.controller.local_settings.ot.online", True)
+    monkeypatch.setattr("akagi_ng.mjai_bot.controller.local_settings.ot.provider", "flya_test_api")
+    monkeypatch.setattr("akagi_ng.mjai_bot.controller.local_settings.ot.flya_server", "https://flya.example")
+    monkeypatch.setattr("akagi_ng.mjai_bot.controller.local_settings.ot.flya_api_key", "secret")
+    mock_instance = MagicMock()
+    mock_instance.react.return_value = None
+
+    with patch("akagi_ng.mjai_bot.bot.MortalBot", return_value=mock_instance) as mock_bot:
+        controller.react(StartGameEvent(id=0, is_3p=False))
+
+    assert mock_bot.call_args.kwargs["flya_probe"] is True
+
+
+@pytest.mark.parametrize(
+    ("online", "provider"),
+    [(False, "flya_test_api"), (True, "akagi_ot3")],
+)
+def test_controller_rebuilds_bot_when_leaving_flya(monkeypatch, online, provider):
+    controller = Controller(BotStatusContext(), flya_probe=True)
+    ot = local_settings.ot
+    monkeypatch.setattr(ot, "online", True)
+    monkeypatch.setattr(ot, "provider", "flya_test_api")
+    monkeypatch.setattr(ot, "flya_server", "https://flya.example")
+    monkeypatch.setattr(ot, "flya_api_key", "secret")
+
+    def make_bot(**kwargs):
+        bot = MagicMock()
+        bot.is_3p = kwargs["is_3p"]
+        bot.flya_probe = kwargs["flya_probe"]
+        bot.react.return_value = None
+        return bot
+
+    with patch("akagi_ng.mjai_bot.bot.MortalBot", side_effect=make_bot) as mock_bot:
+        controller.react(StartGameEvent(id=0, is_3p=False))
+        monkeypatch.setattr(ot, "online", online)
+        monkeypatch.setattr(ot, "provider", provider)
+        controller.react(StartGameEvent(id=0, is_3p=False))
+
+    assert [call.kwargs["flya_probe"] for call in mock_bot.call_args_list] == [True, False]
 
 
 def test_controller_lifecycle_start_kyoku_after_replay():

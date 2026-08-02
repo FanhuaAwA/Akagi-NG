@@ -23,6 +23,7 @@ dependencies = [
     "requests~=2.33.1",
     "PySocks~=1.7.1",
     "jsonschema~=4.26.0",
+    "keyring~=25.7.0",
     # Majsoul
     "protobuf~=7.34.1",
     # PyTorch

@@ -200,9 +200,6 @@ export class WindowManager {
       await this.dashboardWindow.loadURL(DEV_SERVER_URL).catch((err) => {
         logger.error(`Failed to load Dashboard in dev mode: ${err.message}`);
       });
-      if (isSafeWindow(this.dashboardWindow)) {
-        this.dashboardWindow.webContents.openDevTools();
-      }
     } else {
       const indexPath = join(__dirname, '../renderer/index.html');
       await this.dashboardWindow.loadFile(indexPath).catch((err) => {

@@ -10,12 +10,15 @@ from akagi_ng.schema.types import (
     SystemEvent,
     SystemShutdownEvent,
 )
+from akagi_ng.settings import local_settings
 
 
 class Controller:
-    def __init__(self, status: BotStatusContext | None = None):
+    def __init__(self, status: BotStatusContext | None = None, *, flya_probe: bool = False):
         self.status: BotStatusContext = status or BotStatusContext()
+        self.flya_probe = flya_probe
         self.bot: BotProtocol | None = None
+        self._bot_signature: tuple[str, str] | None = None
         self.pending_start_game_event: StartGameEvent | None = None  # Bot 将在收到第一个 start_game 事件时初始化
         self.last_response: MJAIResponse | None = None  # 存储最近一次 Bot 的决策结果
 
@@ -72,8 +75,9 @@ class Controller:
         """
         target_name = "mortal3p" if is_3p else "mortal"
         current_name = self.current_bot_name
+        target_signature = (target_name, self._engine_mode())
 
-        if current_name == target_name:
+        if current_name == target_name and self._bot_signature == target_signature:
             return
 
         if not self.bot:
@@ -85,6 +89,7 @@ class Controller:
             logger.error(f"Failed to load {target_name} bot")
             self.status.set_flag(NotificationCode.BOT_SWITCH_FAILED)
             return
+        self._bot_signature = target_signature
 
         if not self.pending_start_game_event:
             logger.error(f"No pending start_game event to replay for {target_name} bot activation.")
@@ -100,6 +105,24 @@ class Controller:
         if bot_name in ("mortal", "mortal3p"):
             from akagi_ng.mjai_bot.bot import MortalBot
 
-            self.bot = MortalBot(status=self.status, is_3p=(bot_name == "mortal3p"))
+            self.bot = MortalBot(
+                status=self.status,
+                is_3p=(bot_name == "mortal3p"),
+                flya_probe=self._engine_mode() == "flya",
+            )
             return True
         return False
+
+    def _engine_mode(self) -> str:
+        ot = local_settings.ot
+        if (
+            self.flya_probe
+            and ot.online
+            and ot.provider == "flya_test_api"
+            and ot.flya_server.strip()
+            and ot.flya_api_key.strip()
+        ):
+            return "flya"
+        if ot.online and ot.provider == "akagi_ot3" and getattr(ot, "protocol", "v3") == "legacy":
+            return "legacy"
+        return "native"

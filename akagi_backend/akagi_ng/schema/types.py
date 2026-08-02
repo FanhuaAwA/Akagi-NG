@@ -10,7 +10,8 @@ from akagi_ng.schema.notifications import NotificationCode
 # 业务类型
 
 
-type EngineType = Literal["mortal", "akagiot", "unknown", "null"]
+type EngineType = Literal["mortal", "akagiot", "flya", "unknown", "null"]
+type DecisionSource = Literal["local", "ot3", "ot3_fallback", "flya", "flya_fallback", "legacy_ot"]
 
 
 class EngineAdditionalMeta(TypedDict, total=False):
@@ -122,6 +123,7 @@ class MJAIMetadata(TypedDict, total=False):
     engine_type: EngineType
     fallback_used: bool
     online_service_reconnecting: bool  # 熔断器状态
+    decision_source: DecisionSource
 
     # 嵌套前瞻结果
     riichi_lookahead: Self
@@ -131,6 +133,9 @@ class MJAIMetadata(TypedDict, total=False):
     ot3_reach_candidates: list[dict[str, str | float]]
     ot3_reaction: dict[str, Any]
     ot3_model: str
+    flya_action: dict[str, Any]
+    flya_actions: list[dict[str, Any]]
+    flya_model: str
 
 
 class MJAIResponse(TypedDict):
@@ -163,7 +168,7 @@ class Recommendation(TypedDict):
     """DataServer 推荐项 (对应前端 Recommendation)"""
 
     action: str
-    confidence: float
+    confidence: NotRequired[float]
     tile: NotRequired[Tile]
     consumed: NotRequired[list[Tile]]
     sim_candidates: NotRequired[list[SimCandidate]]
@@ -176,6 +181,8 @@ class FullRecommendationData(TypedDict):
     engine_type: EngineType
     fallback_used: bool
     circuit_open: bool
+    decision_source: DecisionSource
+    flya_model: NotRequired[str]
 
 
 class Notification(TypedDict):

@@ -33,7 +33,10 @@ export default function StreamRecommendation({
   // 立直前瞻、吃碰杠等有特殊处理
   let mainTile: string | null = null;
   if (!hasSimCandidates) {
-    if ((action === 'tsumo' || action === 'ron' || action === 'nukidora') && tile) {
+    if (
+      (action === 'tsumo' || action === 'ron' || action === 'nukidora' || action === 'reach') &&
+      tile
+    ) {
       mainTile = tile;
     } else if (!config) {
       mainTile = action; // 这是一个弃牌动作（动作字符串即为牌代码）
@@ -116,9 +119,11 @@ export default function StreamRecommendation({
         </div>
 
         {/* Right: Confidence */}
-        <div className='ml-6 flex items-center justify-center'>
-          <ConfidenceRing percentage={confidence} color={effectiveConfig.color} />
-        </div>
+        {confidence !== undefined && (
+          <div className='ml-6 flex items-center justify-center'>
+            <ConfidenceRing percentage={confidence} color={effectiveConfig.color} />
+          </div>
+        )}
       </div>
     </div>
   );
