@@ -2,6 +2,29 @@
 
 All notable changes to Akagi-NG are documented in this file.
 
+## [1.1.2] - 2026-08-02
+
+### Added
+
+- Added FlyA Test as an online API provider with server-authoritative probability
+  decisions and native Akagi-NG fallback behavior.
+- Added FlyA model selection, quota lookup, credential verification, and service
+  management to the settings interface.
+- Added secure cross-platform credential storage for online provider secrets.
+
+### Changed
+
+- Restored the standard Electron HUD as the supported overlay and kept mouse
+  click-through independent from capture protection.
+- Kept the dashboard visible and recoverable while applying best-effort capture
+  protection, and removed the experimental advanced/Discord overlay path.
+
+### Verification
+
+- Expanded backend coverage for FlyA decisions, service management, settings,
+  credential storage, tracker state, and API routes.
+- Added frontend regression coverage for desktop window and HUD interaction policies.
+
 ## [1.1.0] - 2026-07-31
 
 ### Added
@@ -80,3 +103,4 @@ All notable changes to Akagi-NG are documented in this file.
 
 [1.0.9]: https://github.com/FanhuaAwA/Akagi-NG/releases/tag/v1.0.9
 [1.1.0]: https://github.com/FanhuaAwA/Akagi-NG/releases/tag/v1.1.0
+[1.1.2]: https://github.com/FanhuaAwA/Akagi-NG/releases/tag/v1.1.2

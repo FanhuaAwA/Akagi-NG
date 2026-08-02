@@ -1,7 +1,7 @@
 {
   "name": "akagi-ng-root",
   "private": true,
-  "version": "1.1.0",
+  "version": "1.1.2",
   "description": "Akagi-NG is a next-generation rewrite inspired by Akagi and MajsoulHelper, focusing on modern architecture and UI.",
   "author": "Akagi-NG Contributors",
   "license": "AGPL-3.0",
