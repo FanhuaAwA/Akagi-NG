@@ -1,4 +1,3 @@
-import type { ChildProcessWithoutNullStreams } from 'node:child_process';
 import { spawn } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import { existsSync } from 'node:fs';
@@ -11,11 +10,11 @@ import type { BackendManager } from './backend-manager.js';
 import { createLogger } from './logger.js';
 import { buildMihomoConfig } from './mihomo-config.js';
 import { getAssetPath } from './utils.js';
+import { launchWindowsTunHelper, type WindowsTunSession } from './windows-tun-helper.js';
 
 const logger = createLogger('MihomoManager');
 const STARTUP_TIMEOUT_MS = 8_000;
 const STARTUP_CHECK_INTERVAL_MS = 200;
-const SHUTDOWN_TIMEOUT_MS = 3_000;
 
 export interface MihomoStatus {
   enabled: boolean;
@@ -24,17 +23,17 @@ export interface MihomoStatus {
 }
 
 export class MihomoManager {
-  private process: ChildProcessWithoutNullStreams | null = null;
+  private session: WindowsTunSession | null = null;
   private controllerUrl = '';
   private controllerSecret = '';
   private lastError: string | undefined;
   private isStopping = false;
-  private reconcilePromise: Promise<MihomoStatus> | null = null;
+  private lifecycle: Promise<void> = Promise.resolve();
 
   public constructor(private readonly backendManager: BackendManager) {}
 
   public isRunning(): boolean {
-    return this.process !== null && this.process.exitCode === null && !this.process.killed;
+    return this.session?.isRunning() ?? false;
   }
 
   public async getStatus(): Promise<MihomoStatus> {
@@ -47,39 +46,47 @@ export class MihomoManager {
   }
 
   public async startIfEnabled(): Promise<MihomoStatus> {
+    return this.enqueue(() => this.doStartIfEnabled());
+  }
+
+  private async doStartIfEnabled(): Promise<MihomoStatus> {
     const config = await this.backendManager.getProxyConfig();
     if (!config.mihomo.enabled) return this.getStatus();
-    return this.start();
+    return this.doStart();
   }
 
   public async reconcile(): Promise<MihomoStatus> {
-    if (this.reconcilePromise) return this.reconcilePromise;
-    this.reconcilePromise = this.doReconcile().finally(() => {
-      this.reconcilePromise = null;
-    });
-    return this.reconcilePromise;
+    return this.enqueue(() => this.doReconcile());
   }
 
   private async doReconcile(): Promise<MihomoStatus> {
-    await this.stop();
+    await this.doStop();
     const config = await this.backendManager.getProxyConfig();
     if (!config.mihomo.enabled) {
       this.lastError = undefined;
       return this.getStatus();
     }
-    return this.start();
+    return this.doStart();
   }
 
   public async start(): Promise<MihomoStatus> {
+    return this.enqueue(() => this.doStart());
+  }
+
+  private async doStart(): Promise<MihomoStatus> {
     if (this.isRunning()) return this.getStatus();
     this.lastError = undefined;
     this.isStopping = false;
+
+    const config = await this.backendManager.getProxyConfig();
+    if (!config.mihomo.enabled) {
+      return this.fail('未启用内置 mihomo TUN，已拒绝提权请求。');
+    }
 
     if (process.platform !== 'win32') {
       return this.fail('当前内置 mihomo 仅打包了 Windows x64 内核。');
     }
 
-    const config = await this.backendManager.getProxyConfig();
     if (!config.mitm.enabled) {
       return this.fail('mihomo 需要先启用 Akagi-NG 外部代理（MITM）。');
     }
@@ -113,63 +120,74 @@ export class MihomoManager {
       return this.fail(error instanceof Error ? error.message : String(error));
     }
 
-    logger.info(`Starting mihomo core from ${binaryPath}`);
-    this.process = spawn(binaryPath, ['-d', workDir, '-f', configPath], {
-      cwd: workDir,
-      windowsHide: true,
-    });
+    const helperPath = app.isPackaged
+      ? getAssetPath('assets', 'privileged', 'AkagiNg.TunHelper.exe')
+      : getAssetPath('build', 'privileged', 'AkagiNg.TunHelper.exe');
+    if (!existsSync(helperPath)) {
+      return this.fail(`找不到 TUN 权限助手：${helperPath}`);
+    }
 
-    this.process.stdout.on('data', (data) => {
-      logger.info(`mihomo: ${data.toString().trim()}`);
-    });
-    this.process.stderr.on('data', (data) => {
-      logger.warn(`mihomo stderr: ${data.toString().trim()}`);
-    });
-    this.process.on('error', (error) => {
-      this.lastError = `mihomo 启动失败：${error.message}`;
-      logger.error(this.lastError);
-    });
-    this.process.on('close', (code) => {
-      const wasStopping = this.isStopping;
-      this.isStopping = false;
-      if (!wasStopping && code !== 0 && !this.lastError) {
-        this.lastError = `mihomo 异常退出（代码 ${String(code)}）。请确认以管理员身份运行，并允许其通过 Windows 防火墙。`;
-      }
-      logger.info(`mihomo terminated with code ${String(code)}`);
-      this.process = null;
-    });
+    logger.info('Requesting elevation for the isolated mihomo TUN helper.');
+    try {
+      this.session = await launchWindowsTunHelper({
+        helperPath,
+        workDir,
+        configPath,
+        onStdout: (line) => logger.info(`mihomo: ${line.trim()}`),
+        onStderr: (line) => logger.warn(`mihomo stderr: ${line.trim()}`),
+        onUnexpectedExit: (code, message) => {
+          this.session = null;
+          if (!this.isStopping) {
+            this.lastError = message
+              ? `mihomo 权限助手异常退出：${message}`
+              : `mihomo 异常退出（代码 ${String(code)}）。`;
+            logger.error(this.lastError);
+          }
+          this.isStopping = false;
+        },
+      });
+    } catch (error) {
+      this.session = null;
+      return this.fail(
+        error instanceof Error ? `无法启动 mihomo TUN：${error.message}` : '无法启动 mihomo TUN。',
+      );
+    }
 
     try {
       await this.waitUntilReady();
       logger.info(`mihomo controller is ready at ${this.controllerUrl}`);
       return this.getStatus();
     } catch (error) {
-      await this.stop();
+      await this.doStop();
       return this.fail(error instanceof Error ? error.message : String(error));
     }
   }
 
   public async stop(): Promise<void> {
-    const currentProcess = this.process;
-    if (!currentProcess || currentProcess.exitCode !== null) {
-      this.process = null;
+    return this.enqueue(() => this.doStop());
+  }
+
+  private async doStop(): Promise<void> {
+    const currentSession = this.session;
+    if (!currentSession || !currentSession.isRunning()) {
+      this.session = null;
       return;
     }
 
     logger.info('Stopping mihomo core...');
     this.isStopping = true;
-    currentProcess.kill('SIGTERM');
-    await new Promise<void>((resolve) => {
-      const timeout = setTimeout(() => {
-        if (currentProcess.exitCode === null) currentProcess.kill('SIGKILL');
-        resolve();
-      }, SHUTDOWN_TIMEOUT_MS);
-      currentProcess.once('close', () => {
-        clearTimeout(timeout);
-        resolve();
-      });
-    });
-    this.process = null;
+    await currentSession.stop();
+    this.session = null;
+    this.isStopping = false;
+  }
+
+  private enqueue<T>(operation: () => Promise<T>): Promise<T> {
+    const result = this.lifecycle.then(operation, operation);
+    this.lifecycle = result.then(
+      () => undefined,
+      () => undefined,
+    );
+    return result;
   }
 
   private async validateConfig(
