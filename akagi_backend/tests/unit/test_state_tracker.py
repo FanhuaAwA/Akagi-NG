@@ -358,6 +358,38 @@ def test_ot3_recommendations_use_exact_reaction_and_skip_duplicate_top_candidate
     ]
 
 
+def test_flya_recommendation_shows_at_most_three_candidates(tracker):
+    tracker.player_state.self_riichi_accepted = False
+    response = {
+        "meta": {
+            "engine_type": "flya",
+            "decision_source": "flya",
+            "flya_action": {"type": "dealer_opening_dahai", "pai": "5mr"},
+            "flya_actions": [
+                {
+                    "action": {"type": "dealer_opening_dahai", "pai": "5mr"},
+                    "prob": 0.7,
+                },
+                {"action": {"type": "dealer_opening_riichi_dahai", "pai": "2p"}, "prob": 0.2},
+                {"action": {"type": "pass_all"}, "prob": 0.08},
+                {"action": {"type": "dahai", "pai": "4s", "tsumogiri": False}, "prob": 0.02},
+            ],
+            "flya_model": "flya-v15-4p",
+        }
+    }
+
+    result = tracker.build_recommendations(response)
+
+    assert result is not None
+    assert result["decision_source"] == "flya"
+    assert result["flya_model"] == "flya-v15-4p"
+    assert result["recommendations"] == [
+        {"action": "5mr", "confidence": 0.7},
+        {"action": "reach", "tile": "2p", "confidence": 0.2},
+        {"action": "none", "confidence": 0.08},
+    ]
+
+
 def test_ot3_recommendation_preserves_exact_meld_tiles(tracker):
     tracker.player_state.self_riichi_accepted = False
     response = {

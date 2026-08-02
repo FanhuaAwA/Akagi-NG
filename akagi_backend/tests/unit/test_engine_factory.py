@@ -12,9 +12,15 @@ import sys
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+import numpy as np
 import pytest
 
-from akagi_ng.mjai_bot.engine.factory import _RESOURCE_CACHE, LazyLocalEngine, load_bot_and_engine
+from akagi_ng.mjai_bot.engine.factory import (
+    _RESOURCE_CACHE,
+    FlyAProbeEngine,
+    LazyLocalEngine,
+    load_bot_and_engine,
+)
 from akagi_ng.mjai_bot.status import BotStatusContext
 
 # 自动应用 mock_lib_loader_module fixture（定义在 unit/conftest.py 中）
@@ -70,6 +76,18 @@ def test_lazy_local_engine_delegation(mock_consts) -> None:
     assert engine.status == status
 
 
+def test_flya_probe_returns_legal_mask_without_local_model() -> None:
+    engine = FlyAProbeEngine(BotStatusContext(), is_3p=False)
+    masks = np.array([[False, True, False]], dtype=bool)
+
+    actions, q_values, returned_masks, _ = engine.react_batch(np.empty((1, 0)), masks)
+
+    assert actions == [1]
+    assert q_values == [[0.0, 0.0, 0.0]]
+    assert returned_masks == masks.tolist()
+    assert engine.engine_type == "flya"
+
+
 def test_load_bot_and_engine_4p(mock_lib_loader_module) -> None:
     """测试加载 4 人麻将引擎和 Bot。"""
     with patch("akagi_ng.mjai_bot.engine.factory.local_settings") as mock_settings:
@@ -106,6 +124,7 @@ def test_load_bot_and_engine_online(mock_lib_loader_module) -> None:
         patch("akagi_ng.mjai_bot.engine.factory.AkagiOTEngine") as mock_ot,
     ):
         mock_settings.ot.online = True
+        mock_settings.ot.provider = "akagi_ot3"
         mock_settings.ot.protocol = "legacy"
         mock_settings.ot.server = "http://localhost"
         mock_settings.ot.api_key = "key"
@@ -118,3 +137,38 @@ def test_load_bot_and_engine_online(mock_lib_loader_module) -> None:
         # 应该创建了 AkagiOTEngine
         mock_ot.assert_called_once()
         assert engine.name.startswith("Provider")
+
+
+def test_load_bot_and_engine_flya_does_not_create_legacy_online_engine(mock_lib_loader_module) -> None:
+    with (
+        patch("akagi_ng.mjai_bot.engine.factory.local_settings") as mock_settings,
+        patch("akagi_ng.mjai_bot.engine.factory.AkagiOTEngine") as mock_ot,
+        patch("akagi_ng.mjai_bot.engine.factory.threading.Thread") as mock_thread,
+    ):
+        mock_settings.ot.online = True
+        mock_settings.ot.provider = "flya_test_api"
+        mock_settings.ot.protocol = "legacy"
+        mock_settings.model_config.model_4p = "mortal_4p.pth"
+        mock_lib_loader_module.libriichi.mjai.Bot = MagicMock()
+
+        _, engine = load_bot_and_engine(BotStatusContext(), player_id=0, is_3p=False, flya_probe=True)
+
+        mock_ot.assert_not_called()
+        assert engine.online_engine is None
+        mock_thread.return_value.start.assert_called_once()
+
+
+def test_load_bot_and_engine_flya_probe_prewarms_mortal_in_background(mock_lib_loader_module) -> None:
+    with (
+        patch("akagi_ng.mjai_bot.engine.factory.local_settings") as mock_settings,
+        patch("akagi_ng.mjai_bot.engine.factory.threading.Thread") as mock_thread,
+    ):
+        mock_settings.ot.online = True
+        mock_settings.ot.protocol = "v3"
+        mock_settings.model_config.model_4p = "mortal_4p.pth"
+        mock_lib_loader_module.libriichi.mjai.Bot = MagicMock()
+
+        _, engine = load_bot_and_engine(BotStatusContext(), 0, flya_probe=True)
+
+        assert isinstance(engine.local_engine, FlyAProbeEngine)
+        mock_thread.return_value.start.assert_called_once()

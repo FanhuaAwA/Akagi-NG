@@ -35,7 +35,10 @@ def test_is_allowed_origin():
     assert _is_allowed_origin(None) is True
     assert _is_allowed_origin("http://localhost:3000") is True
     assert _is_allowed_origin("http://127.0.0.1:8080") is True
+    assert _is_allowed_origin("https://[::1]:3000") is True
     assert _is_allowed_origin("http://malicious.com") is False
+    assert _is_allowed_origin("http://localhost.attacker.example") is False
+    assert _is_allowed_origin("http://127.0.0.1.attacker.example") is False
 
 
 async def test_cors_middleware_allowed(cli):
@@ -97,6 +100,52 @@ async def test_ot3_management_routes_use_local_proxy_without_exposing_credential
     )
 
 
+async def test_flya_management_uses_only_the_configured_connection(cli):
+    mock_client = MagicMock()
+    mock_client.models.return_value = []
+    mock_settings = MagicMock()
+    mock_settings.ot.flya_server = "https://flya.example/beta/v1"
+    mock_settings.ot.flya_api_key = "stored-secret"
+    mock_settings.ot.effective_proxy.return_value = "socks5h://127.0.0.1:7890"
+
+    with (
+        patch("akagi_ng.dataserver.api.local_settings", mock_settings),
+        patch("akagi_ng.dataserver.api.FlyATestServiceClient", return_value=mock_client) as client_type,
+    ):
+        response = await cli.post(
+            "/api/flya/models",
+            json={
+                "server": "https://flya.example/beta/v1/",
+                "proxy": "http://attacker.example",
+            },
+        )
+
+    assert response.status == 200
+    client_type.assert_called_once_with(
+        "https://flya.example/beta/v1",
+        "stored-secret",
+        "socks5h://127.0.0.1:7890",
+    )
+
+
+async def test_flya_management_rejects_server_override(cli):
+    mock_settings = MagicMock()
+    mock_settings.ot.flya_server = "https://flya.example/beta/v1"
+    mock_settings.ot.flya_api_key = "stored-secret"
+
+    with (
+        patch("akagi_ng.dataserver.api.local_settings", mock_settings),
+        patch("akagi_ng.dataserver.api.FlyATestServiceClient") as client_type,
+    ):
+        response = await cli.post(
+            "/api/flya/quota",
+            json={"server": "http://attacker.example"},
+        )
+
+    assert response.status == 400
+    client_type.assert_not_called()
+
+
 async def test_ot3_redeem_and_purchase_routes_validate_input(cli):
     missing_code = await cli.post(
         "/api/ot3/redeem",
@@ -138,6 +187,22 @@ async def test_save_settings_success(cli):
         assert data["ok"] is True
         assert mock_settings.update.called
         assert mock_settings.save.called
+
+
+async def test_save_settings_reports_unavailable_credential_storage(cli):
+    with (
+        patch("akagi_ng.dataserver.api.verify_settings", return_value=True),
+        patch("akagi_ng.dataserver.api.get_settings_dict", return_value={}),
+        patch("akagi_ng.dataserver.api.local_settings") as mock_settings,
+    ):
+        mock_settings.update.side_effect = OSError("backend details")
+        response = await cli.post("/api/settings", json={"ot": {"flya_api_key": "secret"}})
+
+    assert response.status == 503
+    data = await response.json()
+    assert data["error"] == "System credential storage is unavailable"
+    assert "backend details" not in data["error"]
+    mock_settings.save.assert_not_called()
 
 
 async def test_ot3_settings_apply_without_restart(cli):

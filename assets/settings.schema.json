@@ -181,6 +181,11 @@
           "description": "Whether to use the online service.",
           "default": false
         },
+        "provider": {
+          "type": "string",
+          "enum": ["akagi_ot3", "flya_test_api"],
+          "default": "akagi_ot3"
+        },
         "server": {
           "type": "string",
           "description": "The server URL for the online service.",
@@ -205,6 +210,34 @@
         "model_3p": {
           "type": "string",
           "description": "Optional OT3 three-player model id; empty uses the server default.",
+          "default": ""
+        },
+        "flya_server": {
+          "type": "string",
+          "description": "The server URL for the FlyA test API.",
+          "default": "https://api.nashout.com"
+        },
+        "flya_api_key": {
+          "type": "string",
+          "description": "A write-only FlyA test API key.",
+          "default": ""
+        },
+        "flya_api_key_configured": {
+          "type": "boolean",
+          "description": "Whether a FlyA API key is stored in Windows DPAPI.",
+          "default": false
+        },
+        "flya_api_key_last4": {
+          "type": "string",
+          "maxLength": 4,
+          "default": ""
+        },
+        "flya_model_4p": {
+          "type": "string",
+          "default": ""
+        },
+        "flya_model_3p": {
+          "type": "string",
           "default": ""
         },
         "proxy_enabled": {
@@ -233,9 +266,6 @@
           "server": {
             "minLength": 1,
             "format": "uri"
-          },
-          "api_key": {
-            "minLength": 1
           }
         }
       },

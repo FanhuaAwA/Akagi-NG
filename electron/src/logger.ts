@@ -1,5 +1,5 @@
 import type { WriteStream } from 'node:fs';
-import { appendFileSync, createWriteStream } from 'node:fs';
+import { appendFileSync, createWriteStream, mkdirSync } from 'node:fs';
 import { readdir, stat, unlink } from 'node:fs/promises';
 import { join } from 'node:path';
 
@@ -171,6 +171,7 @@ async function cleanupOldLogs(logsDir: string) {
  * 初始化日志系统（必须在应用程序生命周期尽早调用）
  */
 export function initializeLogger(logsDir: string) {
+  mkdirSync(logsDir, { recursive: true });
   currentLogsDir = logsDir;
   rotateLogFile(); // 初始化第一个文件
 

@@ -39,6 +39,11 @@ export function ModelConfigSection({
   const [tempInput, setTempInput] = useState(settings.model_config.temperature.toString());
   const [isEditingTemp, setIsEditingTemp] = useState(false);
   const displayTemp = isEditingTemp ? tempInput : settings.model_config.temperature.toString();
+  const isFlyA = settings.ot.provider === 'flya_test_api';
+  const temperatureDisabled = settings.ot.online && isFlyA;
+  const activeServer = isFlyA ? settings.ot.flya_server : settings.ot.server;
+  const activeKey = isFlyA ? settings.ot.flya_api_key : settings.ot.api_key;
+  const keyConfigured = isFlyA ? settings.ot.flya_api_key_configured : Boolean(settings.ot.api_key);
 
   return (
     <div className='space-y-4'>
@@ -51,8 +56,10 @@ export function ModelConfigSection({
             <CapsuleSwitch
               checked={settings.ot.online}
               onCheckedChange={(val) => {
-                updateSetting(['ot', 'online'], val);
-                if (val) updateSetting(['ot', 'protocol'], 'v3');
+                updateSettingsBatch([
+                  { path: ['ot', 'online'], value: val },
+                  ...(val ? [{ path: ['ot', 'protocol'], value: 'v3' }] : []),
+                ]);
               }}
               labelOn={t('settings.model_config.online_mode')}
               labelOff={t('settings.model_config.local_mode')}
@@ -61,30 +68,68 @@ export function ModelConfigSection({
 
           {settings.ot.online ? (
             <>
+              <SettingsItem label={t('settings.model_config.service_type')}>
+                <Select
+                  value={settings.ot.provider}
+                  onValueChange={(value: 'akagi_ot3' | 'flya_test_api') =>
+                    updateSettingsBatch([
+                      { path: ['ot', 'provider'], value },
+                      ...(value === 'akagi_ot3' ? [{ path: ['ot', 'protocol'], value: 'v3' }] : []),
+                    ])
+                  }
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value='akagi_ot3'>Akagi OT3</SelectItem>
+                    <SelectItem value='flya_test_api'>FlyA-test-api</SelectItem>
+                  </SelectContent>
+                </Select>
+              </SettingsItem>
               <SettingsItem label={t('settings.model_config.server_url')}>
                 <Input
                   className={
-                    !settings.ot.server ? 'border-destructive focus-visible:ring-destructive' : ''
+                    !activeServer ? 'border-destructive focus-visible:ring-destructive' : ''
                   }
-                  value={settings.ot.server}
-                  onChange={(e) => updateSetting(['ot', 'server'], e.target.value)}
-                  placeholder='http://[IP_ADDRESS]'
+                  value={activeServer}
+                  onChange={(event) =>
+                    updateSettingsBatch([
+                      {
+                        path: ['ot', isFlyA ? 'flya_server' : 'server'],
+                        value: event.target.value,
+                      },
+                    ])
+                  }
+                  placeholder='https://api.example.com'
                 />
               </SettingsItem>
               <SettingsItem label={t('settings.model_config.api_key')}>
                 <Input
                   type='password'
                   className={
-                    !settings.ot.api_key ? 'border-destructive focus-visible:ring-destructive' : ''
+                    !keyConfigured ? 'border-destructive focus-visible:ring-destructive' : ''
                   }
-                  value={settings.ot.api_key}
-                  onChange={(e) => updateSetting(['ot', 'api_key'], e.target.value)}
-                  placeholder='<YOUR_API_KEY>'
+                  value={activeKey}
+                  onChange={(event) =>
+                    updateSettingsBatch([
+                      {
+                        path: ['ot', isFlyA ? 'flya_api_key' : 'api_key'],
+                        value: event.target.value,
+                      },
+                      ...(isFlyA ? [{ path: ['ot', 'flya_api_key_configured'], value: true }] : []),
+                    ])
+                  }
+                  placeholder={
+                    isFlyA && settings.ot.flya_api_key_last4
+                      ? `••••${settings.ot.flya_api_key_last4}`
+                      : '<YOUR_API_KEY>'
+                  }
                 />
               </SettingsItem>
               <SettingsItem
-                label={t('settings.model_config.ot3_proxy')}
-                description={t('settings.model_config.ot3_proxy_desc')}
+                label={t('settings.model_config.online_proxy')}
+                description={t('settings.model_config.online_proxy_desc')}
               >
                 <div className='flex w-full items-center gap-3'>
                   <CapsuleSwitch
@@ -160,10 +205,17 @@ export function ModelConfigSection({
         <div className='space-y-4'>
           <SettingsItem
             label={t('settings.model_config.temperature')}
-            description={t('settings.model_config.temperature_desc')}
+            description={
+              temperatureDisabled
+                ? t('settings.model_config.temperature_flya_disabled')
+                : t('settings.model_config.temperature_desc')
+            }
           >
-            <div className='flex items-center gap-4 pt-1'>
+            <div
+              className={`flex items-center gap-4 pt-1 ${temperatureDisabled ? 'opacity-50' : ''}`}
+            >
               <Slider
+                disabled={temperatureDisabled}
                 min={0}
                 max={100}
                 step={0.1}
@@ -181,6 +233,7 @@ export function ModelConfigSection({
                 className='flex-1'
               />
               <Input
+                disabled={temperatureDisabled}
                 className='w-16 text-center tabular-nums'
                 value={displayTemp}
                 onFocus={() => {
@@ -205,7 +258,11 @@ export function ModelConfigSection({
       </div>
 
       {settings.ot.online && (
-        <OT3ServicePanel settings={settings} updateSettingsBatch={updateSettingsBatch} />
+        <OT3ServicePanel
+          key={settings.ot.provider}
+          settings={settings}
+          updateSettingsBatch={updateSettingsBatch}
+        />
       )}
     </div>
   );

@@ -19,7 +19,7 @@ export const HUD_MAX_WIDTH = 1280;
 export const HUD_MAX_HEIGHT = 720;
 
 // 后端启动检查配置
-export const BACKEND_STARTUP_CHECK_RETRIES = 20;
+export const BACKEND_STARTUP_CHECK_RETRIES = 60;
 export const BACKEND_STARTUP_CHECK_INTERVAL_MS = 500;
 export const BACKEND_STARTUP_CHECK_TIMEOUT_MS = 1000;
 

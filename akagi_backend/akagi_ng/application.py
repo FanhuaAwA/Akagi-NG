@@ -18,6 +18,7 @@ from akagi_ng.dataserver import DataServer
 from akagi_ng.electron_client import create_electron_client
 from akagi_ng.mitm_client import MitmClient
 from akagi_ng.mjai_bot import Controller, StateTracker
+from akagi_ng.mjai_bot.flya import FlyADecider
 from akagi_ng.mjai_bot.status import BotStatusContext
 from akagi_ng.schema.constants import ServerConstants
 from akagi_ng.schema.protocols import (
@@ -44,6 +45,7 @@ class AkagiApp:
         self.ds: DataServer | None = None
         self.status: BotStatusContext | None = None
         self.frontend_url = ""
+        self.flya_decider: FlyADecider | None = None
         self.message_queue: queue.Queue[AkagiEvent] = queue.Queue(maxsize=ServerConstants.MESSAGE_QUEUE_MAXSIZE)
 
     def initialize(self):
@@ -64,7 +66,8 @@ class AkagiApp:
             importlib.import_module("akagi_ng.core.lib_loader")
             status = BotStatusContext()
             self.status = status
-            controller = Controller(status=status)
+            self.flya_decider = FlyADecider(status)
+            controller = Controller(status=status, flya_probe=True)
             tracker = StateTracker(status=status)
             logger.info("Components loaded successfully.")
         except ImportError:
@@ -158,6 +161,9 @@ class AkagiApp:
             # 收集结果：决策响应（从 Controller 拉取）
             if controller and not handled:
                 response = controller.last_response
+                if self.flya_decider and tracker and isinstance(msg, MJAIEventBase):
+                    response = self.flya_decider.process(msg, response, tracker)
+                    controller.last_response = response
 
             if msg_code:
                 notifications.append(Notification(code=msg_code))

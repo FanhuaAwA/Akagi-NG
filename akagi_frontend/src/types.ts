@@ -7,19 +7,28 @@ export interface SimCandidate {
 
 export interface Recommendation {
   action: string;
-  confidence: number;
+  confidence?: number;
   consumed?: string[];
   sim_candidates?: SimCandidate[];
   tile?: string;
 }
 
-export type EngineType = 'mortal' | 'akagiot' | 'unknown' | 'null';
+export type EngineType = 'mortal' | 'akagiot' | 'flya' | 'unknown' | 'null';
+export type DecisionSource =
+  | 'local'
+  | 'ot3'
+  | 'ot3_fallback'
+  | 'flya'
+  | 'flya_fallback'
+  | 'legacy_ot';
 
 export interface FullRecommendationData {
   recommendations: Recommendation[];
   engine_type: EngineType;
   fallback_used: boolean;
   circuit_open: boolean;
+  decision_source: DecisionSource;
+  flya_model?: string;
 }
 
 export interface NotificationItem {
@@ -67,11 +76,18 @@ export interface Settings {
   };
   ot: {
     online: boolean;
+    provider: 'akagi_ot3' | 'flya_test_api';
     server: string;
     api_key: string;
     protocol: 'v3' | 'legacy';
     model_4p: string;
     model_3p: string;
+    flya_server: string;
+    flya_api_key: string;
+    flya_api_key_configured: boolean;
+    flya_api_key_last4: string;
+    flya_model_4p: string;
+    flya_model_3p: string;
     proxy_enabled: boolean;
     proxy: string;
   };
@@ -108,7 +124,42 @@ export interface OT3ModelInfo {
   id: string;
   game: string;
   desc: string;
+  display_name?: string;
+  available?: boolean;
+  unavailable_reason?: string | null;
+  cost_milliunits?: number;
+  multiplier?: string;
+  provider?: string;
+  rule_line?: string;
 }
+
+interface FlyAQuotaBase {
+  status: 'active' | 'grace';
+  expires_at: string;
+  destroy_at?: string | null;
+}
+
+interface FlyAQuotaWindow {
+  limit: string;
+  used: string;
+  remaining: string;
+  resets_at: string;
+}
+
+export interface FlyAPaygoQuota extends FlyAQuotaBase {
+  key_kind: 'paygo';
+  total: string;
+  used: string;
+  remaining: string;
+}
+
+export interface FlyASubscriptionQuota extends FlyAQuotaBase {
+  key_kind: 'subscription';
+  five_hour: FlyAQuotaWindow;
+  weekly: FlyAQuotaWindow;
+}
+
+export type FlyAQuota = FlyAPaygoQuota | FlyASubscriptionQuota;
 
 export interface OT3RedeemResponse {
   key?: string | null;

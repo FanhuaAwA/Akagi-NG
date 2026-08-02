@@ -8,6 +8,7 @@ from akagi_ng.schema.protocols import PlayerStateProtocol, StateTrackerProtocol
 from akagi_ng.schema.types import (
     ChiType,
     DahaiEvent,
+    DecisionSource,
     FullRecommendationData,
     FuuroAction,
     FuuroDetail,
@@ -34,6 +35,7 @@ class StateTracker(StateTrackerProtocol):
         self.meta: MJAIMetadata = {}
         self.player_id: int = 0
         self.player_state: PlayerStateProtocol | None = None
+        self.last_discard_actor: int | None = None
 
     def react(self, event: MJAIEvent) -> MJAIResponse | None:
         try:
@@ -43,6 +45,9 @@ class StateTracker(StateTrackerProtocol):
                     self.player_id = player_id
                     self.is_3p = is_3p
                     self.player_state = libriichi.state.PlayerState(self.player_id)
+                    self.last_discard_actor = None
+                case DahaiEvent(actor=actor):
+                    self.last_discard_actor = actor
                 # 三麻兼容：libriichi.PlayerState 状态追踪库不支持 nukidora 事件，需要转换为 dahai 事件
                 case NukidoraEvent(actor=actor):
                     processed_event = DahaiEvent(
@@ -132,19 +137,24 @@ class StateTracker(StateTrackerProtocol):
             recommendations = self._process_standard_recommendations()
 
             # 2. 如果适用，附加立直前瞻信息
-            self._attach_riichi_lookahead(recommendations)
+            if meta.get("decision_source") != "flya":
+                self._attach_riichi_lookahead(recommendations)
 
             # 3. 如果已立直，过滤掉无需显示的推荐
             if self.self_riichi_accepted:
                 allow_actions = {"kan", "tsumo", "ron", "nukidora"}
                 recommendations = [rec for rec in recommendations if rec["action"] in allow_actions]
 
-            return FullRecommendationData(
+            result = FullRecommendationData(
                 recommendations=recommendations,
                 engine_type=meta.get(NotificationCode.ENGINE_TYPE, "unknown"),
                 fallback_used=meta.get(NotificationCode.FALLBACK_USED, False),
                 circuit_open=meta.get(NotificationCode.RECONNECTING, False),
+                decision_source=self._decision_source(meta),
             )
+            if flya_model := meta.get("flya_model"):
+                result["flya_model"] = flya_model
+            return result
 
         except Exception:
             logger.exception("Failed to build recommendations")
@@ -247,7 +257,23 @@ class StateTracker(StateTrackerProtocol):
             if last_kawa := self.last_kawa_tile:
                 base_item["tile"] = last_kawa
 
-    def _process_standard_recommendations(self) -> list[Recommendation]:
+    def _process_standard_recommendations(self) -> list[Recommendation]:  # noqa: C901, PLR0912
+        if self.meta.get("decision_source") == "flya":
+            actions = self.meta.get("flya_actions")
+            if isinstance(actions, list):
+                recommendations = []
+                for item in actions[:3]:
+                    if not isinstance(item, dict) or not isinstance(item.get("action"), dict):
+                        continue
+                    recommendation = self._flya_action_recommendation(item["action"])
+                    if recommendation:
+                        recommendation["confidence"] = float(item.get("prob", 0.0))
+                        recommendations.append(recommendation)
+                return recommendations
+            action = self.meta.get("flya_action")
+            if isinstance(action, dict):
+                recommendation = self._flya_action_recommendation(action)
+                return [recommendation] if recommendation else []
         if "ot3_candidates" in self.meta:
             return self._process_ot3_recommendations()
 
@@ -278,6 +304,45 @@ class StateTracker(StateTrackerProtocol):
                     base_item["tile"] = "N"
                 recommendations.append(base_item)
         return recommendations
+
+    def _decision_source(self, meta: MJAIMetadata) -> DecisionSource:
+        if source := meta.get("decision_source"):
+            return source
+        if "ot3_candidates" in meta:
+            return "ot3_fallback" if meta.get(NotificationCode.FALLBACK_USED) else "ot3"
+        if meta.get(NotificationCode.ENGINE_TYPE) == "akagiot":
+            return "legacy_ot"
+        return "local"
+
+    def _flya_action_recommendation(  # noqa: PLR0911
+        self, action: dict[str, object]
+    ) -> Recommendation | None:
+        action_type = str(action.get("type", ""))
+        if action_type in {"dahai", "dealer_opening_dahai"}:
+            return {"action": str(action.get("pai", ""))}
+        if action_type in {"riichi_dahai", "dealer_opening_riichi_dahai"}:
+            return {"action": "reach", "tile": str(action.get("pai", ""))}
+        if action_type in {"chi", "pon", "daiminkan", "ankan", "kakan"}:
+            consumed = action.get("consumed")
+            item: Recommendation = {
+                "action": "kan" if action_type in {"daiminkan", "ankan", "kakan"} else action_type,
+                "consumed": [str(tile) for tile in consumed] if isinstance(consumed, list) else [],
+            }
+            if action.get("pai"):
+                item["tile"] = str(action["pai"])
+            return item
+        if action_type == "kita":
+            return {"action": "nukidora", "tile": "N"}
+        if action_type in {"tsumo", "ron"}:
+            item: Recommendation = {"action": action_type}
+            if action.get("pai"):
+                item["tile"] = str(action["pai"])
+            return item
+        if action_type == "kyushukyuhai":
+            return {"action": "ryukyoku"}
+        if action_type == "pass_all":
+            return {"action": "none"}
+        return None
 
     def _process_ot3_recommendations(self) -> list[Recommendation]:
         """Convert OT3's already-ranked candidate list without re-softmaxing it."""

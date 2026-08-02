@@ -3,6 +3,7 @@ import json
 import queue
 from collections.abc import Callable
 from typing import Any
+from urllib.parse import urlsplit
 
 from aiohttp import web
 
@@ -11,6 +12,7 @@ from akagi_ng.core.logging import configure_logging
 from akagi_ng.core.paths import ensure_dir, get_assets_dir, get_models_dir
 from akagi_ng.dataserver.logger import logger
 from akagi_ng.mjai_bot.engine import clear_resource_cache
+from akagi_ng.mjai_bot.flya_service import FlyATestServiceClient, FlyATestServiceError
 from akagi_ng.mjai_bot.ot3_service import OT3ServiceClient, OT3ServiceError
 from akagi_ng.schema.types import (
     DebuggerDetachedMessage,
@@ -35,10 +37,22 @@ CORS_HEADERS = {
 
 
 def _is_allowed_origin(origin: str | None) -> bool:
-    """检查来源是否为 localhost/127.0.0.1。"""
+    """检查来源是否为本机 HTTP(S) Origin。"""
     if not origin:
         return True  # 允许无 Origin 的本地请求（如 EventSource）
-    return "localhost" in origin or "127.0.0.1" in origin
+    try:
+        parsed = urlsplit(origin)
+        return (
+            parsed.scheme in {"http", "https"}
+            and parsed.hostname in {"localhost", "127.0.0.1", "::1"}
+            and not parsed.username
+            and not parsed.password
+            and parsed.path in {"", "/"}
+            and not parsed.query
+            and not parsed.fragment
+        )
+    except ValueError:
+        return False
 
 
 @web.middleware
@@ -98,6 +112,16 @@ def _ot3_client(payload: dict[str, Any], *, require_key: bool = False) -> OT3Ser
     return OT3ServiceClient(server, key, proxy)
 
 
+def _flya_client(payload: dict[str, Any]) -> FlyATestServiceClient:
+    server = local_settings.ot.flya_server
+    requested_server = payload.get("server")
+    if requested_server is not None and not isinstance(requested_server, str):
+        raise ValueError("server must be a string")
+    if requested_server is not None and requested_server.strip().rstrip("/") != server.strip().rstrip("/"):
+        raise ValueError("server must match the configured FlyA server")
+    return FlyATestServiceClient(server, local_settings.ot.flya_api_key, local_settings.ot.effective_proxy())
+
+
 async def _ot3_response(operation: Callable[[], object]) -> web.Response:
     try:
         data = await asyncio.to_thread(operation)
@@ -108,6 +132,19 @@ async def _ot3_response(operation: Callable[[], object]) -> web.Response:
         return _json_response({"ok": False, "error": str(exc)}, status=502)
     except Exception:
         logger.exception("Unexpected OT3 service API failure")
+        return _json_response({"ok": False, "error": "Internal server error"}, status=500)
+
+
+async def _flya_response(operation: Callable[[], object]) -> web.Response:
+    try:
+        data = await asyncio.to_thread(operation)
+        return _json_response({"ok": True, "data": data})
+    except ValueError as exc:
+        return _json_response({"ok": False, "error": str(exc)}, status=400)
+    except FlyATestServiceError as exc:
+        return _json_response({"ok": False, "error": str(exc)}, status=502)
+    except Exception:
+        logger.exception("Unexpected FlyA service API failure")
         return _json_response({"ok": False, "error": "Internal server error"}, status=500)
 
 
@@ -152,6 +189,30 @@ async def ot3_models_handler(request: web.Request) -> web.Response:
     except ValueError as exc:
         return _json_response({"ok": False, "error": str(exc)}, status=400)
     return await _ot3_response(client.models)
+
+
+async def flya_health_handler(request: web.Request) -> web.Response:
+    try:
+        client = _flya_client(await _request_object(request))
+    except ValueError as exc:
+        return _json_response({"ok": False, "error": str(exc)}, status=400)
+    return await _flya_response(client.health)
+
+
+async def flya_quota_handler(request: web.Request) -> web.Response:
+    try:
+        client = _flya_client(await _request_object(request))
+    except ValueError as exc:
+        return _json_response({"ok": False, "error": str(exc)}, status=400)
+    return await _flya_response(client.quota)
+
+
+async def flya_models_handler(request: web.Request) -> web.Response:
+    try:
+        client = _flya_client(await _request_object(request))
+    except ValueError as exc:
+        return _json_response({"ok": False, "error": str(exc)}, status=400)
+    return await _flya_response(client.models)
 
 
 async def ot3_redeem_handler(request: web.Request) -> web.Response:
@@ -244,7 +305,14 @@ async def save_settings_handler(request: web.Request) -> web.Response:
         new_mitm = payload.get("mitm", {})
         proxy_changed = new_mitm != old_mitm or payload.get("mihomo", {}) != old_settings.get("mihomo", {})
         desktop_changed = payload.get("desktop", {}) != old_settings.get("desktop", {})
-        local_settings.update(payload)
+        try:
+            local_settings.update(payload)
+        except OSError:
+            logger.exception("System credential storage is unavailable")
+            return _json_response(
+                {"ok": False, "error": "System credential storage is unavailable"},
+                status=503,
+            )
         local_settings.save()
 
         restart_required = False
@@ -285,7 +353,7 @@ async def save_settings_handler(request: web.Request) -> web.Response:
 async def reset_settings_handler(_request: web.Request) -> web.Response:
     try:
         default_settings = get_default_settings_dict()
-        local_settings.update(default_settings)
+        local_settings.update(default_settings, clear_flya_api_key=True)
         local_settings.save()
 
         clear_resource_cache()
@@ -432,6 +500,9 @@ def setup_routes(app: web.Application):
     app.router.add_post("/api/ot3/health", ot3_health_handler)
     app.router.add_post("/api/ot3/key-status", ot3_key_status_handler)
     app.router.add_post("/api/ot3/models", ot3_models_handler)
+    app.router.add_post("/api/flya/health", flya_health_handler)
+    app.router.add_post("/api/flya/quota", flya_quota_handler)
+    app.router.add_post("/api/flya/models", flya_models_handler)
     app.router.add_post("/api/ot3/redeem", ot3_redeem_handler)
     app.router.add_post("/api/ot3/purchase/order", ot3_create_order_handler)
     app.router.add_post("/api/ot3/purchase/order/result", ot3_order_result_handler)

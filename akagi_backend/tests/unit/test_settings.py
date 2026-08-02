@@ -16,6 +16,7 @@ from unittest.mock import mock_open, patch
 import pytest
 
 from akagi_ng.settings.settings import (
+    DEFAULT_FLYA_SERVER,
     DEFAULT_OT3_SERVER,
     SETTINGS_JSON_PATH,
     MihomoConfig,
@@ -42,6 +43,7 @@ class TestSettingsDataclasses(unittest.TestCase):
         config = OTConfig(online=False)
         self.assertFalse(config.online)
         self.assertEqual(config.server, DEFAULT_OT3_SERVER)
+        self.assertEqual(config.flya_server, DEFAULT_FLYA_SERVER)
         self.assertEqual(config.api_key, "")
         self.assertEqual(config.protocol, "v3")
         self.assertEqual(config.model_for(False), "")
@@ -95,6 +97,38 @@ class TestSettingsClass(unittest.TestCase):
         self.settings.locale = "en-US"
         self.assertEqual(self.settings.log_level, "DEBUG")
         self.assertEqual(self.settings.locale, "en-US")
+
+    @patch("akagi_ng.settings.settings.delete_secret")
+    def test_update_preserves_flya_key_when_public_state_is_stale(self, delete_secret_mock):
+        self.settings.ot.flya_api_key = "existing-secret"
+        data = self.settings.to_public_dict()
+        data["ot"]["flya_api_key_configured"] = False
+
+        self.settings.update(data)
+
+        self.assertEqual(self.settings.ot.flya_api_key, "existing-secret")
+        delete_secret_mock.assert_not_called()
+
+    @patch("akagi_ng.settings.settings.delete_secret")
+    def test_update_explicitly_clears_flya_key_for_settings_reset(self, delete_secret_mock):
+        self.settings.ot.flya_api_key = "existing-secret"
+        data = self.settings.to_public_dict()
+
+        self.settings.update(data, clear_flya_api_key=True)
+
+        self.assertEqual(self.settings.ot.flya_api_key, "")
+        delete_secret_mock.assert_called_once()
+
+    @patch("akagi_ng.settings.settings.delete_secret")
+    def test_update_clears_flya_key_when_server_changes(self, delete_secret_mock):
+        self.settings.ot.flya_api_key = "existing-secret"
+        data = self.settings.to_public_dict()
+        data["ot"]["flya_server"] = "https://other.example/beta/v1"
+
+        self.settings.update(data)
+
+        self.assertEqual(self.settings.ot.flya_api_key, "")
+        delete_secret_mock.assert_called_once()
 
     def test_settings_from_dict(self):
         data = {
@@ -150,7 +184,12 @@ class TestSettingsLifecycle(unittest.TestCase):
         self.assertEqual(defaults["desktop"]["overlay_mode"], "standard")
         self.assertTrue(defaults["desktop"]["capture_protection"])
         self.assertEqual(defaults["ot"]["server"], "https://mjapi.shinkuan.me")
+        self.assertEqual(defaults["ot"]["flya_server"], DEFAULT_FLYA_SERVER)
         self.assertFalse(defaults["ot"]["proxy_enabled"])
+
+    def test_missing_or_empty_flya_server_uses_default(self):
+        self.assertEqual(Settings.from_dict({}).ot.flya_server, DEFAULT_FLYA_SERVER)
+        self.assertEqual(Settings.from_dict({"ot": {"flya_server": ""}}).ot.flya_server, DEFAULT_FLYA_SERVER)
 
     def test_old_settings_without_mihomo_are_migrated_in_memory(self):
         legacy = get_default_settings_dict()
@@ -232,6 +271,11 @@ class TestSettingsLifecycle(unittest.TestCase):
 
         settings["ot"]["proxy"] = "ftp://127.0.0.1:21"
         self.assertFalse(verify_settings(settings))
+
+    def test_online_mode_can_be_saved_before_entering_api_key(self):
+        settings = get_default_settings_dict()
+        settings["ot"]["online"] = True
+        self.assertTrue(verify_settings(settings))
 
     def test_mihomo_requires_mitm_and_unique_ports(self):
         invalid = get_default_settings_dict()
