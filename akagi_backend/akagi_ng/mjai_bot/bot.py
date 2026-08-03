@@ -1,9 +1,13 @@
 import json
+import time
+from typing import Any
 
 from akagi_ng.mjai_bot.engine.factory import load_bot_and_engine
 from akagi_ng.mjai_bot.logger import logger
 from akagi_ng.mjai_bot.lookahead import LookaheadBot
+from akagi_ng.mjai_bot.online_inference import OnlineInferenceError, OnlineInferenceExecutor
 from akagi_ng.mjai_bot.ot3 import (
+    OT3_END_TO_END_DEADLINE_SECONDS,
     OT3Client,
     apply_player_actor,
     build_ot3_events,
@@ -39,6 +43,7 @@ class MortalBot:
         is_3p: bool = False,
         *,
         flya_probe: bool = False,
+        online_executor: OnlineInferenceExecutor | None = None,
     ):
         self.status = status
         self.engine = engine
@@ -50,6 +55,8 @@ class MortalBot:
         self.game_start_event: StartGameEvent | None = None
         self.ot3_client: OT3Client | None = None
         self._ot3_signature: tuple[str, str, str, str] | None = None
+        self._owns_online_executor = online_executor is None
+        self.online_executor = online_executor or OnlineInferenceExecutor()
 
         self.logger = logger
 
@@ -191,6 +198,8 @@ class MortalBot:
         self.player_id = None
         self.bot = None
         self.engine = None
+        if self.ot3_client:
+            self.ot3_client.close()
         self.ot3_client = None
         self._ot3_signature = None
         self.game_start_event = None
@@ -208,6 +217,10 @@ class MortalBot:
     def _refresh_ot3_session(self) -> tuple[OT3Client, str] | None:
         """Apply online config changes on the next decision without restarting."""
         if not self._ot3_enabled():
+            if self.ot3_client or self._ot3_signature:
+                self.online_executor.next_generation()
+            if self.ot3_client:
+                self.ot3_client.close()
             self.ot3_client = None
             self._ot3_signature = None
             return None
@@ -217,6 +230,9 @@ class MortalBot:
         proxy = ot.effective_proxy()
         signature = (ot.server.strip().rstrip("/"), ot.api_key.strip(), model, proxy)
         if signature != self._ot3_signature:
+            self.online_executor.next_generation()
+            if self.ot3_client:
+                self.ot3_client.close()
             self.ot3_client = OT3Client(ot.server, ot.api_key, proxy)
             self._ot3_signature = signature
         return (self.ot3_client, model) if self.ot3_client else None
@@ -235,17 +251,18 @@ class MortalBot:
 
         try:
             client, model = session
+            deadline = time.monotonic() + OT3_END_TO_END_DEADLINE_SECONDS
             events = build_ot3_events(
                 self.game_start_event,
                 self.history,
                 player_id=self.player_id,
                 is_3p=self.is_3p,
             )
-            result = client.react(
-                player_id=self.player_id,
-                events=events,
-                status=self.status,
+            result = self._run_ot3(
+                client,
                 model=model,
+                events=events,
+                deadline=deadline,
             )
             reaction = result.get("reaction")
             if not isinstance(reaction, dict):
@@ -259,6 +276,7 @@ class MortalBot:
                     client,
                     model,
                     events,
+                    deadline,
                 )
                 if not discard:
                     raise RuntimeError("OT3 reach reaction could not be resolved to a discard")
@@ -286,8 +304,11 @@ class MortalBot:
             self.status.set_metadata(NotificationCode.FALLBACK_USED, partial_fallback)
             self.status.set_metadata(NotificationCode.RECONNECTING, client.circuit_open)
             return remote_response
-        except Exception:
+        except Exception as exc:
             self.logger.exception("OT3 inference failed; using the local Mortal decision")
+            if isinstance(exc, OnlineInferenceError):
+                self.status.set_flag(NotificationCode.RECONNECTING)
+                self.status.set_metadata(NotificationCode.RECONNECTING, True)
             self.status.set_metadata(NotificationCode.ENGINE_TYPE, "akagiot")
             self.status.set_metadata(NotificationCode.FALLBACK_USED, True)
             if meta := local_response.get("meta"):
@@ -299,6 +320,7 @@ class MortalBot:
         client: OT3Client,
         model: str,
         events: list[dict[str, object]],
+        deadline: float,
     ) -> tuple[list[dict[str, str | float]], str | None, bool]:
         """Resolve OT3's bare reach with one follow-up call, then local fallback."""
         if self.player_id is None:
@@ -306,11 +328,11 @@ class MortalBot:
 
         followup_events = [*events, {"type": "reach", "actor": self.player_id}]
         try:
-            followup = client.react(
-                player_id=self.player_id,
-                events=followup_events,
-                status=self.status,
+            followup = self._run_ot3(
+                client,
                 model=model,
+                events=followup_events,
+                deadline=deadline,
             )
             reaction = followup.get("reaction")
             if isinstance(reaction, dict) and reaction.get("type") == "dahai" and isinstance(reaction.get("pai"), str):
@@ -333,6 +355,40 @@ class MortalBot:
         ]
         discard = str(local_candidates[0]["action"]).removeprefix("dahai:") if local_candidates else None
         return local_candidates, discard, True
+
+    def _run_ot3(
+        self,
+        client: OT3Client,
+        *,
+        model: str,
+        events: list[dict[str, object]],
+        deadline: float,
+    ) -> dict[str, Any]:
+        """Execute one OT3 request off-thread and merge only accepted status."""
+        if self.player_id is None:
+            raise RuntimeError("OT3 request requires an active player")
+        player_id = self.player_id
+        call_status = BotStatusContext()
+        try:
+            return self.online_executor.run(
+                lambda: client.react(
+                    player_id=player_id,
+                    events=events,
+                    status=call_status,
+                    model=model,
+                ),
+                deadline=deadline,
+            )
+        finally:
+            self.status.update_flags(call_status.flags)
+            self.status.update_metadata(call_status.metadata)
+
+    def close(self) -> None:
+        if self.ot3_client:
+            self.ot3_client.close()
+            self.ot3_client = None
+        if self._owns_online_executor:
+            self.online_executor.close()
 
     def _handle_riichi_lookahead(self, meta: MJAIMetadata):
         """

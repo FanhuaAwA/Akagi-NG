@@ -33,6 +33,10 @@ All notable changes to Akagi-NG are documented in this file.
   requested only when bundled TUN is enabled, and rejection does not prevent the
   unprivileged desktop or backend from running.
 - Shutdown now stops the elevated TUN lifecycle before the local backend.
+- Moved live OT3 and FlyA HTTP inference onto a bounded daemon worker with
+  absolute end-to-end deadlines, generation cancellation, and fail-fast local
+  fallback when capacity is exhausted. API shutdown now signals the application
+  stop event directly after queuing the lifecycle message.
 
 ### Verification
 
@@ -43,6 +47,9 @@ All notable changes to Akagi-NG are documented in this file.
   tampering, manifest-signature tampering, version mismatch, and path traversal.
 - Added Electron trust-boundary regressions for renderer URLs, IPC role policy,
   external/game URL allowlists, preload exposure, navigation guards, and CSP.
+- Added online-inference regressions for worker isolation, bounded capacity,
+  deadlines, stale-generation rejection, shutdown cancellation, and 30-run
+  network-blackhole exit latency.
 
 ## [1.1.2] - 2026-08-02
 

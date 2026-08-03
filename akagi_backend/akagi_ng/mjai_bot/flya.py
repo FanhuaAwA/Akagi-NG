@@ -20,6 +20,11 @@ from akagi_ng.mjai_bot.flya_service import (
     _safe_response_error_code,
 )
 from akagi_ng.mjai_bot.logger import logger
+from akagi_ng.mjai_bot.online_inference import (
+    OnlineInferenceCancelled,
+    OnlineInferenceError,
+    OnlineInferenceExecutor,
+)
 from akagi_ng.mjai_bot.ot3 import is_local_decision
 from akagi_ng.mjai_bot.ot3_proxy import configure_ot3_session
 from akagi_ng.mjai_bot.status import BotStatusContext
@@ -29,6 +34,7 @@ from akagi_ng.settings import local_settings
 
 FLYA_DECISION_PATH = "/decision"
 FLYA_DECISION_TIMEOUT_SECONDS = (3.0, 10.0)
+FLYA_END_TO_END_DEADLINE_SECONDS = 8.0
 FLYA_BREAKER_BASE_SECONDS = 5.0
 FLYA_BREAKER_MAX_SECONDS = 120.0
 FLYA_DISPLAY_ACTION_LIMIT = 3
@@ -213,6 +219,9 @@ class FlyADecisionClient:
         self._failures = 0
         self._retry_at = 0.0
 
+    def close(self) -> None:
+        self.session.close()
+
     def react(
         self, payload: dict[str, Any], status: BotStatusContext
     ) -> tuple[dict[str, Any], list[dict[str, Any]], str]:
@@ -340,7 +349,11 @@ class FlyADecisionClient:
 class FlyADecider:
     """Send observed events to FlyAPI and apply its server-authoritative legal decision."""
 
-    def __init__(self, status: BotStatusContext):
+    def __init__(
+        self,
+        status: BotStatusContext,
+        online_executor: OnlineInferenceExecutor | None = None,
+    ):
         self.status = status
         self.events: list[dict[str, Any]] = []
         self.mjai_events: list[MJAIEvent] = []
@@ -350,8 +363,10 @@ class FlyADecider:
         self.session_id: str | None = None
         self.client: FlyADecisionClient | None = None
         self._client_signature: tuple[str, str, str] | None = None
+        self._owns_online_executor = online_executor is None
+        self.online_executor = online_executor or OnlineInferenceExecutor()
 
-    def process(  # noqa: C901, PLR0911
+    def process(  # noqa: C901, PLR0911, PLR0912
         self, event: MJAIEvent, response: MJAIResponse | None, tracker: object
     ) -> MJAIResponse | None:
         self._record_event(event)
@@ -360,6 +375,7 @@ class FlyADecider:
         if isinstance(event, MJAIEventBase) and event.sync:
             return response
         if not self._enabled():
+            self._disable_client()
             if response.get("meta", {}).get("engine_type") == "flya":
                 return self._replay_local_decision() or response
             return response
@@ -373,6 +389,7 @@ class FlyADecider:
             return self._fallback(response)
 
         try:
+            deadline = time.monotonic() + FLYA_END_TO_END_DEADLINE_SECONDS
             model_id = local_settings.ot.flya_model_for(self.is_3p).strip()
             state = build_state_envelope(self.events, self.player_id, self.is_3p)
             client = self._get_client()
@@ -384,7 +401,15 @@ class FlyADecider:
                 payload["session_id"] = self.session_id
             if model_id:
                 payload["model_id"] = model_id
-            selected, actions, model_id = client.react(payload, self.status)
+            call_status = BotStatusContext()
+            try:
+                selected, actions, model_id = self.online_executor.run(
+                    lambda: client.react(payload, call_status),
+                    deadline=deadline,
+                )
+            finally:
+                self.status.update_flags(call_status.flags)
+                self.status.update_metadata(call_status.metadata)
             remote = canonical_action_to_mjai(
                 selected,
                 self.player_id,
@@ -393,6 +418,14 @@ class FlyADecider:
         except FlyADecisionSuppressed:
             logger.warning("FlyA suppressed a recommendation for the submitted event stream")
             return MJAIResponse(type="none")
+        except OnlineInferenceCancelled:
+            logger.info("FlyA inference cancelled; skipping local replay during lifecycle transition")
+            return response
+        except OnlineInferenceError:
+            self.status.set_flag(NotificationCode.RECONNECTING)
+            self.status.set_metadata(NotificationCode.RECONNECTING, True)
+            logger.exception("FlyA inference deadline/capacity failure; using the local Mortal decision")
+            return self._fallback(response)
         except (FlyADecisionError, TypeError, ValueError):
             logger.exception("FlyA inference failed; using the local Mortal decision")
             return self._fallback(response)
@@ -415,12 +448,15 @@ class FlyADecider:
 
     def _record_event(self, event: MJAIEvent) -> None:
         if isinstance(event, StartGameEvent):
+            self.online_executor.next_generation()
             self.events = []
             self.mjai_events = []
             self.player_id = event.id
             self.is_3p = event.is_3p
             self.history_complete = True
             self.session_id = str(uuid4())
+            if self.client:
+                self.client.close()
             self.client = None
             self._client_signature = None
         if not isinstance(event, MJAIEventBase):
@@ -431,7 +467,10 @@ class FlyADecider:
         except (TypeError, ValueError):
             self.history_complete = False
         if isinstance(event, EndGameEvent):
+            self.online_executor.next_generation()
             self.session_id = None
+            if self.client:
+                self.client.close()
             self.client = None
             self._client_signature = None
 
@@ -443,9 +482,25 @@ class FlyADecider:
         ot = local_settings.ot
         signature = (ot.flya_server.strip().rstrip("/"), ot.flya_api_key.strip(), ot.effective_proxy())
         if self.client is None or signature != self._client_signature:
+            self.online_executor.next_generation()
+            if self.client:
+                self.client.close()
             self.client = FlyADecisionClient(*signature)
             self._client_signature = signature
         return self.client
+
+    def _disable_client(self) -> None:
+        if self.client or self._client_signature:
+            self.online_executor.next_generation()
+        if self.client:
+            self.client.close()
+        self.client = None
+        self._client_signature = None
+
+    def close(self) -> None:
+        self._disable_client()
+        if self._owns_online_executor:
+            self.online_executor.close()
 
     def _fallback(self, response: MJAIResponse) -> MJAIResponse:
         response = self._replay_local_decision() or response
@@ -455,7 +510,10 @@ class FlyADecider:
                 {
                     "decision_source": "flya_fallback",
                     "fallback_used": True,
-                    "online_service_reconnecting": bool(self.client and self.client.circuit_open),
+                    "online_service_reconnecting": bool(
+                        (self.client and self.client.circuit_open)
+                        or self.status.metadata.get(NotificationCode.RECONNECTING)
+                    ),
                 }
             )
         return response

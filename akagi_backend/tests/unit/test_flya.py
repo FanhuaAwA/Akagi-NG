@@ -16,6 +16,7 @@ from akagi_ng.mjai_bot.flya import (
     canonical_event,
     compute_state_digest,
 )
+from akagi_ng.mjai_bot.online_inference import OnlineInferenceCancelled
 from akagi_ng.mjai_bot.status import BotStatusContext
 from akagi_ng.schema.notifications import NotificationCode
 from akagi_ng.schema.types import (
@@ -349,6 +350,26 @@ def test_decider_preserves_local_action_on_flya_failure(monkeypatch: pytest.Monk
     assert result["meta"]["decision_source"] == "flya_fallback"
     assert result["meta"]["fallback_used"] is True
     assert result["meta"]["online_service_reconnecting"] is True
+
+
+def test_decider_skips_expensive_local_replay_when_shutdown_cancels_inference(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _enable_flya(monkeypatch)
+    executor = MagicMock()
+    executor.run.side_effect = OnlineInferenceCancelled("shutdown")
+    decider = FlyADecider(BotStatusContext(), executor)
+    _record_four_player_start(decider)
+    client = MagicMock(circuit_open=False)
+    monkeypatch.setattr(decider, "_get_client", lambda: client)
+    replay = MagicMock()
+    monkeypatch.setattr(decider, "_replay_local_decision", replay)
+    local = {"type": "dahai", "actor": 0, "pai": "2s", "meta": {"mask_bits": 1}}
+
+    result = decider.process(TsumoEvent(actor=0, pai="2s"), local, MagicMock(last_kawa_tile=None))
+
+    assert result is local
+    replay.assert_not_called()
 
 
 def test_decider_suppresses_local_action_when_server_rejects_the_state(

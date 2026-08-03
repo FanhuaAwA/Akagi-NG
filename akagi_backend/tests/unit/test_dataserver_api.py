@@ -330,6 +330,7 @@ async def test_shutdown_no_message_queue(cli):
 async def test_shutdown_with_message_queue(cli):
     mock_app = MagicMock()
     mock_app.shared_queue = queue.Queue()
+    mock_app.request_shutdown = MagicMock()
 
     with patch("akagi_ng.dataserver.api.get_app_context", return_value=mock_app):
         resp = await cli.post("/api/shutdown")
@@ -340,6 +341,7 @@ async def test_shutdown_with_message_queue(cli):
 
     shutdown_msg = mock_app.shared_queue.get_nowait()
     assert isinstance(shutdown_msg, SystemShutdownEvent)
+    mock_app.request_shutdown.assert_called_once_with()
 
 
 async def test_save_settings_triggers_cache_clear(cli):

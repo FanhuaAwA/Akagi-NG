@@ -231,3 +231,7 @@ class ControllerProtocol(Protocol):
     def react(self, event: AkagiEvent):
         """响应 MJAI 或 系统事件。"""
         ...
+
+    def close(self) -> None:
+        """取消待处理决策并释放 Bot 资源。"""
+        ...

@@ -481,6 +481,9 @@ async def shutdown_handler(_request: web.Request) -> web.Response:
             except queue.Full:
                 logger.warning("Message queue is full, shutdown request dropped")
                 return _json_response({"ok": False, "error": "Message queue is full"}, status=503)
+            request_shutdown = getattr(app, "request_shutdown", None)
+            if callable(request_shutdown):
+                request_shutdown()
             logger.info("Shutdown signal sent to message queue.")
             return _json_response({"ok": True, "message": "Shutdown initiated"})
 

@@ -22,6 +22,7 @@ from akagi_ng.schema.types import (
 
 OT3_CONNECT_TIMEOUT_SECONDS = 1.0
 OT3_READ_TIMEOUT_SECONDS = 2.0
+OT3_END_TO_END_DEADLINE_SECONDS = 6.0
 OT3_BREAKER_BASE_SECONDS = 5.0
 OT3_BREAKER_MAX_SECONDS = 120.0
 MJAI_SEAT_COUNT = 4
@@ -51,6 +52,9 @@ class OT3Client:
         self.circuit_open = False
         self._failures = 0
         self._retry_at = 0.0
+
+    def close(self) -> None:
+        self.session.close()
 
     def react(
         self,

@@ -1,4 +1,5 @@
 import queue
+from collections.abc import Callable
 from dataclasses import dataclass
 
 from akagi_ng.schema.protocols import (
@@ -21,6 +22,7 @@ class AppContext:
     state_tracker: StateTrackerProtocol | None
     mitm_client: MitmClientProtocol | None
     electron_client: ElectronClientProtocol | None = None
+    request_shutdown: Callable[[], None] | None = None
 
 
 # 全局应用上下文（跨线程共享）

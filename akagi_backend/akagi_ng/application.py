@@ -13,6 +13,7 @@ from akagi_ng.electron_client import create_electron_client
 from akagi_ng.mitm_client import MitmClient
 from akagi_ng.mjai_bot import Controller, StateTracker
 from akagi_ng.mjai_bot.flya import FlyADecider
+from akagi_ng.mjai_bot.online_inference import OnlineInferenceExecutor
 from akagi_ng.mjai_bot.status import BotStatusContext
 from akagi_ng.schema.constants import Platform, ServerConstants
 from akagi_ng.schema.protocols import ControllerProtocol, StateTrackerProtocol
@@ -33,6 +34,7 @@ logger = logger.bind(module="akagi")
 class AkagiApp:
     def __init__(self):
         self._stop_event = threading.Event()
+        self.online_executor = OnlineInferenceExecutor(cancel_event=self._stop_event)
         self.ds: DataServer | None = None
         self.status: BotStatusContext | None = None
         self.autoplay: AutoPlayManager | None = None
@@ -58,8 +60,8 @@ class AkagiApp:
             importlib.import_module("akagi_ng.core.lib_loader")
             status = BotStatusContext()
             self.status = status
-            self.flya_decider = FlyADecider(status)
-            controller = Controller(status=status, flya_probe=True)
+            self.flya_decider = FlyADecider(status, self.online_executor)
+            controller = Controller(status=status, flya_probe=True, online_executor=self.online_executor)
             tracker = StateTracker(status=status)
             logger.info("Components loaded successfully.")
         except ImportError:
@@ -72,6 +74,7 @@ class AkagiApp:
             mitm_client=MitmClient(shared_queue=self.message_queue),
             electron_client=create_electron_client(settings.platform, shared_queue=self.message_queue),
             shared_queue=self.message_queue,
+            request_shutdown=self.stop,
         )
         set_app_context(app_context)
         self.autoplay = AutoPlayManager(runtime_provider=self._build_autoplay_runtime)
@@ -97,6 +100,7 @@ class AkagiApp:
 
     def stop(self):
         self._stop_event.set()
+        self.online_executor.next_generation()
 
     def _get_active_bridge(self) -> object | None:
         app = get_app_context()
@@ -239,6 +243,12 @@ class AkagiApp:
 
         if self.autoplay:
             self.autoplay.stop()
+
+        if self.flya_decider:
+            self.flya_decider.close()
+        if app.controller:
+            app.controller.close()
+        self.online_executor.close()
 
         for source in filter(None, (app.mitm_client, app.electron_client)):
             try:

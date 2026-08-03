@@ -1,4 +1,5 @@
 from akagi_ng.mjai_bot.logger import logger
+from akagi_ng.mjai_bot.online_inference import OnlineInferenceExecutor
 from akagi_ng.mjai_bot.status import BotStatusContext
 from akagi_ng.schema.notifications import NotificationCode
 from akagi_ng.schema.protocols import BotProtocol
@@ -14,13 +15,20 @@ from akagi_ng.settings import local_settings
 
 
 class Controller:
-    def __init__(self, status: BotStatusContext | None = None, *, flya_probe: bool = False):
+    def __init__(
+        self,
+        status: BotStatusContext | None = None,
+        *,
+        flya_probe: bool = False,
+        online_executor: OnlineInferenceExecutor | None = None,
+    ):
         self.status: BotStatusContext = status or BotStatusContext()
         self.flya_probe = flya_probe
         self.bot: BotProtocol | None = None
         self._bot_signature: tuple[str, str] | None = None
         self.pending_start_game_event: StartGameEvent | None = None  # Bot 将在收到第一个 start_game 事件时初始化
         self.last_response: MJAIResponse | None = None  # 存储最近一次 Bot 的决策结果
+        self.online_executor = online_executor
 
     def react(self, event: AkagiEvent):
         """
@@ -105,13 +113,21 @@ class Controller:
         if bot_name in ("mortal", "mortal3p"):
             from akagi_ng.mjai_bot.bot import MortalBot
 
+            if self.bot and hasattr(self.bot, "close"):
+                self.bot.close()
             self.bot = MortalBot(
                 status=self.status,
                 is_3p=(bot_name == "mortal3p"),
                 flya_probe=self._engine_mode() == "flya",
+                online_executor=self.online_executor,
             )
             return True
         return False
+
+    def close(self) -> None:
+        if self.bot and hasattr(self.bot, "close"):
+            self.bot.close()
+        self.bot = None
 
     def _engine_mode(self) -> str:
         ot = local_settings.ot
