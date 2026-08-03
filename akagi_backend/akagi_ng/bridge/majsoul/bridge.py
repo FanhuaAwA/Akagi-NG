@@ -56,9 +56,7 @@ class MajsoulBridge(BaseBridge):
             # Once a later action arrives without operation data, the previous self-operation
             # window has expired and stale buttons must be cleared for autoplay retry logic.
             if self.latest_self_operation_list or self.latest_operation_step is not None:
-                logger.debug(
-                    f"[Majsoul] Clearing stale self operation list at step={step}, seat={payload.get('seat')}"
-                )
+                logger.debug(f"[Majsoul] Clearing stale self operation list at step={step}, seat={payload.get('seat')}")
             self._clear_self_operation_state()
             return
 

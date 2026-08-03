@@ -2,12 +2,12 @@ from __future__ import annotations
 
 import threading
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Callable
 
 from akagi_ng.autoplay.executor import WindowsInputExecutor
-from akagi_ng.core.logging import logger as base_logger
 from akagi_ng.autoplay.planner import ActionPlanner, PlannedClick
+from akagi_ng.core.logging import logger as base_logger
 from akagi_ng.schema.constants import Platform
 from akagi_ng.schema.protocols import StateTrackerProtocol
 from akagi_ng.settings import local_settings
@@ -36,7 +36,7 @@ class AutoPlayManager:
         self._stop_event = threading.Event()
         self._lock = threading.Lock()
 
-    def observe_event(self, event) -> None:
+    def observe_event(self, event: object) -> None:
         self._planner.observe_event(event)
         if getattr(event, "type", None) in {"start_game", "start_kyoku", "end_kyoku", "end_game"}:
             self.stop()
@@ -99,7 +99,7 @@ class AutoPlayManager:
                 self._task.join(timeout=0.2)
             self._task = None
 
-    def _run_plan(
+    def _run_plan(  # noqa: PLR0911
         self,
         plan: list[PlannedClick],
         runtime: AutoPlayRuntime,
@@ -154,8 +154,7 @@ class AutoPlayManager:
                 cancel_requested=stop_event.is_set,
             ):
                 logger.warning(
-                    f"Autoplay click did not resolve expected operation for {click.label}: "
-                    f"{click.expected_types}"
+                    f"Autoplay click did not resolve expected operation for {click.label}: {click.expected_types}"
                 )
                 return
             logger.info(f"Autoplay click succeeded: {click.label}")

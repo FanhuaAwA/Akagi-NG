@@ -5,13 +5,21 @@ import math
 import os
 import random
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
+from typing import ClassVar
 
 from akagi_ng.core.logging import logger as base_logger
 from akagi_ng.schema.constants import Platform
 from akagi_ng.settings import local_settings
 
 logger = base_logger.bind(module="autoplay-executor")
+
+INPUT_EVENT_COUNT = 2
+MIN_TARGET_WIDTH = 640
+MIN_TARGET_HEIGHT = 360
+type OperationListProvider = Callable[[], list[dict]]
+type CancelPredicate = Callable[[], bool]
 
 
 @dataclass(slots=True)
@@ -53,7 +61,7 @@ class MouseInput(ctypes.Structure):
 
 
 class InputUnion(ctypes.Union):
-    _fields_ = [("mi", MouseInput)]
+    _fields_: ClassVar = [("mi", MouseInput)]
 
 
 class INPUT(ctypes.Structure):
@@ -85,7 +93,7 @@ class WindowsInputExecutor:
         logger.info(f"Selected autoplay target window hwnd={selected.hwnd} title={selected.name!r}")
         return True
 
-    def move_to(self, target: tuple[int, int], *, cancel_requested) -> bool:
+    def move_to(self, target: tuple[int, int], *, cancel_requested: CancelPredicate) -> bool:
         if not self.available:
             return False
         start = POINT()
@@ -130,10 +138,10 @@ class WindowsInputExecutor:
                 time=0,
                 dwExtraInfo=ctypes.pointer(extra),
             )
-            event_arr = (INPUT * 2)(down, up)
-            sent = self._input.SendInput(2, ctypes.byref(event_arr), ctypes.sizeof(INPUT))
-            if sent != 2:
-                raise RuntimeError(f"SendInput sent {sent}/2 events")
+            event_arr = (INPUT * INPUT_EVENT_COUNT)(down, up)
+            sent = self._input.SendInput(INPUT_EVENT_COUNT, ctypes.byref(event_arr), ctypes.sizeof(INPUT))
+            if sent != INPUT_EVENT_COUNT:
+                raise RuntimeError(f"SendInput sent {sent}/{INPUT_EVENT_COUNT} events")
         except Exception:
             self._user32.mouse_event(0x0002, 0, 0, 0, 0)
             time.sleep(0.012)
@@ -163,13 +171,24 @@ class WindowsInputExecutor:
             int(offset_y + coord[1] * scale),
         )
 
-    def operation_still_available(self, expected_types: tuple[int, ...], get_operation_list) -> bool:
+    def operation_still_available(
+        self,
+        expected_types: tuple[int, ...],
+        get_operation_list: OperationListProvider,
+    ) -> bool:
         if not expected_types:
             return False
         operation_list = get_operation_list()
         return any(op.get("type") in expected_types for op in operation_list)
 
-    def click_with_retry(self, target: tuple[int, int], expected_types: tuple[int, ...], get_operation_list, *, cancel_requested) -> bool:
+    def click_with_retry(
+        self,
+        target: tuple[int, int],
+        expected_types: tuple[int, ...],
+        get_operation_list: OperationListProvider | None,
+        *,
+        cancel_requested: CancelPredicate,
+    ) -> bool:
         max_attempts = 2
         for attempt in range(1, max_attempts + 1):
             if cancel_requested():
@@ -251,7 +270,7 @@ class WindowsInputExecutor:
         current_pid = os.getpid()
 
         @ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_void_p, ctypes.c_void_p)
-        def enum_windows_proc(hwnd, _lparam):
+        def enum_windows_proc(hwnd: int, _lparam: int) -> bool:  # noqa: PLR0911
             if not self._user32.IsWindowVisible(hwnd):
                 return True
             if self._user32.IsIconic(hwnd):
@@ -269,7 +288,7 @@ class WindowsInputExecutor:
             if int(pid.value) == current_pid:
                 return True
             geometry = self._get_window_geometry(int(hwnd))
-            if geometry is None or geometry.width < 640 or geometry.height < 360:
+            if geometry is None or geometry.width < MIN_TARGET_WIDTH or geometry.height < MIN_TARGET_HEIGHT:
                 return True
             windows.append(WindowObject(hwnd=int(hwnd), name=name))
             return True
@@ -328,18 +347,8 @@ class WindowsInputExecutor:
         for index in range(1, steps + 1):
             t = index / steps
             omt = 1.0 - t
-            x = (
-                omt**3 * start[0]
-                + 3 * omt**2 * t * control_1[0]
-                + 3 * omt * t**2 * control_2[0]
-                + t**3 * end[0]
-            )
-            y = (
-                omt**3 * start[1]
-                + 3 * omt**2 * t * control_1[1]
-                + 3 * omt * t**2 * control_2[1]
-                + t**3 * end[1]
-            )
+            x = omt**3 * start[0] + 3 * omt**2 * t * control_1[0] + 3 * omt * t**2 * control_2[0] + t**3 * end[0]
+            y = omt**3 * start[1] + 3 * omt**2 * t * control_1[1] + 3 * omt * t**2 * control_2[1] + t**3 * end[1]
             path.append((x, y))
         return path
 

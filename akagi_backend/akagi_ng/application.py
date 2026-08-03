@@ -98,7 +98,7 @@ class AkagiApp:
     def stop(self):
         self._stop_event.set()
 
-    def _get_active_bridge(self):
+    def _get_active_bridge(self) -> object | None:
         app = get_app_context()
         if app.settings.mitm.enabled and app.mitm_client and app.mitm_client.addon:
             addon = app.mitm_client.addon

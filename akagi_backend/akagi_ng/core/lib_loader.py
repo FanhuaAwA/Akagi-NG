@@ -18,10 +18,7 @@ def _platform_suffix() -> str:
     machine = platform.machine().lower()
     python_version = f"{sys.version_info.major}.{sys.version_info.minor}"
 
-    if machine in {"arm64", "aarch64"}:
-        arch = "aarch64"
-    else:
-        arch = "x86_64"
+    arch = "aarch64" if machine in {"arm64", "aarch64"} else "x86_64"
 
     if system == "Windows":
         return f"{python_version}-{arch}-pc-windows-msvc.pyd"
@@ -56,9 +53,7 @@ def _load_extension_module(module_name: str) -> ModuleType:
         return module
 
     searched = ", ".join(str(path) for path in _candidate_paths(module_name))
-    raise ImportError(
-        f"Failed to load {module_name} from {lib_dir}. Checked: {searched}"
-    )
+    raise ImportError(f"Failed to load {module_name} from {lib_dir}. Checked: {searched}")
 
 
 try:

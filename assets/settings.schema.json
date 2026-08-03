@@ -10,8 +10,7 @@
     "mitm",
     "server",
     "ot",
-    "model_config",
-    "autoplay"
+    "model_config"
   ],
   "properties": {
     "log_level": {
@@ -303,7 +302,7 @@
     },
     "autoplay": {
       "type": "object",
-      "description": "Autoplay configuration.",
+      "description": "Autoplay configuration. Optional for backward compatibility.",
       "properties": {
         "enabled": {
           "type": "boolean",

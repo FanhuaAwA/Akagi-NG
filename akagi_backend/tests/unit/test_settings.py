@@ -207,6 +207,14 @@ class TestSettingsLifecycle(unittest.TestCase):
         self.assertEqual(settings.desktop.overlay_mode, "standard")
         self.assertTrue(settings.desktop.capture_protection)
 
+    def test_old_settings_without_autoplay_are_migrated_in_memory(self):
+        legacy = get_default_settings_dict()
+        legacy.pop("autoplay")
+        self.assertTrue(verify_settings(legacy))
+        settings = Settings.from_dict(legacy)
+        self.assertFalse(settings.autoplay.enabled)
+        self.assertEqual(settings.autoplay.timing.first_tile, 5.0)
+
     def test_deprecated_dashboard_privacy_settings_are_ignored(self):
         legacy = get_default_settings_dict()
         legacy["desktop"]["privacy_mode"] = True

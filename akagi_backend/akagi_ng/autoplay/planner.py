@@ -1,14 +1,14 @@
 from __future__ import annotations
 
 import random
+from collections.abc import Iterable
 from dataclasses import dataclass
 from functools import cmp_to_key
 from itertools import combinations
-from typing import Iterable
 
 from akagi_ng.bridge.majsoul.tile_mapping import MS_TILE_2_MJAI_TILE, compare_pai
 from akagi_ng.schema.constants import MahjongConstants
-from akagi_ng.schema.protocols import PlayerStateProtocol
+from akagi_ng.schema.protocols import ActionCandidatesProtocol, PlayerStateProtocol
 from akagi_ng.settings import local_settings
 
 LOCATION = {
@@ -89,6 +89,9 @@ ACTION2TYPE = {
 }
 
 BUTTON_ACTIONS = set(ACTION2TYPE) | {"hora", "tsumo", "ron"}
+ANKAN_OPERATION_TYPE = ACTION2TYPE["ankan"]
+KAKAN_OPERATION_TYPE = ACTION2TYPE["kakan"]
+KAN_TILE_COUNT = 4
 
 
 @dataclass(slots=True)
@@ -107,7 +110,7 @@ class ActionPlanner:
         self.pending_reach_discard = False
         self.latest_operation_list: list[dict] = []
 
-    def observe_event(self, event) -> None:
+    def observe_event(self, event: object) -> None:
         event_type = getattr(event, "type", None)
         if event_type in {"start_game", "start_kyoku", "end_kyoku", "end_game"}:
             self.is_new_round = True
@@ -140,7 +143,7 @@ class ActionPlanner:
             return (base[0] + LOCATION["tsumo_space"], base[1])
         return LOCATION["tiles"][min(idx, last_tile_index)]
 
-    def plan(
+    def plan(  # noqa: C901, PLR0911
         self,
         mjai_msg: dict | None,
         tehai: list[str],
@@ -232,7 +235,7 @@ class ActionPlanner:
                 plan.append(candidate_click)
         return plan
 
-    def _find_discard_coord(
+    def _find_discard_coord(  # noqa: PLR0911
         self,
         dahai: str,
         tehai: list[str],
@@ -277,20 +280,20 @@ class ActionPlanner:
         operations = [operation.copy() for operation in operations]
         operations.append({"type": 0, "combination": []})
 
-        can_ankan = any(operation["type"] == 4 for operation in operations)
-        can_kakan = any(operation["type"] == 6 for operation in operations)
+        can_ankan = any(operation["type"] == ANKAN_OPERATION_TYPE for operation in operations)
+        can_kakan = any(operation["type"] == KAKAN_OPERATION_TYPE for operation in operations)
         if can_ankan and can_kakan:
             ankan_combinations = [
                 combination
                 for operation in operations
-                if operation["type"] == 4
+                if operation["type"] == ANKAN_OPERATION_TYPE
                 for combination in operation.get("combination", [])
             ]
             merged_operations: list[dict] = []
             for operation in operations:
-                if operation["type"] == 4:
+                if operation["type"] == ANKAN_OPERATION_TYPE:
                     continue
-                if operation["type"] == 6:
+                if operation["type"] == KAKAN_OPERATION_TYPE:
                     updated = operation.copy()
                     updated["combination"] = list(updated.get("combination", [])) + ankan_combinations
                     merged_operations.append(updated)
@@ -314,7 +317,7 @@ class ActionPlanner:
 
         for operation in operation_list:
             if operation["type"] != target_type and not (
-                action_type in {"ankan", "kakan"} and operation["type"] == 6
+                action_type in {"ankan", "kakan"} and operation["type"] == KAKAN_OPERATION_TYPE
             ):
                 continue
 
@@ -322,7 +325,9 @@ class ActionPlanner:
             if len(combinations_raw) <= 1:
                 return None
 
-            candidate_slots = LOCATION["candidates_kan"] if action_type in {"ankan", "kakan"} else LOCATION["candidates"]
+            candidate_slots = (
+                LOCATION["candidates_kan"] if action_type in {"ankan", "kakan"} else LOCATION["candidates"]
+            )
             mid_point = 3 if action_type in {"ankan", "kakan"} else 5
             for idx, combination in enumerate(combinations_raw):
                 normalized = sorted(self._normalize_combination(combination), key=cmp_to_key(compare_pai))
@@ -339,7 +344,7 @@ class ActionPlanner:
                     )
         return None
 
-    def _fallback_operation_list(
+    def _fallback_operation_list(  # noqa: C901
         self,
         player_state: PlayerStateProtocol | None,
         last_kawa_tile: str | None,
@@ -394,8 +399,7 @@ class ActionPlanner:
 
     def _expected_types_for_action(self, action_type: str) -> tuple[int, ...]:
         if action_type == "none":
-            pending_types = tuple(op["type"] for op in self.latest_operation_list if op.get("type", 0) != 0)
-            return pending_types
+            return tuple(op["type"] for op in self.latest_operation_list if op.get("type", 0) != 0)
         return self._operation_types_for_action(action_type)
 
     def _build_ankan_combinations(self, tehai: list[str], tsumohai: str | None) -> list[str]:
@@ -406,12 +410,12 @@ class ActionPlanner:
 
         combinations_out: list[str] = []
         for base_tile, tiles in grouped.items():
-            if len(tiles) < 4:
+            if len(tiles) < KAN_TILE_COUNT:
                 continue
-            ordered = list(sorted(tiles, key=cmp_to_key(compare_pai)))
-            while len(ordered) < 4:
+            ordered = sorted(tiles, key=cmp_to_key(compare_pai))
+            while len(ordered) < KAN_TILE_COUNT:
                 ordered.append(base_tile)
-            combinations_out.append("|".join(ordered[:4]))
+            combinations_out.append("|".join(ordered[:KAN_TILE_COUNT]))
         return combinations_out
 
     def _build_kakan_combinations(self, player_state: PlayerStateProtocol, hand: list[str]) -> list[str]:
@@ -420,7 +424,12 @@ class ActionPlanner:
             combinations_out.extend(self._build_tile_selection_combinations([cand.replace("r", "")], hand))
         return list(dict.fromkeys(combinations_out))
 
-    def _build_chi_combinations(self, last_kawa_tile: str | None, hand: list[str], cans) -> list[str]:
+    def _build_chi_combinations(
+        self,
+        last_kawa_tile: str | None,
+        hand: list[str],
+        cans: ActionCandidatesProtocol,
+    ) -> list[str]:
         if not last_kawa_tile:
             return []
         base = last_kawa_tile.replace("r", "")
@@ -479,10 +488,7 @@ class ActionPlanner:
         return not remaining
 
     def _normalize_combination(self, combination: str | Iterable[str]) -> list[str]:
-        if isinstance(combination, str):
-            tiles = combination.split("|")
-        else:
-            tiles = list(combination)
+        tiles = combination.split("|") if isinstance(combination, str) else list(combination)
         return [MS_TILE_2_MJAI_TILE.get(tile, tile) for tile in tiles]
 
     def _full_hand(self, tehai: list[str], tsumohai: str | None) -> list[str]:

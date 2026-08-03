@@ -509,7 +509,7 @@ def _get_schema() -> dict:
     return json.loads(SCHEMA_PATH.read_text(encoding="utf-8"))
 
 
-def _update_settings(settings: Settings, data: dict):
+def _update_settings(settings: Settings, data: dict):  # noqa: PLR0915
     """从字典更新 Settings 对象"""
     settings.log_level = data.get("log_level", "INFO")
     settings.locale = data.get("locale", "zh-CN")
