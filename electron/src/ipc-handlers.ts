@@ -14,6 +14,18 @@ export function registerIpcHandlers(
   backendManager: BackendManager,
   mihomoManager: MihomoManager,
 ) {
+  const assertTrustedDashboard = (event: Electron.IpcMainInvokeEvent) => {
+    const dashboard = windowManager.getMainWindow();
+    if (
+      !isSafeWindow(dashboard) ||
+      event.sender !== dashboard.webContents ||
+      event.senderFrame !== event.sender.mainFrame
+    ) {
+      logger.warn('Blocked privileged IPC request from an untrusted renderer.');
+      throw new Error('Unauthorized desktop request.');
+    }
+  };
+
   // Toggle HUD Window
   ipcMain.handle('toggle-hud', async (_event, show: boolean) => {
     await windowManager.toggleHudWindow(show);
@@ -48,11 +60,11 @@ export function registerIpcHandlers(
     safeSend(windowManager.getMainWindow(), 'exit-animation-start');
     safeSend(windowManager.getGameWindow(), 'exit-animation-start');
 
-    // Run exit animation and backend shutdown in parallel
+    const animation = new Promise((resolve) => setTimeout(resolve, EXIT_ANIMATION_DELAY_MS));
+    await mihomoManager.stop().catch((err: unknown) => logger.error('mihomo stop error:', err));
+    await backendManager.stop().catch((err: unknown) => logger.error('Backend stop error:', err));
     await Promise.all([
-      new Promise((resolve) => setTimeout(resolve, EXIT_ANIMATION_DELAY_MS)),
-      backendManager.stop().catch((err: unknown) => logger.error('Backend stop error:', err)),
-      mihomoManager.stop().catch((err: unknown) => logger.error('mihomo stop error:', err)),
+      animation,
       windowManager.shutdown().catch((err: unknown) => logger.error('Window stop error:', err)),
     ]);
 
@@ -60,10 +72,16 @@ export function registerIpcHandlers(
     return true;
   });
 
-  ipcMain.handle('mihomo-status', async () => mihomoManager.getStatus());
-  ipcMain.handle('mihomo-start', async () => mihomoManager.start());
-  ipcMain.handle('mihomo-reconcile', async () => mihomoManager.reconcile());
-  ipcMain.handle('mihomo-stop', async () => {
+  ipcMain.handle('mihomo-status', async (event) => {
+    assertTrustedDashboard(event);
+    return mihomoManager.getStatus();
+  });
+  ipcMain.handle('mihomo-reconcile', async (event) => {
+    assertTrustedDashboard(event);
+    return mihomoManager.reconcile();
+  });
+  ipcMain.handle('mihomo-stop', async (event) => {
+    assertTrustedDashboard(event);
     await mihomoManager.stop();
     return mihomoManager.getStatus();
   });

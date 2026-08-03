@@ -2,6 +2,36 @@
 
 All notable changes to Akagi-NG are documented in this file.
 
+## [Unreleased]
+
+### Security
+
+- Changed the packaged Windows desktop executable from `requireAdministrator`
+  to `asInvoker`, so the Electron UI and Python backend no longer run with
+  administrator privileges.
+- Added a fixed-function elevated TUN helper. It validates a pinned mihomo
+  SHA-256, copies the verified binary and validated configuration into an
+  administrator-only ProgramData directory, and contains mihomo in a
+  kill-on-close Windows Job Object.
+- Restricted TUN lifecycle IPC to the trusted dashboard main frame, removed the
+  unguarded direct-start IPC route, and serialized start/reconcile/stop work.
+- Excluded mihomo from build-time Authenticode rewriting so its pinned hash
+  remains reproducible. Official releases must still sign the desktop and TUN
+  helper executables.
+
+### Changed
+
+- Normal startup now renders the dashboard before optional TUN elevation. UAC is
+  requested only when bundled TUN is enabled, and rejection does not prevent the
+  unprivileged desktop or backend from running.
+- Shutdown now stops the elevated TUN lifecycle before the local backend.
+
+### Verification
+
+- Added automated privilege-boundary coverage for PE manifests, helper protocol
+  parsing, strict TUN configuration validation, mihomo hash pinning, IPC trust
+  checks, startup/shutdown ordering, and packaged artifact contents.
+
 ## [1.1.2] - 2026-08-02
 
 ### Added

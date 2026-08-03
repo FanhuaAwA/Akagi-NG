@@ -236,7 +236,7 @@ Akagi-NG 支持通过中间人攻击 (MITM) 方式截获游戏数据，这允许
 3. Akagi-NG 默认在本地 `127.0.0.1:6789` 启动一个 HTTP 代理服务器。您可以直接在 Dashboard 中点击“启动游戏”；Windows 游戏客户端用户也可以启用“内置 mihomo TUN”，无需再安装 Proxifier 或单独配置 TUN 内核。
 
 > [!IMPORTANT]
-> 内置 mihomo TUN 需要管理员权限。Windows 发布版会请求 UAC 提权；首次启动时请允许 `mihomo.exe` 通过 Windows 防火墙。
+> 内置 mihomo TUN 需要管理员权限。Akagi-NG 正常启动不再请求提权；只有启用内置 TUN 时，隔离的 TUN 权限助手才会请求 UAC。首次启动 TUN 时请允许 `mihomo.exe` 通过 Windows 防火墙。
 >
 > 如果 Clash/Clash Verge 已在运行，请关闭它的 TUN 模式，并保留其系统代理或 mixed 端口作为 Akagi-NG 的上游代理，避免两个 mihomo TUN 内核争抢系统路由。
 

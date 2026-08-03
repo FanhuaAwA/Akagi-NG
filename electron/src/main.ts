@@ -48,19 +48,20 @@ app.whenReady().then(async () => {
   // 0. Register all IPC handlers
   registerIpcHandlers(windowManager, backendManager, mihomoManager);
 
-  // 1. Start Python Backend
+  // 1. Start the unprivileged Python backend.
   backendManager.start();
-  const mihomoStatus = await mihomoManager.startIfEnabled();
-  if (mihomoStatus.error) {
-    logger.error(`mihomo initialization failed: ${mihomoStatus.error}`);
-    dialog.showErrorBox('Mihomo Initialization Failed', mihomoStatus.error);
-  }
 
-  // 2. Apply tray, privacy, capture, and restore-shortcut settings.
+  // 2. Render the dashboard before any optional UAC interaction.
   await windowManager.reconcileDesktopSettings(() => updaterManager.checkForUpdates());
-
-  // 3. Create Dashboard Window
   windowManager.createDashboardWindow();
+
+  // 3. Start optional TUN asynchronously. UAC denial must not block the app/backend.
+  void mihomoManager.startIfEnabled().then((mihomoStatus) => {
+    if (mihomoStatus.error) {
+      logger.error(`mihomo initialization failed: ${mihomoStatus.error}`);
+      dialog.showErrorBox('Mihomo Initialization Failed', mihomoStatus.error);
+    }
+  });
 
   // 4. Setup Auto Updater
   updaterManager.checkForUpdates();
@@ -86,7 +87,9 @@ app.on('before-quit', async (event) => {
   isQuitting = true;
 
   try {
-    await Promise.all([windowManager.shutdown(), backendManager.stop(), mihomoManager.stop()]);
+    await mihomoManager.stop();
+    await backendManager.stop();
+    await windowManager.shutdown();
   } catch (err) {
     logger.error('Error during shutdown:', err);
   } finally {

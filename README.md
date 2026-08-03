@@ -237,7 +237,7 @@ Akagi-NG supports intercepting game data via Man-in-the-Middle (MITM) attacks, a
 3. Akagi-NG starts an HTTP proxy server at `127.0.0.1:6789` by default. You can click "Launch Game" in the Dashboard to start playing directly — in this case, Akagi-NG works similarly to Built-in Browser Mode. Windows game-client users can enable "Bundled mihomo TUN" instead of installing Proxifier or configuring a separate TUN core.
 
 > [!IMPORTANT]
-> The bundled mihomo TUN requires administrator privileges. Packaged Windows builds request UAC elevation; allow `mihomo.exe` through Windows Firewall on first launch.
+> The bundled mihomo TUN requires administrator privileges. Normal Akagi-NG startup does not request elevation; an isolated TUN helper requests UAC only when bundled TUN is enabled. Allow `mihomo.exe` through Windows Firewall on first TUN launch.
 >
 > If Clash/Clash Verge is already running, disable its TUN mode and keep its system/mixed proxy available as Akagi-NG's upstream proxy. This prevents two mihomo TUN cores from competing for system routes.
 

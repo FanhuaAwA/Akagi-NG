@@ -74,12 +74,14 @@ please check the log files first.
 
 ## Notes | 说明
 
-- Akagi-NG 不会安装系统级组件
-- 不会修改注册表或系统配置
-- 不会在系统目录中写入文件
+- 默认模式不会安装系统级组件或修改系统网络配置
+- 仅启用内置 TUN 时请求 UAC，并在 ProgramData 的受保护目录运行经哈希校验的 mihomo
+- 关闭 TUN 或退出软件时会终止提权进程并清理会话配置
 
-Akagi-NG does not install system-wide components,
-modify system settings, or write to system directories.
+Default mode does not install system-wide components or modify system networking.
+Only bundled TUN requests UAC and runs a hash-verified mihomo from a protected
+ProgramData directory. The elevated process and session config are removed when
+TUN stops or Akagi-NG exits.
 
 ---
 

@@ -10,7 +10,8 @@
     "dev": "wait-on http://localhost:5173 && tsc -p tsconfig.json && electron .",
     "dev:mock": "wait-on http://localhost:5173 && tsc -p tsconfig.json && electron . --mock",
     "build": "tsc -p tsconfig.json",
-    "package": "electron-builder --publish never"
+    "build:tun-helper": "tsx ../scripts/build_tun_helper.ts",
+    "package": "npm run build:tun-helper && electron-builder --publish never"
   },
   "devDependencies": {
     "electron": "41.3.0",
@@ -66,13 +67,24 @@
       {
         "from": "../dist/backend/akagi-ng",
         "to": "bin"
+      },
+      {
+        "from": "../build/privileged",
+        "to": "assets/privileged",
+        "filter": [
+          "AkagiNg.TunHelper.exe",
+          "AkagiNg.TunHelper.manifest"
+        ]
       }
     ],
     "npmRebuild": false,
     "win": {
       "target": "zip",
       "icon": "../assets/torii.ico",
-      "requestedExecutionLevel": "requireAdministrator",
+      "requestedExecutionLevel": "asInvoker",
+      "signExts": [
+        "!mihomo.exe"
+      ],
       "extraFiles": [
         {
           "from": "../README.txt",
