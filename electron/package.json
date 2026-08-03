@@ -11,7 +11,7 @@
     "dev:mock": "wait-on http://localhost:5173 && tsc -p tsconfig.json && electron . --mock",
     "build": "tsc -p tsconfig.json",
     "build:tun-helper": "tsx ../scripts/build_tun_helper.ts",
-    "package": "npm run build:tun-helper && electron-builder --publish never"
+    "package": "tsx ../scripts/package_desktop.ts"
   },
   "devDependencies": {
     "electron": "41.3.0",
@@ -29,6 +29,7 @@
     ],
     "artifactName": "Akagi-NG-${version}-${os}-${arch}.${ext}",
     "productName": "Akagi-NG",
+    "afterSign": "../scripts/after_sign_resource_manifest.cjs",
     "icon": "../assets/torii.ico",
     "electronLanguages": [
       "en-US",

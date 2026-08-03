@@ -49,19 +49,23 @@ app.whenReady().then(async () => {
   registerIpcHandlers(windowManager, backendManager, mihomoManager);
 
   // 1. Start the unprivileged Python backend.
-  backendManager.start();
+  const backendStarted = await backendManager.start();
 
   // 2. Render the dashboard before any optional UAC interaction.
   await windowManager.reconcileDesktopSettings(() => updaterManager.checkForUpdates());
   windowManager.createDashboardWindow();
 
   // 3. Start optional TUN asynchronously. UAC denial must not block the app/backend.
-  void mihomoManager.startIfEnabled().then((mihomoStatus) => {
-    if (mihomoStatus.error) {
-      logger.error(`mihomo initialization failed: ${mihomoStatus.error}`);
-      dialog.showErrorBox('Mihomo Initialization Failed', mihomoStatus.error);
-    }
-  });
+  if (backendStarted) {
+    void mihomoManager.startIfEnabled().then((mihomoStatus) => {
+      if (mihomoStatus.error) {
+        logger.error(`mihomo initialization failed: ${mihomoStatus.error}`);
+        dialog.showErrorBox('Mihomo Initialization Failed', mihomoStatus.error);
+      }
+    });
+  } else {
+    logger.error('External runtime startup was blocked. Optional mihomo startup was skipped.');
+  }
 
   // 4. Setup Auto Updater
   updaterManager.checkForUpdates();

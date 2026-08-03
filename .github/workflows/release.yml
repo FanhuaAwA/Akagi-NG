@@ -83,6 +83,8 @@ jobs:
         run: npm run build
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          AKAGI_REQUIRE_RESOURCE_SIGNING: 1
+          AKAGI_RESOURCE_SIGNING_KEY: ${{ secrets.AKAGI_RESOURCE_SIGNING_KEY }}
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v3

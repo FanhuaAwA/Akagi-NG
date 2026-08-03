@@ -25,6 +25,8 @@
     "build:backend": "tsx scripts/build_backend.ts",
     "test:frontend-regressions": "tsx scripts/test_api_client_envelope.ts",
     "test:privilege-boundary": "tsx scripts/build_tun_helper.ts && tsx scripts/test_privilege_boundary.ts",
+    "test:resource-integrity": "tsx scripts/test_resource_integrity.ts",
+    "test:packaged-resource-integrity": "tsx scripts/verify_packaged_resources.ts --root dist/release/win-unpacked",
     "build": "npm run clean && npm run sync-version && npm run build -w akagi-frontend && npm run build:backend && npm run build -w akagi-ng-desktop && npm run prepare-release && npm run package -w akagi-ng-desktop",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",

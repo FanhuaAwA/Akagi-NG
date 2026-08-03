@@ -18,6 +18,10 @@ All notable changes to Akagi-NG are documented in this file.
 - Excluded mihomo from build-time Authenticode rewriting so its pinned hash
   remains reproducible. Official releases must still sign the desktop and TUN
   helper executables.
+- Added a detached Ed25519-signed resource manifest covering packaged
+  executables, native Python extensions, and model weights. Packaged startup now
+  rejects a missing, mismatched, path-escaping, or tampered protected resource
+  before launching the backend or optional mihomo helper.
 
 ### Changed
 
@@ -31,6 +35,8 @@ All notable changes to Akagi-NG are documented in this file.
 - Added automated privilege-boundary coverage for PE manifests, helper protocol
   parsing, strict TUN configuration validation, mihomo hash pinning, IPC trust
   checks, startup/shutdown ordering, and packaged artifact contents.
+- Added resource-integrity regressions for valid manifests, EXE/PYD/model
+  tampering, manifest-signature tampering, version mismatch, and path traversal.
 
 ## [1.1.2] - 2026-08-02
 

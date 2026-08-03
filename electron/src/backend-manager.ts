@@ -48,6 +48,7 @@ const logger = createLogger('BackendManager');
 export class BackendManager {
   private pyProcess: ChildProcess | null = null;
   private validator: ResourceValidator;
+  private resourceStatus: ResourceStatus | null = null;
   private isReadyState: boolean = false;
   private readyPromise: Promise<void>;
   private resolveReady!: () => void;
@@ -135,17 +136,22 @@ export class BackendManager {
     });
     this.readyPromise.catch(() => {});
 
-    this.validator = new ResourceValidator(getProjectRoot());
+    this.validator = new ResourceValidator(getProjectRoot(), {
+      enforceIntegrity: app.isPackaged,
+      expectedVersion: app.getVersion(),
+    });
   }
 
   public async getResourceStatus(): Promise<ResourceStatus> {
-    return await this.validator.validate();
+    if (this.resourceStatus) return this.resourceStatus;
+    this.resourceStatus = await this.validator.validate();
+    return this.resourceStatus;
   }
 
-  public start() {
+  public async start(): Promise<boolean> {
     if (this.pyProcess) {
       logger.info('Backend already running.');
-      return;
+      return true;
     }
 
     const isDev = !app.isPackaged;
@@ -153,14 +159,15 @@ export class BackendManager {
     if (process.argv.includes('--mock')) {
       this.isMockMode = true;
       this.startMockBackend();
+      return true;
     } else if (isDev) {
-      this.startDevBackend();
+      return this.startDevBackend();
     } else {
-      this.startProdBackend();
+      return await this.startProdBackend();
     }
   }
 
-  private startDevBackend() {
+  private startDevBackend(): boolean {
     logger.info('Starting Python backend in DEV mode...');
 
     const projectRoot = getProjectRoot();
@@ -178,7 +185,7 @@ export class BackendManager {
       const errorMsg = `Python executable NOT FOUND at: ${pythonExecutable}. Please check your environment.`;
       logger.error(errorMsg);
       dialog.showErrorBox('Backend Initialization Failed', errorMsg);
-      return;
+      return false;
     }
 
     const env = {
@@ -196,6 +203,7 @@ export class BackendManager {
 
     this.setupListeners();
     this.startHealthCheck();
+    return true;
   }
 
   private startMockBackend() {
@@ -203,8 +211,20 @@ export class BackendManager {
     this.markReady();
   }
 
-  private startProdBackend() {
+  private async startProdBackend(): Promise<boolean> {
     logger.info('Starting Python backend service...');
+
+    const resourceStatus = await this.getResourceStatus();
+    if (resourceStatus.integrity !== 'valid') {
+      const detail = resourceStatus.errors[0] ?? 'Unknown resource integrity failure.';
+      const msg = `Protected resource verification failed. No external runtime was executed.\n\n${detail}`;
+      logger.error(msg);
+      dialog.showErrorBox('Resource Integrity Error', msg);
+      return false;
+    }
+    logger.info(
+      `Verified ${resourceStatus.verifiedFiles} protected resources (${resourceStatus.verifiedBytes} bytes).`,
+    );
 
     const isWin = process.platform === 'win32';
     const bundleDir = getAssetPath('bin');
@@ -214,7 +234,7 @@ export class BackendManager {
       const msg = `Portable Python not found at ${pythonExecutable}`;
       logger.error(msg);
       dialog.showErrorBox('Startup Error', msg);
-      return;
+      return false;
     }
 
     try {
@@ -229,10 +249,12 @@ export class BackendManager {
 
       this.setupListeners();
       this.startHealthCheck();
+      return true;
     } catch (e) {
       const msg = `Backend initialization failed: ${e instanceof Error ? e.message : String(e)}`;
       logger.error(msg);
       dialog.showErrorBox('Startup Error', msg);
+      return false;
     }
   }
 

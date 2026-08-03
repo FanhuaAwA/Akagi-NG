@@ -157,3 +157,6 @@ jobs:
 
       - name: Run frontend regression tests
         run: npm run test:frontend-regressions
+
+      - name: Run resource integrity regression tests
+        run: npm run test:resource-integrity
