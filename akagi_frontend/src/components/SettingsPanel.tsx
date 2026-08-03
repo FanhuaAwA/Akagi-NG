@@ -63,7 +63,7 @@ export default function SettingsPanel({ open, onClose }: SettingsPanelProps) {
   const handleUpdateProtocol = async () => {
     setIsUpdatingProtocol(true);
     try {
-      await window.electron.invoke('update-liqi');
+      await window.electron.updateLiqi();
       toast.success(t('status_messages.majsoul_proto_updated'));
     } catch (error) {
       toast.error(

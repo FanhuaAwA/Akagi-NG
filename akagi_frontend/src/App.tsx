@@ -36,9 +36,7 @@ const initApp = async () => {
   if (!window.electron) {
     throw new Error('Akagi-NG requires Electron environment to boot.');
   }
-  const { host, port } = await window.electron.invoke<{ host: string; port: number }>(
-    'wait-for-backend',
-  );
+  const { host, port } = await window.electron.waitForBackend();
   const apiBase = `http://${host}:${port}`;
   setBaseUrl(apiBase);
   const settings = await fetchSettingsApi();
@@ -85,7 +83,7 @@ function AppInner() {
 
   useEffect(() => {
     if (!window.electron) return;
-    const unsubExit = window.electron.on('exit-animation-start', () => setIsExiting(true));
+    const unsubExit = window.electron.onExitAnimationStart(() => setIsExiting(true));
     return () => unsubExit();
   }, []);
 

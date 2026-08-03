@@ -23,7 +23,7 @@ import { fetchSettingsApi, useSettings } from '@/hooks/useSettings';
 import { useTheme } from '@/hooks/useTheme';
 import { notify } from '@/lib/notify';
 import { cn } from '@/lib/utils';
-import type { ResourceStatus, Settings } from '@/types';
+import type { Settings } from '@/types';
 
 interface DashboardProps {
   settingsPromise: Promise<Settings>;
@@ -73,15 +73,15 @@ function Dashboard({ settingsPromise, isSplashActive = false }: DashboardProps) 
 
   // 2. 业务副作用：资源检查与 HUD 监听
   useEffect(() => {
-    window.electron.invoke<ResourceStatus>('check-resource-status').then((status) => {
+    window.electron.checkResourceStatus().then((status) => {
       setResourceStatus(status);
     });
 
-    const unsubHud = window.electron.on('hud-visibility-changed', (visible: boolean) => {
+    const unsubHud = window.electron.onHudVisibilityChanged((visible: boolean) => {
       setIsHudActive(visible);
     });
 
-    const unsubQuit = window.electron.on('request-app-quit', () => {
+    const unsubQuit = window.electron.onRequestAppQuit(() => {
       setShowShutdownConfirm(true);
     });
 
@@ -113,7 +113,7 @@ function Dashboard({ settingsPromise, isSplashActive = false }: DashboardProps) 
     setIsLaunching(true);
     try {
       const currentSettings = await fetchSettingsApi().catch(() => initialSettings);
-      await window.electron.invoke('start-game', {
+      await window.electron.startGame({
         url: currentSettings.game_url,
         useMitm: currentSettings.mitm.enabled,
         platform: currentSettings.platform,
@@ -127,12 +127,12 @@ function Dashboard({ settingsPromise, isSplashActive = false }: DashboardProps) 
   }, [initialSettings, t]);
 
   const handleShutdownClick = useCallback(() => {
-    window.electron.invoke('close-window');
+    window.electron.closeDashboard();
   }, []);
 
   const performShutdown = useCallback(async () => {
     try {
-      await window.electron.invoke('request-shutdown');
+      await window.electron.requestShutdown();
     } catch (e) {
       console.error('Failed to shutdown:', e);
       notify.error(`${t('common.error')}: ${(e as Error).message}`);
@@ -143,7 +143,7 @@ function Dashboard({ settingsPromise, isSplashActive = false }: DashboardProps) 
   const handleCloseSettings = useCallback(() => setSettingsOpen(false), []);
   const handleToggleHud = useCallback(
     (show: boolean) => {
-      window.electron.invoke('toggle-hud', show);
+      window.electron.toggleHud(show);
       setIsHudActive(show);
     },
     [setIsHudActive],

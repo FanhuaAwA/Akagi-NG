@@ -504,7 +504,7 @@ export function OT3ServicePanel({ settings, updateSettingsBatch }: OT3ServicePan
             <Button
               className='w-full'
               variant='outline'
-              onClick={() => void window.electron.invoke('open-external', FLYA_DISCORD_URL)}
+              onClick={() => void window.electron.openExternal(FLYA_DISCORD_URL)}
             >
               Discord · {FLYA_DISCORD_URL}
             </Button>

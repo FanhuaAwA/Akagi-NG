@@ -52,10 +52,10 @@ function HeaderContent({
   const [isMaximized, setIsMaximized] = useState(false);
 
   useEffect(() => {
-    const unsub = window.electron.on('window-state-changed', (maximized: boolean) => {
+    const unsub = window.electron.onDashboardMaximizedChanged((maximized: boolean) => {
       setIsMaximized(maximized);
     });
-    window.electron.invoke<boolean>('is-window-maximized').then((maximized) => {
+    window.electron.isDashboardMaximized().then((maximized) => {
       setIsMaximized(maximized);
     });
     return unsub;
@@ -135,14 +135,14 @@ function HeaderContent({
           {/* Window Controls */}
           <HeaderIconButton
             icon={Minus}
-            onClick={() => window.electron.invoke('minimize-window')}
+            onClick={() => window.electron.minimizeDashboard()}
             aria-label='Minimize'
           />
 
           <HeaderIconButton
             icon={isMaximized ? Copy : Square}
             iconClassName={isMaximized ? '-scale-x-100 -rotate-90' : ''}
-            onClick={() => window.electron.invoke('maximize-window')}
+            onClick={() => window.electron.toggleDashboardMaximized()}
             aria-label={isMaximized ? 'Restore' : 'Maximize'}
           />
 

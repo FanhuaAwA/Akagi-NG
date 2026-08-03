@@ -13,7 +13,7 @@ const updateSnapshot = (version: string) => {
   listeners.forEach((l) => l());
 };
 
-window.electron.on('app:update-available', (version: string) => updateSnapshot(version));
+window.electron.onUpdateAvailable((version: string) => updateSnapshot(version));
 
 const subscribe = (listener: () => void) => {
   listeners.add(listener);
@@ -32,10 +32,7 @@ export function UpdateBadge() {
   }
 
   const handleClick = () => {
-    window.electron.invoke(
-      'open-external',
-      `https://github.com/FanhuaAwA/Akagi-NG/releases/tag/v${version}`,
-    );
+    window.electron.openExternal(`https://github.com/FanhuaAwA/Akagi-NG/releases/tag/v${version}`);
   };
 
   return (

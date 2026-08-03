@@ -158,5 +158,8 @@ jobs:
       - name: Run frontend regression tests
         run: npm run test:frontend-regressions
 
+      - name: Run Electron trust-boundary regression tests
+        run: npm run test:electron-security
+
       - name: Run resource integrity regression tests
         run: npm run test:resource-integrity

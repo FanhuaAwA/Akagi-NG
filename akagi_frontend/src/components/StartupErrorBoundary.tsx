@@ -20,8 +20,7 @@ export function StartupErrorBoundary({ children }: { children: ReactNode }) {
           <Button
             onClick={() => {
               return (
-                window.electron?.invoke('request-shutdown').catch(() => window.close()) ??
-                window.close()
+                window.electron?.requestShutdown().catch(() => window.close()) ?? window.close()
               );
             }}
           >

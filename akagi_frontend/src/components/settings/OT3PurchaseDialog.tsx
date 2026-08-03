@@ -257,7 +257,7 @@ export function OT3PurchaseDialog({
         };
         setApproveUrl(created.approve_url);
         setPhase('approving');
-        await window.electron.invoke('open-external', created.approve_url);
+        await window.electron.openExternal(created.approve_url);
       } else {
         const created = await createOT3Subscription(connection, selected.id);
         if (generation !== generationRef.current) return;
@@ -270,7 +270,7 @@ export function OT3PurchaseDialog({
         };
         setApproveUrl(created.approve_url);
         setPhase('approving');
-        await window.electron.invoke('open-external', created.approve_url);
+        await window.electron.openExternal(created.approve_url);
       }
       schedulePoll(generation);
     } catch (caught) {
@@ -377,10 +377,7 @@ export function OT3PurchaseDialog({
 
         <DialogFooter>
           {approveUrl && phase === 'approving' && (
-            <Button
-              variant='outline'
-              onClick={() => window.electron.invoke('open-external', approveUrl)}
-            >
+            <Button variant='outline' onClick={() => window.electron.openExternal(approveUrl)}>
               <ExternalLink className='h-4 w-4' />
               {t('settings.model_config.purchase_reopen')}
             </Button>

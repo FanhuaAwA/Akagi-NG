@@ -6,22 +6,15 @@
       content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"
       name="viewport"
     />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; base-uri 'none'; object-src 'none'; frame-src 'none'; form-action 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; media-src 'self' blob: http://127.0.0.1:*; connect-src 'self' http://127.0.0.1:* http://localhost:* ws://127.0.0.1:* ws://localhost:*; worker-src 'self' blob:"
+    />
     <title>Akagi Next-Generation</title>
     <meta content="light dark" name="color-scheme" />
     <link href="torii.svg" rel="icon" />
   </head>
   <body>
-    <script>
-      (function () {
-        const theme = localStorage.getItem('theme');
-        const systemDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
-        if (theme === 'dark' || (theme === 'system' && systemDark) || (!theme && systemDark)) {
-          document.documentElement.classList.add('dark');
-        } else {
-          document.documentElement.classList.remove('dark');
-        }
-      })();
-    </script>
     <div id="root"></div>
     <script src="/src/main.tsx" type="module"></script>
   </body>

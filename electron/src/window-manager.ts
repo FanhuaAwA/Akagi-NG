@@ -27,6 +27,7 @@ import {
 } from './desktop-config.js';
 import { GameHandler } from './game-handler.js';
 import { createLogger } from './logger.js';
+import { isAllowedGameUrl, isTrustedRendererUrl, type RendererRole } from './security-policy.js';
 import { getAssetPath, isSafeWindow, safeSend } from './utils.js';
 
 const logger = createLogger('WindowManager');
@@ -53,6 +54,32 @@ export class WindowManager {
 
   public getMainWindow(): BrowserWindow | null {
     return this.dashboardWindow;
+  }
+
+  public getHudWindow(): BrowserWindow | null {
+    return this.hudWindow;
+  }
+
+  public getRendererRole(contents: Electron.WebContents): RendererRole | null {
+    if (this.dashboardWindow?.webContents === contents) return 'dashboard';
+    if (this.hudWindow?.webContents === contents) return 'hud';
+    return null;
+  }
+
+  private hardenTrustedRenderer(win: BrowserWindow, role: RendererRole): void {
+    const contents = win.webContents;
+    contents.setWindowOpenHandler(() => ({ action: 'deny' }));
+    contents.on('will-attach-webview', (event) => event.preventDefault());
+    contents.on('will-frame-navigate', (event) => {
+      if (!event.isMainFrame || !isTrustedRendererUrl(event.url, role, app.isPackaged)) {
+        logger.warn(`Blocked ${role} navigation to ${event.url}`);
+        event.preventDefault();
+      }
+    });
+    contents.session.setPermissionCheckHandler(() => false);
+    contents.session.setPermissionRequestHandler((_webContents, _permission, callback) => {
+      callback(false);
+    });
   }
 
   public setupTray(onCheckForUpdates?: () => void): void {
@@ -186,8 +213,14 @@ export class WindowManager {
         preload: join(__dirname, 'preload.js'),
         nodeIntegration: false,
         contextIsolation: true,
+        sandbox: true,
+        webSecurity: true,
+        allowRunningInsecureContent: false,
+        webviewTag: false,
+        partition: 'persist:akagi-ui',
       },
     });
+    this.hardenTrustedRenderer(this.dashboardWindow, 'dashboard');
     this.dashboardWindow.setContentProtection(dashboardPolicy.contentProtection);
 
     this.dashboardWindow.once('ready-to-show', () => {
@@ -297,8 +330,14 @@ export class WindowManager {
         preload: join(__dirname, 'preload.js'),
         nodeIntegration: false,
         contextIsolation: true,
+        sandbox: true,
+        webSecurity: true,
+        allowRunningInsecureContent: false,
+        webviewTag: false,
+        partition: 'persist:akagi-ui',
       },
     });
+    this.hardenTrustedRenderer(this.hudWindow, 'hud');
 
     // Enforce high-level always-on-top (works over fullscreen apps/games on most OS)
     this.hudWindow.setAlwaysOnTop(true, 'screen-saver');
@@ -394,7 +433,7 @@ export class WindowManager {
     useMitm?: boolean;
     platform?: string;
   }): Promise<void> {
-    const { url, useMitm } = options;
+    const { url, useMitm, platform = 'auto' } = options;
 
     if (isSafeWindow(this.gameWindow)) {
       this.gameWindow.focus();
@@ -405,6 +444,9 @@ export class WindowManager {
     if (!url) {
       logger.warn('No URL provided for Game Window!');
       return;
+    }
+    if (!isAllowedGameUrl(url, platform, url)) {
+      throw new Error('Blocked untrusted game URL.');
     }
 
     this.gameWindow = new BrowserWindow({
@@ -417,17 +459,39 @@ export class WindowManager {
       webPreferences: {
         nodeIntegration: false,
         contextIsolation: true,
+        sandbox: true,
+        webSecurity: true,
+        allowRunningInsecureContent: false,
+        webviewTag: false,
       },
     });
 
-    this.gameWindow.webContents.setWindowOpenHandler(() => {
+    this.gameWindow.webContents.setWindowOpenHandler(({ url: targetUrl }) => {
+      if (!isAllowedGameUrl(targetUrl, platform, url)) {
+        logger.warn(`Blocked untrusted game popup: ${targetUrl}`);
+        return { action: 'deny' };
+      }
       return {
         action: 'allow',
         overrideBrowserWindowOptions: {
           autoHideMenuBar: true,
           backgroundColor: nativeTheme.shouldUseDarkColors ? '#18181b' : '#ffffff',
+          webPreferences: {
+            nodeIntegration: false,
+            contextIsolation: true,
+            sandbox: true,
+            webSecurity: true,
+            allowRunningInsecureContent: false,
+            webviewTag: false,
+          },
         },
       };
+    });
+    this.gameWindow.webContents.on('will-frame-navigate', (event) => {
+      if (event.isMainFrame && !isAllowedGameUrl(event.url, platform, url)) {
+        logger.warn(`Blocked untrusted game navigation: ${event.url}`);
+        event.preventDefault();
+      }
     });
 
     // Handle F11 for fullscreen toggle

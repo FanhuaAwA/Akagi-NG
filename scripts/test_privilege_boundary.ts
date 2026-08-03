@@ -215,8 +215,12 @@ function main(): void {
 
   const ipcSource = readFileSync(join(rootDir, 'electron', 'src', 'ipc-handlers.ts'), 'utf8');
   assert.doesNotMatch(ipcSource, /ipcMain\.handle\('mihomo-start'/);
-  assert.match(ipcSource, /assertTrustedDashboard\(event\)/);
-  assert.match(ipcSource, /event\.senderFrame !== event\.sender\.mainFrame/);
+  assert.match(ipcSource, /assertTrustedRenderer\(event, channel\)/);
+  assert.match(ipcSource, /frame !== event\.sender\.mainFrame/);
+  const policySource = readFileSync(join(rootDir, 'electron', 'src', 'security-policy.ts'), 'utf8');
+  assert.match(policySource, /'mihomo-status': \['dashboard'\]/);
+  assert.match(policySource, /'mihomo-reconcile': \['dashboard'\]/);
+  assert.match(policySource, /'mihomo-stop': \['dashboard'\]/);
 
   const packagedExecutable = join(rootDir, 'dist', 'release', 'win-unpacked', 'Akagi-NG.exe');
   if (process.env.AKAGI_VERIFY_PACKAGED_MANIFEST === '1') {

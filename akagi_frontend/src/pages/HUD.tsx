@@ -18,19 +18,18 @@ export default function Hud() {
   });
 
   useEffect(() => {
-    window.electron.invoke<HudClickThroughStatus>('hud-click-through-status').then(setClickThrough);
-    const unsubscribe = window.electron.on(
-      'hud-click-through-changed',
-      (status: HudClickThroughStatus) => setClickThrough(status),
+    window.electron.getHudClickThroughStatus().then(setClickThrough);
+    const unsubscribe = window.electron.onHudClickThroughChanged((status) =>
+      setClickThrough(status),
     );
     return () => {
       unsubscribe?.();
-      void window.electron.invoke('hud-set-controls-interactive', false);
+      void window.electron.setHudControlsInteractive(false);
     };
   }, []);
 
   const setControlsInteractive = (interactive: boolean) => {
-    void window.electron.invoke('hud-set-controls-interactive', interactive);
+    void window.electron.setHudControlsInteractive(interactive);
   };
 
   return (
@@ -60,10 +59,7 @@ export default function Hud() {
           }
           aria-pressed={clickThrough.enabled}
           onClick={async () => {
-            const status = await window.electron.invoke<HudClickThroughStatus>(
-              'hud-set-click-through',
-              !clickThrough.enabled,
-            );
+            const status = await window.electron.setHudClickThrough(!clickThrough.enabled);
             setClickThrough(status);
           }}
         >
@@ -72,7 +68,7 @@ export default function Hud() {
         <HudControlButton
           title={t('common.close')}
           aria-label={t('common.close')}
-          onClick={() => window.electron.invoke('toggle-hud', false)}
+          onClick={() => window.electron.toggleHud(false)}
         >
           <X className='h-4 w-4' />
         </HudControlButton>

@@ -151,7 +151,7 @@ export function SettingsProvider({ children, initialSettings }: SettingsProvider
 
   // 3. 远程监听（进程间通信）
   useEffect(() => {
-    const unsub = window.electron.on('locale-changed', (newLocale: string) => {
+    const unsub = window.electron.onLocaleChanged((newLocale: string) => {
       dispatch({ type: 'REMOTE_UPDATE', payload: { locale: newLocale } });
     });
     return () => unsub();
@@ -187,10 +187,7 @@ export function SettingsProvider({ children, initialSettings }: SettingsProvider
         if (result.restartRequired) dispatch({ type: 'SET_RESTART_REQUIRED' });
         if (result.proxyChanged) {
           try {
-            const status = await window.electron.invoke<{
-              running: boolean;
-              error?: string;
-            }>('mihomo-reconcile');
+            const status = await window.electron.reconcileMihomo();
             const runtimeError = result.proxyError ?? status.error;
             if (runtimeError) {
               notify.error(runtimeError);
@@ -201,7 +198,7 @@ export function SettingsProvider({ children, initialSettings }: SettingsProvider
         }
         if (result.desktopChanged) {
           try {
-            await window.electron.invoke('desktop-reconcile');
+            await window.electron.reconcileDesktop();
           } catch (desktopError) {
             notify.error(
               desktopError instanceof Error ? desktopError.message : String(desktopError),
@@ -257,7 +254,7 @@ export function SettingsProvider({ children, initialSettings }: SettingsProvider
     try {
       const data = await resetSettingsApi();
       dispatch({ type: 'RESTORE_SUCCESS', payload: data });
-      await window.electron.invoke('desktop-reconcile');
+      await window.electron.reconcileDesktop();
     } catch (e) {
       console.error('Restore Defaults error:', e);
     }
@@ -278,7 +275,7 @@ export function SettingsProvider({ children, initialSettings }: SettingsProvider
       const localePath =
         path.length > 0 && path[0] === 'locale' && value && typeof value === 'string';
       if (localePath) {
-        window.electron.invoke('update-locale', value).catch(console.error);
+        window.electron.updateLocale(value).catch(console.error);
       }
 
       if (shouldDebounce) {
@@ -309,7 +306,7 @@ export function SettingsProvider({ children, initialSettings }: SettingsProvider
       });
 
       if (hasLocaleChange) {
-        window.electron.invoke('update-locale', newLocale).catch(console.error);
+        window.electron.updateLocale(newLocale).catch(console.error);
       }
 
       if (shouldDebounce) {

@@ -22,6 +22,10 @@ All notable changes to Akagi-NG are documented in this file.
   executables, native Python extensions, and model weights. Packaged startup now
   rejects a missing, mismatched, path-escaping, or tampered protected resource
   before launching the backend or optional mihomo helper.
+- Replaced the renderer's arbitrary-channel IPC bridge with named capabilities,
+  enforced dashboard/HUD role and main-frame authorization on every handler,
+  blocked untrusted navigation, child frames, permissions, and popups, restricted
+  game navigation to HTTPS platform allowlists, and added a restrictive renderer CSP.
 
 ### Changed
 
@@ -37,6 +41,8 @@ All notable changes to Akagi-NG are documented in this file.
   checks, startup/shutdown ordering, and packaged artifact contents.
 - Added resource-integrity regressions for valid manifests, EXE/PYD/model
   tampering, manifest-signature tampering, version mismatch, and path traversal.
+- Added Electron trust-boundary regressions for renderer URLs, IPC role policy,
+  external/game URL allowlists, preload exposure, navigation guards, and CSP.
 
 ## [1.1.2] - 2026-08-02
 
