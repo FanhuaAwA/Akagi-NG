@@ -63,14 +63,6 @@
         "to": "assets"
       },
       {
-        "from": "../README.txt",
-        "to": "README.txt"
-      },
-      {
-        "from": "../LICENSE",
-        "to": "LICENSE.txt"
-      },
-      {
         "from": "../build/extra",
         "to": "."
       },
@@ -85,6 +77,16 @@
           "AkagiNg.TunHelper.exe",
           "AkagiNg.TunHelper.manifest"
         ]
+      }
+    ],
+    "extraResources": [
+      {
+        "from": "../README.txt",
+        "to": "README.txt"
+      },
+      {
+        "from": "../LICENSE",
+        "to": "LICENSE.txt"
       }
     ],
     "npmRebuild": false,
