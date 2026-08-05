@@ -6,6 +6,8 @@ const { join, resolve } = require('node:path');
 module.exports = async function afterPackResourceManifest(context) {
   // Windows emits afterSign even for an unsigned local build because electron-builder
   // edits the executable resources. Waiting for that phase avoids hashing stale bytes.
+  // On macOS the generator writes detached metadata under Contents/Resources so
+  // codesign seals it as data rather than treating it as a nested code object.
   if (context.electronPlatformName === 'win32') return;
 
   const rootDir = resolve(__dirname, '..');

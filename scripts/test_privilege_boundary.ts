@@ -151,6 +151,7 @@ function main(): void {
       afterSign?: string;
       win: { requestedExecutionLevel: string };
       extraFiles: Array<{ from: string; to: string; filter?: string[] }>;
+      extraResources: Array<{ from: string; to: string }>;
     };
   };
   assert.equal(electronPackage.build.win.requestedExecutionLevel, 'asInvoker');
@@ -167,6 +168,24 @@ function main(): void {
       (entry) =>
         entry.to === 'assets/privileged' && entry.filter?.includes('AkagiNg.TunHelper.exe'),
     ),
+  );
+  assert.ok(
+    electronPackage.build.extraResources.some(
+      (entry) => entry.from === '../LICENSE' && entry.to === 'LICENSE.txt',
+    ),
+    'The public license must be packaged under the standard resources directory.',
+  );
+  assert.ok(
+    electronPackage.build.extraResources.some(
+      (entry) => entry.from === '../README.txt' && entry.to === 'README.txt',
+    ),
+    'The public README must be packaged under the standard resources directory.',
+  );
+  assert.ok(
+    electronPackage.build.extraFiles.every(
+      (entry) => !['LICENSE', 'LICENSE.txt', 'README.txt'].includes(entry.to),
+    ),
+    'Do not place public documentation directly in the macOS Contents directory.',
   );
 
   const sourceManifest = readFileSync(helperManifestPath, 'utf8');
