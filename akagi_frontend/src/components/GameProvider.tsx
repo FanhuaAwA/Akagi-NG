@@ -5,9 +5,17 @@ import { useConnectionConfig } from '@/hooks/useConnectionConfig';
 import { useSSEConnection } from '@/hooks/useSSEConnection';
 import { useStatusNotification } from '@/hooks/useStatusNotification';
 
-export function GameProvider({ children }: { children: ReactNode }) {
+export function GameProvider({
+  children,
+  backendReady = true,
+}: {
+  children: ReactNode;
+  backendReady?: boolean;
+}) {
   const { backendUrl } = useConnectionConfig();
-  const { data, inferenceStatus, notifications, isConnected, error } = useSSEConnection(backendUrl);
+  const { data, inferenceStatus, notifications, isConnected, error } = useSSEConnection(
+    backendReady ? backendUrl : null,
+  );
   const { statusMessage, statusType } = useStatusNotification(notifications, error);
   const [isHudActive, setIsHudActive] = useState(window.location.hash === '#/hud');
 

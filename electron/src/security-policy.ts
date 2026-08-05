@@ -18,6 +18,7 @@ export const IPC_CHANNEL_ROLES = {
   'maximize-window': ['dashboard'],
   'is-window-maximized': ['dashboard'],
   'check-resource-status': ['dashboard'],
+  'get-startup-config': ['dashboard', 'hud'],
   'wait-for-backend': ['dashboard', 'hud'],
   'update-locale': ['dashboard'],
 } as const satisfies Record<string, readonly RendererRole[]>;

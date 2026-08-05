@@ -17,6 +17,7 @@ const MAX_MANIFEST_ENTRIES = 25_000;
 const MAX_MANIFEST_BYTES = 16 * 1024 * 1024;
 const MAX_SIGNATURE_BYTES = 4 * 1024;
 const HASH_CONCURRENCY = 8;
+const SMALL_FILE_READ_THRESHOLD_BYTES = 1024 * 1024;
 const REQUIRED_MODELS = ['models/mortal.pth', 'models/mortal3p.pth'] as const;
 
 type ProtectedResourceType =
@@ -223,7 +224,7 @@ export class ResourceValidator {
     const rootRealPath = await realpath(this.projectRoot);
     await this.assertUnhashedPlatformResources(rootRealPath);
     await this.assertProtectedInventory(manifest.entries);
-    return await this.verifyManifestEntries(manifest.entries, rootRealPath);
+    return await this.verifyManifestEntries(manifest.entries);
   }
 
   private parseManifest(value: string): ResourceManifest {
@@ -382,6 +383,7 @@ export class ResourceValidator {
     const listedPaths = new Set(
       entries.map((entry) => (this.platform === 'win32' ? entry.path.toLowerCase() : entry.path)),
     );
+    const discoveredPaths = new Set<string>();
 
     const visit = async (directory: string): Promise<void> => {
       const children = await readdir(directory, { withFileTypes: true });
@@ -408,15 +410,21 @@ export class ResourceValidator {
         if (!listedPaths.has(identity)) {
           throw new Error(`Protected resource is not listed in the signed manifest: ${entryPath}`);
         }
+        discoveredPaths.add(identity);
       }
     };
 
     await visit(this.projectRoot);
+    const missing = entries
+      .map((entry) => (this.platform === 'win32' ? entry.path.toLowerCase() : entry.path))
+      .filter((path) => !discoveredPaths.has(path));
+    if (missing.length > 0) {
+      throw new Error(`Protected resource was not found in the verified inventory: ${missing[0]}`);
+    }
   }
 
   private async verifyManifestEntries(
     entries: ResourceManifestEntry[],
-    rootRealPath: string,
   ): Promise<{ files: number; bytes: number }> {
     let nextIndex = 0;
     const workers = Array.from({ length: Math.min(HASH_CONCURRENCY, entries.length) }, async () => {
@@ -425,7 +433,6 @@ export class ResourceValidator {
       while (nextIndex < entries.length) {
         const entry = entries[nextIndex++];
         const filePath = resolve(this.projectRoot, ...entry.path.split('/'));
-        await this.assertPathContained(rootRealPath, filePath, entry.path);
         const stats = await lstat(filePath);
         if (!stats.isFile() || stats.isSymbolicLink()) {
           throw new Error(`Protected resource is not a regular file: ${entry.path}`);
@@ -433,7 +440,7 @@ export class ResourceValidator {
         if (stats.size !== entry.size) {
           throw new Error(`Protected resource size mismatch: ${entry.path}`);
         }
-        if ((await this.sha256File(filePath)) !== entry.sha256) {
+        if ((await this.sha256File(filePath, entry.size)) !== entry.sha256) {
           throw new Error(`Protected resource SHA-256 mismatch: ${entry.path}`);
         }
         files += 1;
@@ -482,8 +489,12 @@ export class ResourceValidator {
     return stats.size;
   }
 
-  private async sha256File(filePath: string): Promise<string> {
+  private async sha256File(filePath: string, size: number): Promise<string> {
     const hash = createHash('sha256');
+    if (size <= SMALL_FILE_READ_THRESHOLD_BYTES) {
+      hash.update(await readFile(filePath));
+      return hash.digest('hex');
+    }
     await new Promise<void>((resolvePromise, rejectPromise) => {
       const stream = createReadStream(filePath);
       stream.on('data', (chunk) => hash.update(chunk));

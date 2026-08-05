@@ -36,6 +36,7 @@ interface HeaderProps {
   onToggleHud?: (show: boolean) => void;
   isHudActive?: boolean;
   isConnected: boolean;
+  controlsDisabled?: boolean;
 }
 
 function HeaderContent({
@@ -50,6 +51,7 @@ function HeaderContent({
   onToggleHud,
   isHudActive = false,
   isConnected,
+  controlsDisabled = false,
 }: HeaderProps) {
   const { t } = useTranslation();
   const { theme, setTheme } = useTheme();
@@ -88,7 +90,7 @@ function HeaderContent({
             size='sm'
             className='no-drag text-muted-foreground hover:bg-accent hover:text-foreground flex h-full rounded-md px-3 transition-colors'
             onClick={onLaunch}
-            disabled={isLaunching || isLaunchDisabled}
+            disabled={controlsDisabled || isLaunching || isLaunchDisabled}
           >
             {isLaunching ? (
               <RefreshCw className='mr-2 h-4 w-4 animate-spin' />
@@ -100,7 +102,7 @@ function HeaderContent({
 
           {/* Language Switcher */}
           {locale && onLocaleChange && (
-            <Select value={locale} onValueChange={onLocaleChange}>
+            <Select value={locale} onValueChange={onLocaleChange} disabled={controlsDisabled}>
               <SelectTrigger className='no-drag text-muted-foreground hover:bg-accent hover:text-foreground aspect-square h-full justify-center rounded-md border-none bg-transparent p-0 shadow-none transition-colors focus:ring-0 focus:ring-offset-0 [&>svg:last-child]:hidden'>
                 <Globe className='h-4 w-4' />
               </SelectTrigger>
@@ -118,12 +120,18 @@ function HeaderContent({
           <ThemeToggle theme={theme} setTheme={setTheme} />
 
           {/* Settings Button */}
-          <HeaderIconButton icon={Puzzle} onClick={onOpenPlugins} aria-label={t('plugins.open')} />
+          <HeaderIconButton
+            icon={Puzzle}
+            onClick={onOpenPlugins}
+            aria-label={t('plugins.open')}
+            disabled={controlsDisabled}
+          />
 
           <HeaderIconButton
             icon={SettingsIcon}
             onClick={onOpenSettings}
             aria-label='Open settings'
+            disabled={controlsDisabled}
           />
 
           {/* HUD Toggle Button */}
@@ -136,6 +144,7 @@ function HeaderContent({
                   'bg-violet-100 text-violet-600 hover:bg-violet-200 dark:bg-violet-900/30 dark:text-violet-400 dark:hover:bg-violet-900/50',
               )}
               aria-label='Toggle HUD'
+              disabled={controlsDisabled}
             />
           )}
 

@@ -16,6 +16,7 @@ function subscribe<TArgs extends readonly unknown[]>(
 
 contextBridge.exposeInMainWorld('electron', {
   platform: process.platform,
+  getStartupConfig: () => ipcRenderer.invoke('get-startup-config'),
   waitForBackend: (timeoutMs?: number) => ipcRenderer.invoke('wait-for-backend', timeoutMs),
   checkResourceStatus: () => ipcRenderer.invoke('check-resource-status'),
   startGame: (options: { url?: string; useMitm?: boolean; platform?: string }) =>

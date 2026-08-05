@@ -35,6 +35,12 @@ interface PluginState {
   mitm_required?: boolean;
 }
 
+export interface StartupConfig {
+  host: string;
+  port: number;
+  settings: Record<string, unknown>;
+}
+
 import {
   BACKEND_READY_TIMEOUT_MS,
   BACKEND_SHUTDOWN_API_TIMEOUT_MS,
@@ -62,6 +68,7 @@ export class BackendManager {
   private rejectReady!: (reason?: Error) => void;
   private isMockMode: boolean = false;
   private isClosing: boolean = false;
+  private startupStartedAt: number | null = null;
 
   private async getSettings(): Promise<AppSettings> {
     try {
@@ -82,6 +89,22 @@ export class BackendManager {
           'Failed to read settings.json for config:',
           err instanceof Error ? err.message : String(err),
         );
+      }
+
+      // Keep the trusted renderer bootable while Python repairs a malformed or
+      // outdated writable settings file. The bundled defaults are immutable and
+      // version-matched, so they are a safe startup-only fallback.
+      if (app.isPackaged) {
+        try {
+          return JSON.parse(
+            await readFile(getAssetPath('config', 'settings.json'), 'utf8'),
+          ) as AppSettings;
+        } catch (fallbackError) {
+          logger.warn(
+            'Failed to read bundled startup settings:',
+            fallbackError instanceof Error ? fallbackError.message : String(fallbackError),
+          );
+        }
       }
     }
     return {};
@@ -118,6 +141,28 @@ export class BackendManager {
     return {
       host: settings.server?.host ?? '127.0.0.1',
       port: settings.server?.port ?? 8765,
+    };
+  }
+
+  public async getStartupConfig(): Promise<StartupConfig> {
+    const settings = await this.getSettings();
+    const publicSettings = structuredClone(settings) as Record<string, unknown>;
+    const ot = publicSettings.ot;
+    if (ot && typeof ot === 'object' && !Array.isArray(ot)) {
+      const publicOt = ot as Record<string, unknown>;
+      const legacyFlyAKey = typeof publicOt.flya_api_key === 'string' ? publicOt.flya_api_key : '';
+      if (legacyFlyAKey) {
+        publicOt.flya_api_key_configured = true;
+        publicOt.flya_api_key_last4 = legacyFlyAKey.slice(-4);
+      }
+      publicOt.flya_api_key = '';
+    }
+    return {
+      host: settings.server?.host ?? '127.0.0.1',
+      port: settings.server?.port ?? 8765,
+      // The settings file contains the same public representation returned by
+      // /api/settings. Secrets managed by the credential store are not present.
+      settings: publicSettings,
     };
   }
 
@@ -215,6 +260,7 @@ export class BackendManager {
     }
 
     try {
+      this.startupStartedAt = Date.now();
       if (this.pyProcess) {
         logger.info('Backend already running.');
         return true;
@@ -309,6 +355,7 @@ export class BackendManager {
   private async startProdBackend(): Promise<boolean> {
     logger.info('Starting Python backend service...');
 
+    const validationStartedAt = Date.now();
     const resourceStatus = await this.getResourceStatus();
     if (this.isClosing) {
       logger.info('Backend startup cancelled after protected-resource verification.');
@@ -323,7 +370,7 @@ export class BackendManager {
       return false;
     }
     logger.info(
-      `Verified ${resourceStatus.verifiedFiles} protected resources (${resourceStatus.verifiedBytes} bytes).`,
+      `Verified ${resourceStatus.verifiedFiles} protected resources (${resourceStatus.verifiedBytes} bytes) in ${Date.now() - validationStartedAt} ms.`,
     );
 
     const isWin = process.platform === 'win32';
@@ -351,6 +398,9 @@ export class BackendManager {
         },
       });
       this.pyProcess = childProcess;
+      logger.info(
+        `Backend process spawned after ${this.startupStartedAt ? Date.now() - this.startupStartedAt : 0} ms.`,
+      );
 
       this.setupListeners();
       if (this.isClosing) {
@@ -437,7 +487,9 @@ export class BackendManager {
     if (!this.isClosing && !this.isReadyState && !this.readyError) {
       this.isReadyState = true;
       this.resolveReady();
-      logger.info('Backend service initialization completed.');
+      logger.info(
+        `Backend service initialization completed after ${this.startupStartedAt ? Date.now() - this.startupStartedAt : 0} ms.`,
+      );
     }
   }
 

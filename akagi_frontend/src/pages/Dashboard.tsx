@@ -1,3 +1,4 @@
+import { CircleAlert, LoaderCircle } from 'lucide-react';
 import { use, useCallback, useEffect, useState, useSyncExternalStore } from 'react';
 import { useTranslation } from 'react-i18next';
 import { ToastContainer } from 'react-toastify';
@@ -25,17 +26,14 @@ import { useTheme } from '@/hooks/useTheme';
 import { notify } from '@/lib/notify';
 import { fetchPluginsApi } from '@/lib/plugins-api';
 import { cn } from '@/lib/utils';
-import type { Settings } from '@/types';
-
 interface DashboardProps {
-  settingsPromise: Promise<Settings>;
+  backendState: { status: 'starting' | 'ready'; error: null } | { status: 'error'; error: string };
   isSplashActive?: boolean;
 }
 
-function Dashboard({ settingsPromise, isSplashActive = false }: DashboardProps) {
+function Dashboard({ backendState, isSplashActive = false }: DashboardProps) {
   const { t, i18n } = useTranslation();
   const { theme } = useTheme();
-  const initialSettings = use(settingsPromise);
 
   const context = use(GameContext);
   if (!context) throw new Error('GameContext not found');
@@ -50,8 +48,10 @@ function Dashboard({ settingsPromise, isSplashActive = false }: DashboardProps) 
     [updateSetting],
   );
 
+  const backendReady = backendState.status === 'ready';
   const isLaunchDisabled =
-    MITM_REQUIRED_PLATFORMS.includes(settings.platform) && !settings.mitm.enabled;
+    !backendReady ||
+    (MITM_REQUIRED_PLATFORMS.includes(settings.platform) && !settings.mitm.enabled);
 
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [pluginsOpen, setPluginsOpen] = useState(false);
@@ -99,7 +99,7 @@ function Dashboard({ settingsPromise, isSplashActive = false }: DashboardProps) 
     if (!resourceStatus) return;
 
     const { lib, models } = resourceStatus;
-    const { ot } = initialSettings;
+    const { ot } = settings;
 
     if (!lib) {
       notify.error(t('status_messages.lib_missing'), { toastId: 'lib_missing', autoClose: false });
@@ -110,13 +110,13 @@ function Dashboard({ settingsPromise, isSplashActive = false }: DashboardProps) 
         autoClose: false,
       });
     }
-  }, [resourceStatus, t, initialSettings]);
+  }, [resourceStatus, t, settings]);
 
   const handleLaunchGame = useCallback(async () => {
     setIsLaunching(true);
     try {
       const [currentSettings, plugins] = await Promise.all([
-        fetchSettingsApi().catch(() => initialSettings),
+        fetchSettingsApi().catch(() => settings),
         fetchPluginsApi().catch(() => []),
       ]);
       const pluginNeedsMitm = plugins.some((plugin) => plugin.enabled && plugin.requires_mitm);
@@ -131,7 +131,7 @@ function Dashboard({ settingsPromise, isSplashActive = false }: DashboardProps) 
     } finally {
       setIsLaunching(false);
     }
-  }, [initialSettings, t]);
+  }, [settings, t]);
 
   const handleShutdownClick = useCallback(() => {
     window.electron.closeDashboard();
@@ -175,9 +175,37 @@ function Dashboard({ settingsPromise, isSplashActive = false }: DashboardProps) 
           onShutdown={handleShutdownClick}
           onToggleHud={handleToggleHud}
           isHudActive={isHudActive}
+          controlsDisabled={!backendReady}
         />
-        <main className='flex w-full grow overflow-hidden px-6 py-4'>
+        <main className='relative flex w-full grow overflow-hidden px-6 py-4'>
           <StreamPlayer className='h-full w-full' />
+          {!backendReady && (
+            <div
+              className='bg-background/90 absolute right-10 bottom-8 left-10 flex items-center gap-3 rounded-xl border px-4 py-3 shadow-lg backdrop-blur-sm'
+              role='status'
+              aria-live='polite'
+            >
+              {backendState.status === 'error' ? (
+                <CircleAlert className='text-destructive h-5 w-5 shrink-0' />
+              ) : (
+                <LoaderCircle className='h-5 w-5 shrink-0 animate-spin text-violet-500' />
+              )}
+              <div className='min-w-0'>
+                <p className='text-sm font-medium'>
+                  {t(
+                    backendState.status === 'error'
+                      ? 'app.backend_start_failed'
+                      : 'app.backend_starting',
+                  )}
+                </p>
+                <p className='text-muted-foreground truncate text-xs'>
+                  {backendState.status === 'error'
+                    ? backendState.error
+                    : t('app.backend_starting_desc')}
+                </p>
+              </div>
+            </div>
+          )}
         </main>
 
         <Footer />

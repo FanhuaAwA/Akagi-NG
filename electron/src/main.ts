@@ -11,6 +11,8 @@ import { UpdaterManager } from './updater.js';
 import { getUserDataRoot } from './utils.js';
 import { WindowManager } from './window-manager.js';
 
+const applicationStartedAt = Date.now();
+
 // Single Instance Lock
 const gotTheLock = app.requestSingleInstanceLock();
 if (!gotTheLock) {
@@ -76,6 +78,7 @@ process.on('unhandledRejection', (reason) => {
 });
 
 app.whenReady().then(async () => {
+  logger.info(`Electron app ready after ${Date.now() - applicationStartedAt} ms.`);
   // 0. Register all IPC handlers
   registerIpcHandlers(windowManager, backendManager, mihomoManager, shutdownOnce);
 
@@ -86,7 +89,9 @@ app.whenReady().then(async () => {
   // 2. Render the dashboard before verification, backend imports, or optional UAC can delay it.
   await windowManager.reconcileDesktopSettings(checkForUpdatesIfActive);
   if (shutdownStarted) return;
-  void windowManager.createDashboardWindow();
+  void windowManager.createDashboardWindow().then(() => {
+    logger.info(`Dashboard loaded after ${Date.now() - applicationStartedAt} ms.`);
+  });
 
   const backendStarted = await backendStartPromise;
   if (shutdownStarted) return;
