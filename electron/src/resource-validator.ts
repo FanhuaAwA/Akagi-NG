@@ -183,8 +183,10 @@ export class ResourceValidator {
     if (this.trustedPublicKeySpkiBase64 === 'AKAGI_RESOURCE_PUBLIC_KEY_PLACEHOLDER') {
       throw new Error('Resource trust anchor was not injected during packaging.');
     }
-    const manifestPath = join(this.projectRoot, MANIFEST_FILE);
-    const signaturePath = join(this.projectRoot, SIGNATURE_FILE);
+    const manifestRoot =
+      this.platform === 'darwin' ? join(this.projectRoot, 'Resources') : this.projectRoot;
+    const manifestPath = join(manifestRoot, MANIFEST_FILE);
+    const signaturePath = join(manifestRoot, SIGNATURE_FILE);
     const [manifestSize, signatureSize] = await Promise.all([
       this.assertRegularFile(manifestPath, 'resource manifest'),
       this.assertRegularFile(signaturePath, 'resource signature'),

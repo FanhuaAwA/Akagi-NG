@@ -30,8 +30,9 @@ remain writable.
 Windows creates the manifest after executable resource editing/signing. Linux
 creates it after packing because an unsigned Linux build does not emit an
 `afterSign` hook. macOS creates the manifest inside
-`Akagi-NG.app/Contents` before codesign so the manifest and signature are sealed
-with the bundle. Since codesign rewrites Mach-O bytes afterward, macOS delegates
+`Akagi-NG.app/Contents/Resources` before codesign so the manifest and signature
+are sealed with the bundle as data rather than scanned as nested code. Since
+codesign rewrites Mach-O bytes afterward, macOS delegates
 executable/native-library integrity to the bundle signature while the resource
 manifest independently authenticates Python code, models, and built-in plugin
 data.

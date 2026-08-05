@@ -44,9 +44,15 @@ async function writeSignedManifest(
     keyId,
     signature: sign(null, bytes, privateKey).toString('base64'),
   };
+  const manifestRoot = platform === 'darwin' ? join(root, 'Resources') : root;
+  await mkdir(manifestRoot, { recursive: true });
   await Promise.all([
-    writeFile(join(root, 'resource-manifest.json'), bytes),
-    writeFile(join(root, 'resource-manifest.sig'), `${JSON.stringify(signature)}\n`, 'utf8'),
+    writeFile(join(manifestRoot, 'resource-manifest.json'), bytes),
+    writeFile(
+      join(manifestRoot, 'resource-manifest.sig'),
+      `${JSON.stringify(signature)}\n`,
+      'utf8',
+    ),
   ]);
 }
 
@@ -261,6 +267,12 @@ async function main(): Promise<void> {
       await writeSignedManifest(darwinRoot, darwinEntries, '1.1.2', 'darwin', 'arm64');
       const darwinValidator = validator(darwinRoot, '1.1.2', 'darwin', 'arm64');
       assert.equal((await darwinValidator.validate()).integrity, 'valid');
+      const darwinSignature = await readFile(
+        join(darwinRoot, 'Resources', 'resource-manifest.sig'),
+        'utf8',
+      );
+      assert.ok(darwinSignature.length > 0);
+      await assert.rejects(readFile(join(darwinRoot, 'resource-manifest.sig'), 'utf8'), /ENOENT/u);
 
       const missingNative = join(darwinRoot, 'lib', 'libriichi3p.so');
       await rm(missingNative);

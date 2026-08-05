@@ -315,11 +315,16 @@ export async function generatePackagedManifest(
     signature: sign(null, manifestBytes, privateKey).toString('base64'),
   } as const;
 
-  await mkdir(packagedRoot, { recursive: true });
+  // macOS reserves the Contents root for bundle structure and code. Custom
+  // metadata belongs in Resources so codesign seals it as data instead of
+  // attempting to validate the detached signature as nested executable code.
+  const manifestRoot =
+    process.platform === 'darwin' ? join(packagedRoot, 'Resources') : packagedRoot;
+  await mkdir(manifestRoot, { recursive: true });
   await Promise.all([
-    writeFile(join(packagedRoot, 'resource-manifest.json'), manifestBytes),
+    writeFile(join(manifestRoot, 'resource-manifest.json'), manifestBytes),
     writeFile(
-      join(packagedRoot, 'resource-manifest.sig'),
+      join(manifestRoot, 'resource-manifest.sig'),
       `${JSON.stringify(signature, null, 2)}\n`,
       'utf8',
     ),
