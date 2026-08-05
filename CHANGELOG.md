@@ -4,6 +4,52 @@ All notable changes to Akagi-NG are documented in this file.
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-08-05
+
+### Added
+
+- Added real-time inference lifecycle status for the legacy AkagiOT engine,
+  OT3, and FlyA. Requesting, success, and error states now flow through SSE to
+  both the Dashboard header and HUD, with provider, model, request ID, and
+  elapsed-time context.
+- Added a local plugin framework, Dashboard extension panel, persisted plugin
+  state, and the built-in MajsoulMax skin-unlock adapter.
+
+### Fixed
+
+- Fixed MajsoulMax and AI being mutually exclusive by running both in one
+  mitmproxy connection with a deterministic processing order:
+  `game -> MajsoulMax plugin -> platform bridge / AI -> server`.
+- Fixed rewritten protobuf responses that omit an empty method-name field from
+  disappearing before AI processing. Response parsing now follows protobuf
+  field IDs instead of positional assumptions.
+- Manual Liqi protocol updates now build and validate the complete descriptor
+  pool before atomically replacing the user override, so malformed downloads
+  cannot corrupt a previously working protocol file.
+- Plugin hot toggles no longer restart MITM while the aggregate MITM requirement
+  remains enabled, avoiding unnecessary active WebSocket disconnects. MITM
+  host, port, or upstream changes still force a controlled restart.
+- Plugin-only MITM demand is now shared with the built-in mihomo lifecycle.
+  Effective proxy-route transitions close an already-open embedded game window
+  with an explicit restart notice instead of leaving it on a stale route.
+- Added a MITM ready/failure handshake so bind errors are reported instead of a
+  starting proxy being exposed as ready. Game sessions also reset stale proxy
+  state when MITM is disabled and normalize wildcard listen addresses to
+  loopback for client use.
+
+### Performance
+
+- The trusted local Dashboard now loads while protected resources are validated;
+  external backend and TUN processes remain strictly gated on successful
+  validation.
+- Removed fixed startup and exit waits, tightened backend readiness polling, and
+  made HUD creation lazy so normal Dashboard startup does less work.
+- Unified desktop shutdown into one idempotent path and shortened graceful SSE
+  teardown so repeated quit signals do not duplicate backend or mihomo cleanup.
+- Extended only the packaged cold-start deadline to cover resource hashing on
+  slow or antivirus-scanned disks; successful startup still completes as soon
+  as the backend is ready.
+
 ### Security
 
 - Changed the packaged Windows desktop executable from `requireAdministrator`
@@ -16,12 +62,14 @@ All notable changes to Akagi-NG are documented in this file.
 - Restricted TUN lifecycle IPC to the trusted dashboard main frame, removed the
   unguarded direct-start IPC route, and serialized start/reconcile/stop work.
 - Excluded mihomo from build-time Authenticode rewriting so its pinned hash
-  remains reproducible. Official releases must still sign the desktop and TUN
-  helper executables.
+  remains reproducible. This release does not include trusted Authenticode or
+  Apple Developer ID/notarization credentials; its resource signature does not
+  claim an operating-system publisher identity.
 - Added a detached Ed25519-signed resource manifest covering packaged
-  executables, native Python extensions, and model weights. Packaged startup now
-  rejects a missing, mismatched, path-escaping, or tampered protected resource
-  before launching the backend or optional mihomo helper.
+  executables, native libraries, both model weights, Python source, bytecode and
+  import archives, and built-in plugin data. Packaged startup rejects missing,
+  unlisted, mismatched, path-escaping, oversized, symlinked, or tampered
+  protected resources before launching the backend or optional mihomo helper.
 - Replaced the renderer's arbitrary-channel IPC bridge with named capabilities,
   enforced dashboard/HUD role and main-frame authorization on every handler,
   blocked untrusted navigation, child frames, permissions, and popups, restricted
@@ -37,19 +85,34 @@ All notable changes to Akagi-NG are documented in this file.
   absolute end-to-end deadlines, generation cancellation, and fail-fast local
   fallback when capacity is exhausted. API shutdown now signals the application
   stop event directly after queuing the lifecycle message.
+- Moved mutable settings, secrets, logs, plugin state/configuration, and
+  downloaded Liqi overrides into the operating-system user-data directory.
+  Existing portable-root configuration is migrated on first run, so Linux
+  AppImage and macOS bundles no longer write into immutable package roots.
+- Release publication is now atomic: all three platform packages are built,
+  verified, and staged before one job creates the public GitHub Release.
 
 ### Verification
 
 - Added automated privilege-boundary coverage for PE manifests, helper protocol
   parsing, strict TUN configuration validation, mihomo hash pinning, IPC trust
   checks, startup/shutdown ordering, and packaged artifact contents.
-- Added resource-integrity regressions for valid manifests, EXE/PYD/model
-  tampering, manifest-signature tampering, version mismatch, and path traversal.
+- Added resource-integrity regressions for EXE/native/model/Python/plugin-data
+  tampering, unlisted files, manifest-signature tampering, version mismatch,
+  path traversal, portable-runtime symlinks, and macOS critical-file presence.
 - Added Electron trust-boundary regressions for renderer URLs, IPC role policy,
   external/game URL allowlists, preload exposure, navigation guards, and CSP.
 - Added online-inference regressions for worker isolation, bounded capacity,
   deadlines, stale-generation rejection, shutdown cancellation, and 30-run
   network-blackhole exit latency.
+- Added inference-status lifecycle and SSE replay coverage across legacy, OT3,
+  and FlyA execution paths.
+- Added plugin persistence, hook isolation, protobuf response compatibility,
+  plugin-to-AI ordering, MITM startup/failure, and hot-toggle lifecycle coverage.
+- Added Electron startup, lazy-HUD, direct-proxy reset, and single-path shutdown
+  regression checks.
+- Added actual packaged-tree verification on Windows, Linux, and macOS before
+  release assets are accepted.
 
 ## [1.1.2] - 2026-08-02
 
@@ -153,3 +216,5 @@ All notable changes to Akagi-NG are documented in this file.
 [1.0.9]: https://github.com/FanhuaAwA/Akagi-NG/releases/tag/v1.0.9
 [1.1.0]: https://github.com/FanhuaAwA/Akagi-NG/releases/tag/v1.1.0
 [1.1.2]: https://github.com/FanhuaAwA/Akagi-NG/releases/tag/v1.1.2
+[1.2.0]: https://github.com/FanhuaAwA/Akagi-NG/compare/v1.1.2...v1.2.0
+[Unreleased]: https://github.com/FanhuaAwA/Akagi-NG/compare/v1.2.0...HEAD

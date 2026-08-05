@@ -186,6 +186,26 @@
     "close": "关闭",
     "exit_app": "退出应用"
   },
+  "plugins": {
+    "title": "扩展工具",
+    "description": "管理可挂接到 Akagi-NG 的本地扩展。插件在启用前不会处理游戏流量。",
+    "open": "打开扩展工具",
+    "loading": "正在读取插件状态…",
+    "retry": "重试",
+    "author": "作者",
+    "homepage": "项目主页",
+    "mitm_required": "此插件需要本地 MITM。启用后，NG 启动的雀魂窗口会自动经过代理；外部客户端仍需正确配置分流/证书。",
+    "no_mitm_required": "此插件不需要 MITM。",
+    "enabled_success": "插件已启用",
+    "disabled_success": "插件已禁用",
+    "game_closed_for_proxy": "代理路径已改变，当前游戏窗口已关闭；请重新启动游戏以应用新路径。",
+    "status": {
+      "active": "运行中",
+      "disabled": "未启用",
+      "waiting_for_mitm": "等待代理",
+      "error": "异常"
+    }
+  },
   "app": {
     "title": "Akagi Next-Generation",
     "launch_game": "启动游戏",
@@ -215,6 +235,13 @@
     "nukidora": "拔北",
     "none": "跳过",
     "discard": "打"
+  },
+  "inference_status": {
+    "online": "在线推理",
+    "waiting": "等待请求",
+    "requesting": "推理中",
+    "success": "已完成",
+    "error": "请求失败"
   },
   "status_messages": {
     "client_connected": "游戏已连接",

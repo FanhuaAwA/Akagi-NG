@@ -108,6 +108,22 @@ def test_app_cleanup(app) -> None:
         assert app.ds.stop.called
 
 
+def test_plugin_only_mitm_bridge_is_used_for_autoplay(app) -> None:
+    mock_ctx = MagicMock(spec=AppContext)
+    mock_ctx.settings.mitm.enabled = False
+    mock_ctx.plugin_manager = MagicMock()
+    mock_ctx.plugin_manager.requires_mitm.return_value = True
+    plugin_bridge = MagicMock()
+    mock_ctx.mitm_client = MagicMock()
+    mock_ctx.mitm_client.addon.activated_flows = ["plugin-flow"]
+    mock_ctx.mitm_client.addon.bridges = {"plugin-flow": plugin_bridge}
+    mock_ctx.electron_client = MagicMock()
+    mock_ctx.electron_client.bridge = MagicMock()
+
+    with patch("akagi_ng.application.get_app_context", return_value=mock_ctx):
+        assert app._get_active_bridge() is plugin_bridge
+
+
 def test_process_event_error_handling(app) -> None:
     """测试消息处理中的异常捕获。"""
     mock_state_tracker = MagicMock()

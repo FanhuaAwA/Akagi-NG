@@ -13,6 +13,7 @@ export interface HudClickThroughStatus {
 export interface MihomoRuntimeStatus {
   running: boolean;
   error?: string;
+  gameWindowClosed?: boolean;
 }
 
 export interface StartGameOptions {
@@ -37,7 +38,7 @@ export interface ElectronApi {
   setHudControlsInteractive: (interactive: boolean) => Promise<HudClickThroughStatus>;
   reconcileDesktop: () => Promise<HudClickThroughStatus>;
   getMihomoStatus: () => Promise<MihomoRuntimeStatus>;
-  reconcileMihomo: () => Promise<MihomoRuntimeStatus>;
+  reconcileMihomo: (gameProxyChanged?: boolean) => Promise<MihomoRuntimeStatus>;
   stopMihomo: () => Promise<MihomoRuntimeStatus>;
   updateLiqi: () => Promise<boolean>;
   updateLocale: (locale: string) => Promise<boolean>;

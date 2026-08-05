@@ -14,9 +14,39 @@ export interface TunHelperLaunchOptions {
   helperPath: string;
   workDir: string;
   configPath: string;
+  signal?: AbortSignal;
   onStdout?: (line: string) => void;
   onStderr?: (line: string) => void;
   onUnexpectedExit?: (exitCode: number | null, message?: string) => void;
+}
+
+function helperLaunchCancelledError(): Error {
+  const error = new Error('TUN helper launch cancelled because application shutdown has started.');
+  error.name = 'AbortError';
+  return error;
+}
+
+function throwIfLaunchCancelled(signal?: AbortSignal): void {
+  if (signal?.aborted) throw helperLaunchCancelledError();
+}
+
+function withLaunchCancellation<T>(promise: Promise<T>, signal?: AbortSignal): Promise<T> {
+  if (!signal) return promise;
+  if (signal.aborted) return Promise.reject(helperLaunchCancelledError());
+  return new Promise<T>((resolve, reject) => {
+    const onAbort = () => reject(helperLaunchCancelledError());
+    signal.addEventListener('abort', onAbort, { once: true });
+    promise.then(
+      (value) => {
+        signal.removeEventListener('abort', onAbort);
+        resolve(value);
+      },
+      (error) => {
+        signal.removeEventListener('abort', onAbort);
+        reject(error);
+      },
+    );
+  });
 }
 
 export type HelperMessage =
@@ -247,16 +277,29 @@ function listen(server: Server, name: string): Promise<void> {
   });
 }
 
-function waitForConnection(server: Server): Promise<Socket> {
+function waitForConnection(server: Server, signal?: AbortSignal): Promise<Socket> {
+  if (signal?.aborted) return Promise.reject(helperLaunchCancelledError());
   return new Promise((resolve, reject) => {
-    const timeout = setTimeout(
-      () => reject(new Error('Timed out waiting for UAC approval.')),
-      CONNECT_TIMEOUT_MS,
-    );
-    server.once('connection', (socket) => {
+    const cleanup = () => {
       clearTimeout(timeout);
+      server.removeListener('connection', onConnection);
+      signal?.removeEventListener('abort', onAbort);
+    };
+    const onConnection = (socket: Socket) => {
+      cleanup();
       resolve(socket);
-    });
+    };
+    const onAbort = () => {
+      cleanup();
+      reject(helperLaunchCancelledError());
+    };
+    const timeout = setTimeout(() => {
+      cleanup();
+      reject(new Error('Timed out waiting for UAC approval.'));
+    }, CONNECT_TIMEOUT_MS);
+    server.once('connection', onConnection);
+    signal?.addEventListener('abort', onAbort, { once: true });
+    if (signal?.aborted) onAbort();
   });
 }
 
@@ -283,12 +326,23 @@ export async function launchWindowsTunHelper(
   options: TunHelperLaunchOptions,
 ): Promise<WindowsTunSession> {
   if (process.platform !== 'win32') throw new Error('The privileged TUN helper is Windows-only.');
+  throwIfLaunchCancelled(options.signal);
 
   const pipeName = `${PIPE_PREFIX}${randomBytes(32).toString('hex')}`;
   const server = createServer({ pauseOnConnect: false });
   await listen(server, pipeName);
-  const connectionPromise = waitForConnection(server);
-  const launcher = launchElevatedHelper(options.helperPath, pipeName);
+  if (options.signal?.aborted) {
+    server.close();
+    throw helperLaunchCancelledError();
+  }
+  const connectionPromise = waitForConnection(server, options.signal);
+  let launcher: ChildProcess;
+  try {
+    launcher = launchElevatedHelper(options.helperPath, pipeName);
+  } catch (error) {
+    server.close();
+    throw error;
+  }
   let launcherError = '';
   launcher.stderr?.setEncoding('utf8');
   launcher.stderr?.on('data', (chunk: string) => {
@@ -304,19 +358,31 @@ export async function launchWindowsTunHelper(
     });
   });
 
+  let channel: HelperChannel | null = null;
   try {
     const socket = await Promise.race([connectionPromise, launcherFailed]);
     server.close();
-    const channel = new HelperChannel(socket);
-    const hello = await channel.next(CONNECT_TIMEOUT_MS);
+    channel = new HelperChannel(socket);
+    throwIfLaunchCancelled(options.signal);
+    const hello = await withLaunchCancellation(channel.next(CONNECT_TIMEOUT_MS), options.signal);
     if (hello.type !== 'hello') throw new Error('The TUN helper handshake failed.');
+    throwIfLaunchCancelled(options.signal);
     channel.send(encodeStartCommand(options.workDir, options.configPath));
-    const started = await channel.next(CONNECT_TIMEOUT_MS);
+    const started = await withLaunchCancellation(channel.next(CONNECT_TIMEOUT_MS), options.signal);
     if (started.type === 'error') throw new Error(started.message);
     if (started.type !== 'started') throw new Error('The TUN helper did not start mihomo.');
+    throwIfLaunchCancelled(options.signal);
     return new WindowsTunSession(channel, launcher, options);
   } catch (error) {
     server.close();
+    channel?.destroy();
+    if (!launcher.killed) {
+      try {
+        launcher.kill();
+      } catch {
+        // The launcher may already have exited after UAC cancellation.
+      }
+    }
     throw error;
   }
 }

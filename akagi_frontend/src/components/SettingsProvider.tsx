@@ -187,10 +187,13 @@ export function SettingsProvider({ children, initialSettings }: SettingsProvider
         if (result.restartRequired) dispatch({ type: 'SET_RESTART_REQUIRED' });
         if (result.proxyChanged) {
           try {
-            const status = await window.electron.reconcileMihomo();
+            const status = await window.electron.reconcileMihomo(result.gameProxyChanged === true);
             const runtimeError = result.proxyError ?? status.error;
             if (runtimeError) {
               notify.error(runtimeError);
+            }
+            if (status.gameWindowClosed) {
+              notify.info(i18n.t('plugins.game_closed_for_proxy'));
             }
           } catch (proxyError) {
             notify.error(proxyError instanceof Error ? proxyError.message : String(proxyError));

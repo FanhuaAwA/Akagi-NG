@@ -11,6 +11,11 @@ export function getProjectRoot(): string {
   return !app.isPackaged ? resolve(__dirname, '../../') : join(process.resourcesPath, '..');
 }
 
+/** Return a writable root for settings, logs, secrets, and plugin state. */
+export function getUserDataRoot(): string {
+  return app.isPackaged ? app.getPath('userData') : getProjectRoot();
+}
+
 /**
  * 获取指定路径在项目根目录下的绝对路径。
  */

@@ -59,12 +59,64 @@ def test_liqi_proto_parse_request(proto) -> None:
 def test_liqi_proto_parse_response(proto) -> None:
     # 响应块：第一个为空，第二个为数据
     proto.res_type[123] = (".lq.Lobby.oauth2Auth", MagicMock())  # (method, class)
-    block = [{"data": b""}, {"data": b"data"}]
+    block = [
+        {"id": 1, "type": "string", "data": b""},
+        {"id": 2, "type": "string", "data": b"data"},
+    ]
 
     with patch("akagi_ng.bridge.majsoul.liqi.MessageToDict", return_value={"res": "ok"}):
         method, dict_obj = proto._parse_response(123, block)
         assert method == ".lq.Lobby.oauth2Auth"
         assert dict_obj == {"res": "ok"}
+
+
+def test_liqi_proto_parse_response_accepts_omitted_empty_method_name(proto) -> None:
+    response_cls = MagicMock()
+    proto.res_type[123] = (".lq.Lobby.oauth2Auth", response_cls)
+
+    with patch("akagi_ng.bridge.majsoul.liqi.MessageToDict", return_value={"res": "ok"}):
+        method, dict_obj = proto._parse_response(
+            123,
+            [{"id": 2, "type": "string", "data": b"data"}],
+        )
+
+    response_cls.FromString.assert_called_once_with(b"data")
+    assert method == ".lq.Lobby.oauth2Auth"
+    assert dict_obj == {"res": "ok"}
+
+
+def test_liqi_proto_parse_response_accepts_omitted_empty_data(proto) -> None:
+    response_cls = MagicMock()
+    proto.res_type[123] = (".lq.Lobby.oauth2Auth", response_cls)
+
+    with patch("akagi_ng.bridge.majsoul.liqi.MessageToDict", return_value={}):
+        proto._parse_response(123, [])
+
+    response_cls.FromString.assert_called_once_with(b"")
+
+
+@pytest.mark.parametrize(
+    "block, error",
+    [
+        ([{"id": 1, "type": "string", "data": b"not-empty"}], "method_name field not empty"),
+        ([{"id": 2, "type": "varint", "data": 0}], "must be length-delimited"),
+        ([{"id": 3, "type": "string", "data": b""}], "Unexpected response field id"),
+        (
+            [
+                {"id": 2, "type": "string", "data": b"a"},
+                {"id": 2, "type": "string", "data": b"b"},
+            ],
+            "Duplicate response field id",
+        ),
+    ],
+)
+def test_liqi_proto_parse_response_keeps_envelope_validation(proto, block, error) -> None:
+    proto.res_type[123] = (".lq.Lobby.oauth2Auth", MagicMock())
+
+    with pytest.raises(ValueError, match=error):
+        proto._parse_response(123, block)
+
+    assert 123 in proto.res_type
 
 
 def test_liqi_proto_get_message_class_failure(proto) -> None:
@@ -220,7 +272,10 @@ def test_liqi_proto_parse_request_unknown_cls(proto):
 def test_liqi_proto_parse_response_unknown_cls(proto):
     """测试 Response 遇到未知消息类"""
     proto.res_type[1] = ("method", None)
-    block = [{"data": b""}, {"data": b""}]  # first block empty (0 length) for res
+    block = [
+        {"id": 1, "type": "string", "data": b""},
+        {"id": 2, "type": "string", "data": b""},
+    ]
     with pytest.raises(AttributeError, match="Unknown Response Message"):
         proto._parse_response(1, block)
 

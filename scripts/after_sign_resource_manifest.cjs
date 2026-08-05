@@ -4,6 +4,10 @@ const { spawnSync } = require('node:child_process');
 const { join, resolve } = require('node:path');
 
 module.exports = async function afterSignResourceManifest(context) {
+  // macOS embeds the manifest before codesign via afterPack; changing the bundle
+  // here would invalidate its seal. Linux does not emit afterSign when unsigned.
+  if (context.electronPlatformName !== 'win32') return;
+
   const rootDir = resolve(__dirname, '..');
   const tsxCli = require.resolve('tsx/cli');
   const generator = join(rootDir, 'scripts', 'generate_resource_manifest.ts');

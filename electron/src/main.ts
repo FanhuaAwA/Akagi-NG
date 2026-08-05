@@ -8,7 +8,7 @@ import { registerIpcHandlers } from './ipc-handlers.js';
 import { createLogger, initializeLogger } from './logger.js';
 import { MihomoManager } from './mihomo-manager.js';
 import { UpdaterManager } from './updater.js';
-import { getProjectRoot } from './utils.js';
+import { getUserDataRoot } from './utils.js';
 import { WindowManager } from './window-manager.js';
 
 // Single Instance Lock
@@ -17,7 +17,7 @@ if (!gotTheLock) {
   app.exit(0);
 }
 
-initializeLogger(join(getProjectRoot(), 'logs'));
+initializeLogger(join(getUserDataRoot(), 'logs'));
 
 const logger = createLogger('Main');
 
@@ -29,6 +29,37 @@ const backendManager = new BackendManager();
 const mihomoManager = new MihomoManager(backendManager);
 const windowManager = new WindowManager(backendManager);
 const updaterManager = new UpdaterManager(windowManager);
+
+let shutdownPromise: Promise<void> | null = null;
+let shutdownCompleted = false;
+let shutdownStarted = false;
+
+function checkForUpdatesIfActive(): void {
+  if (shutdownStarted) return;
+  updaterManager.checkForUpdates();
+}
+
+function shutdownOnce(): Promise<void> {
+  mihomoManager.beginShutdown();
+  if (shutdownPromise) return shutdownPromise;
+
+  shutdownStarted = true;
+  windowManager.setQuitting(true);
+  shutdownPromise = (async () => {
+    await mihomoManager.stop().catch((error: unknown) => {
+      logger.error('mihomo stop error:', error);
+    });
+    await backendManager.stop().catch((error: unknown) => {
+      logger.error('Backend stop error:', error);
+    });
+    await windowManager.shutdown().catch((error: unknown) => {
+      logger.error('Window stop error:', error);
+    });
+  })().finally(() => {
+    shutdownCompleted = true;
+  });
+  return shutdownPromise;
+}
 
 app.on('second-instance', () => {
   logger.info('Second instance detected. Focusing existing window...');
@@ -46,18 +77,24 @@ process.on('unhandledRejection', (reason) => {
 
 app.whenReady().then(async () => {
   // 0. Register all IPC handlers
-  registerIpcHandlers(windowManager, backendManager, mihomoManager);
+  registerIpcHandlers(windowManager, backendManager, mihomoManager, shutdownOnce);
 
-  // 1. Start the unprivileged Python backend.
-  const backendStarted = await backendManager.start();
+  // 1. Begin protected-resource verification while the trusted local renderer loads.
+  // BackendManager still gates every packaged external process on successful verification.
+  const backendStartPromise = backendManager.start();
 
-  // 2. Render the dashboard before any optional UAC interaction.
-  await windowManager.reconcileDesktopSettings(() => updaterManager.checkForUpdates());
-  windowManager.createDashboardWindow();
+  // 2. Render the dashboard before verification, backend imports, or optional UAC can delay it.
+  await windowManager.reconcileDesktopSettings(checkForUpdatesIfActive);
+  if (shutdownStarted) return;
+  void windowManager.createDashboardWindow();
+
+  const backendStarted = await backendStartPromise;
+  if (shutdownStarted) return;
 
   // 3. Start optional TUN asynchronously. UAC denial must not block the app/backend.
   if (backendStarted) {
     void mihomoManager.startIfEnabled().then((mihomoStatus) => {
+      if (shutdownStarted) return;
       if (mihomoStatus.error) {
         logger.error(`mihomo initialization failed: ${mihomoStatus.error}`);
         dialog.showErrorBox('Mihomo Initialization Failed', mihomoStatus.error);
@@ -68,10 +105,10 @@ app.whenReady().then(async () => {
   }
 
   // 4. Setup Auto Updater
-  updaterManager.checkForUpdates();
+  checkForUpdatesIfActive();
 
   app.on('activate', () => {
-    windowManager.showDashboard();
+    if (!shutdownStarted) windowManager.showDashboard();
   });
 });
 
@@ -81,22 +118,14 @@ app.on('window-all-closed', () => {
   }
 });
 
-let isQuitting = false;
+let quitAfterShutdownScheduled = false;
 
-app.on('before-quit', async (event) => {
+app.on('before-quit', (event) => {
   windowManager.setQuitting(true);
-  if (isQuitting) return;
+  if (shutdownCompleted) return;
 
   event.preventDefault();
-  isQuitting = true;
-
-  try {
-    await mihomoManager.stop();
-    await backendManager.stop();
-    await windowManager.shutdown();
-  } catch (err) {
-    logger.error('Error during shutdown:', err);
-  } finally {
-    app.quit();
-  }
+  if (quitAfterShutdownScheduled) return;
+  quitAfterShutdownScheduled = true;
+  void shutdownOnce().finally(() => app.quit());
 });

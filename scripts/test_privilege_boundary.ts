@@ -147,6 +147,7 @@ function main(): void {
   const electronPackage = JSON.parse(readFileSync(electronPackagePath, 'utf8')) as {
     scripts: Record<string, string>;
     build: {
+      afterPack?: string;
       afterSign?: string;
       win: { requestedExecutionLevel: string };
       extraFiles: Array<{ from: string; to: string; filter?: string[] }>;
@@ -157,6 +158,7 @@ function main(): void {
     '!mihomo.exe',
   ]);
   assert.match(electronPackage.scripts.package, /package_desktop/);
+  assert.equal(electronPackage.build.afterPack, '../scripts/after_pack_resource_manifest.cjs');
   assert.equal(electronPackage.build.afterSign, '../scripts/after_sign_resource_manifest.cjs');
   const packageSource = readFileSync(join(rootDir, 'scripts', 'package_desktop.ts'), 'utf8');
   assert.match(packageSource, /build_tun_helper\.ts/);

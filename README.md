@@ -154,12 +154,12 @@ Akagi-NG/
   ├── Akagi-NG     # Main Application (Electron Desktop)
   ├── assets/      # Platform-specific UI assets
   ├── bin/         # Backend core executable directory
-  ├── config/      # Configuration directory (settings.json)
+  ├── config/      # Legacy/default placeholder; runtime config lives in OS user data
   ├── lib/         # libriichi binary extensions (.pyd/.so)
   │     ├── libriichi
   │     └── libriichi3p
   ├── locales/     # Localization resource files
-  ├── logs/        # Runtime log directory
+  ├── logs/        # Legacy placeholder; runtime logs live in OS user data
   ├── models/      # AI model weight files (.pth)
   │     ├── mortal
   │     └── mortal3p
@@ -197,7 +197,7 @@ The dashboard always opens normally and remains available from the Windows taskb
 
 ### 4. Configuration
 
-All configurations for Akagi-NG are located in the `config/settings.json` file. You can enter the configuration panel by clicking the gear icon in the top right corner of the Dashboard to adjust program behavior.
+Akagi-NG stores mutable configuration in the operating system's Electron user-data directory at `config/settings.json`; existing portable-root configuration is migrated on first launch. You can enter the configuration panel by clicking the gear icon in the top right corner of the Dashboard to adjust program behavior.
 
 ### 5. Built-in Browser Mode
 

@@ -31,17 +31,22 @@ interface AppSettings {
   };
 }
 
+interface PluginState {
+  mitm_required?: boolean;
+}
+
 import {
   BACKEND_READY_TIMEOUT_MS,
   BACKEND_SHUTDOWN_API_TIMEOUT_MS,
   BACKEND_SHUTDOWN_TIMEOUT_MS,
   BACKEND_STARTUP_CHECK_INTERVAL_MS,
+  BACKEND_STARTUP_CHECK_MAX_INTERVAL_MS,
   BACKEND_STARTUP_CHECK_RETRIES,
   BACKEND_STARTUP_CHECK_TIMEOUT_MS,
 } from './constants.js';
 import type { ResourceStatus } from './resource-validator.js';
 import { ResourceValidator } from './resource-validator.js';
-import { getAssetPath, getProjectRoot } from './utils.js';
+import { getAssetPath, getProjectRoot, getUserDataRoot } from './utils.js';
 
 const logger = createLogger('BackendManager');
 
@@ -49,16 +54,27 @@ export class BackendManager {
   private pyProcess: ChildProcess | null = null;
   private validator: ResourceValidator;
   private resourceStatus: ResourceStatus | null = null;
+  private resourceStatusPromise: Promise<ResourceStatus> | null = null;
   private isReadyState: boolean = false;
+  private readyError: Error | null = null;
   private readyPromise: Promise<void>;
   private resolveReady!: () => void;
   private rejectReady!: (reason?: Error) => void;
   private isMockMode: boolean = false;
+  private isClosing: boolean = false;
 
   private async getSettings(): Promise<AppSettings> {
     try {
-      const settingsPath = getAssetPath('config', 'settings.json');
-      const fileContent = await readFile(settingsPath, 'utf8');
+      const settingsPath = join(getUserDataRoot(), 'config', 'settings.json');
+      let fileContent: string;
+      try {
+        fileContent = await readFile(settingsPath, 'utf8');
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== 'ENOENT' || !app.isPackaged) throw error;
+        // Python performs the durable first-run migration. This fallback keeps
+        // pre-backend desktop settings correct during the same startup race.
+        fileContent = await readFile(getAssetPath('config', 'settings.json'), 'utf8');
+      }
       return JSON.parse(fileContent) as AppSettings;
     } catch (err) {
       if ((err as NodeJS.ErrnoException).code !== 'ENOENT') {
@@ -69,6 +85,29 @@ export class BackendManager {
       }
     }
     return {};
+  }
+
+  private async getPluginMitmRequired(): Promise<boolean> {
+    try {
+      const statePath = join(getUserDataRoot(), 'config', 'plugins.json');
+      let fileContent: string;
+      try {
+        fileContent = await readFile(statePath, 'utf8');
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== 'ENOENT' || !app.isPackaged) throw error;
+        fileContent = await readFile(getAssetPath('config', 'plugins.json'), 'utf8');
+      }
+      const state = JSON.parse(fileContent) as PluginState;
+      return state.mitm_required === true;
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code !== 'ENOENT') {
+        logger.warn(
+          'Failed to read plugins.json for effective MITM state:',
+          err instanceof Error ? err.message : String(err),
+        );
+      }
+      return false;
+    }
   }
 
   public async getBackendConfig(): Promise<{ host: string; port: number }> {
@@ -108,10 +147,15 @@ export class BackendManager {
       strictRoute: boolean;
     };
   }> {
-    const settings = await this.getSettings();
+    const [settings, pluginMitmRequired] = await Promise.all([
+      this.getSettings(),
+      this.getPluginMitmRequired(),
+    ]);
     return {
       mitm: {
-        enabled: settings.mitm?.enabled ?? false,
+        // The TUN must forward to the single Akagi-NG MITM listener whether it
+        // was requested by core settings or by an enabled traffic plugin.
+        enabled: (settings.mitm?.enabled ?? false) || pluginMitmRequired,
         host: settings.mitm?.host ?? '127.0.0.1',
         port: settings.mitm?.port ?? 6789,
       },
@@ -142,33 +186,69 @@ export class BackendManager {
     });
   }
 
-  public async getResourceStatus(): Promise<ResourceStatus> {
-    if (this.resourceStatus) return this.resourceStatus;
-    this.resourceStatus = await this.validator.validate();
-    return this.resourceStatus;
+  public getResourceStatus(): Promise<ResourceStatus> {
+    if (this.resourceStatus) return Promise.resolve(this.resourceStatus);
+    if (this.resourceStatusPromise) return this.resourceStatusPromise;
+
+    const validationPromise = Promise.resolve()
+      .then(() => this.validator.validate())
+      .then((status) => {
+        this.resourceStatus = status;
+        return status;
+      });
+    this.resourceStatusPromise = validationPromise;
+    void validationPromise.then(
+      () => {
+        if (this.resourceStatusPromise === validationPromise) this.resourceStatusPromise = null;
+      },
+      () => {
+        if (this.resourceStatusPromise === validationPromise) this.resourceStatusPromise = null;
+      },
+    );
+    return validationPromise;
   }
 
   public async start(): Promise<boolean> {
-    if (this.pyProcess) {
-      logger.info('Backend already running.');
-      return true;
+    if (this.isClosing) {
+      logger.info('Backend startup skipped because shutdown has started.');
+      return false;
     }
 
-    const isDev = !app.isPackaged;
+    try {
+      if (this.pyProcess) {
+        logger.info('Backend already running.');
+        return true;
+      }
 
-    if (process.argv.includes('--mock')) {
-      this.isMockMode = true;
-      this.startMockBackend();
-      return true;
-    } else if (isDev) {
-      return this.startDevBackend();
-    } else {
-      return await this.startProdBackend();
+      const isDev = !app.isPackaged;
+
+      if (process.argv.includes('--mock')) {
+        return this.startMockBackend();
+      } else if (isDev) {
+        return this.startDevBackend();
+      } else {
+        return await this.startProdBackend();
+      }
+    } catch (error) {
+      if (this.isClosing) {
+        logger.info('Backend startup was cancelled during shutdown.');
+        return false;
+      }
+
+      const startupError =
+        error instanceof Error
+          ? error
+          : new Error(`Unknown backend startup error: ${String(error)}`);
+      logger.error('Backend startup failed:', startupError);
+      this.markFailed(startupError);
+      dialog.showErrorBox('Backend Initialization Failed', startupError.message);
+      return false;
     }
   }
 
   private startDevBackend(): boolean {
     logger.info('Starting Python backend in DEV mode...');
+    if (this.isClosing) return false;
 
     const projectRoot = getProjectRoot();
     const backendRoot = join(projectRoot, 'akagi_backend');
@@ -185,41 +265,61 @@ export class BackendManager {
       const errorMsg = `Python executable NOT FOUND at: ${pythonExecutable}. Please check your environment.`;
       logger.error(errorMsg);
       dialog.showErrorBox('Backend Initialization Failed', errorMsg);
+      this.markFailed(new Error(errorMsg));
       return false;
     }
 
     const env = {
       ...process.env,
+      PYTHONDONTWRITEBYTECODE: '1',
       PYTHONUNBUFFERED: '1',
       PYTHONPATH: process.env.PYTHONPATH
         ? `${backendRoot}${delimiter}${process.env.PYTHONPATH}`
         : backendRoot,
     };
 
-    this.pyProcess = spawn(pythonExecutable, ['-m', 'akagi_ng'], {
+    if (this.isClosing) return false;
+    const childProcess = spawn(pythonExecutable, ['-m', 'akagi_ng'], {
       cwd: projectRoot,
       env: env,
     });
+    this.pyProcess = childProcess;
 
     this.setupListeners();
-    this.startHealthCheck();
+    if (this.isClosing) {
+      this.terminateCancelledProcess(childProcess);
+      return false;
+    }
+    void this.startHealthCheck();
     return true;
   }
 
-  private startMockBackend() {
+  private startMockBackend(): boolean {
+    if (this.isClosing) return false;
     logger.info('Starting mock backend service...');
+    this.isMockMode = true;
+    if (this.isClosing) {
+      this.isMockMode = false;
+      return false;
+    }
     this.markReady();
+    return true;
   }
 
   private async startProdBackend(): Promise<boolean> {
     logger.info('Starting Python backend service...');
 
     const resourceStatus = await this.getResourceStatus();
+    if (this.isClosing) {
+      logger.info('Backend startup cancelled after protected-resource verification.');
+      return false;
+    }
     if (resourceStatus.integrity !== 'valid') {
       const detail = resourceStatus.errors[0] ?? 'Unknown resource integrity failure.';
       const msg = `Protected resource verification failed. No external runtime was executed.\n\n${detail}`;
       logger.error(msg);
       dialog.showErrorBox('Resource Integrity Error', msg);
+      this.markFailed(new Error(msg));
       return false;
     }
     logger.info(
@@ -234,52 +334,79 @@ export class BackendManager {
       const msg = `Portable Python not found at ${pythonExecutable}`;
       logger.error(msg);
       dialog.showErrorBox('Startup Error', msg);
+      this.markFailed(new Error(msg));
       return false;
     }
 
     try {
-      this.pyProcess = spawn(pythonExecutable, ['-m', 'akagi_ng'], {
+      if (this.isClosing) return false;
+      const childProcess = spawn(pythonExecutable, ['-m', 'akagi_ng'], {
         cwd: getProjectRoot(),
         env: {
           ...process.env,
+          AKAGI_USER_DATA_DIR: getUserDataRoot(),
+          PYTHONDONTWRITEBYTECODE: '1',
           PYTHONPATH: join(bundleDir, 'app_packages'),
           PYTHONUNBUFFERED: '1',
         },
       });
+      this.pyProcess = childProcess;
 
       this.setupListeners();
-      this.startHealthCheck();
+      if (this.isClosing) {
+        this.terminateCancelledProcess(childProcess);
+        return false;
+      }
+      void this.startHealthCheck();
       return true;
     } catch (e) {
       const msg = `Backend initialization failed: ${e instanceof Error ? e.message : String(e)}`;
       logger.error(msg);
       dialog.showErrorBox('Startup Error', msg);
+      this.markFailed(new Error(msg));
       return false;
     }
   }
 
   private async startHealthCheck() {
+    const deadline = Date.now() + BACKEND_READY_TIMEOUT_MS;
     try {
       for (let i = 0; i < BACKEND_STARTUP_CHECK_RETRIES; i++) {
+        if (this.isClosing) break;
         if (!this.isRunning()) {
           logger.warn('Backend process has stopped. Aborting readiness check.');
           break;
         }
+        if (Date.now() >= deadline) break;
+
+        let timeoutId: NodeJS.Timeout | undefined;
         try {
           const { host, port } = await this.getBackendConfig();
           const controller = new AbortController();
-          const timeoutId = setTimeout(() => controller.abort(), BACKEND_STARTUP_CHECK_TIMEOUT_MS);
+          timeoutId = setTimeout(() => controller.abort(), BACKEND_STARTUP_CHECK_TIMEOUT_MS);
           await fetch(`http://${host}:${port}`, { signal: controller.signal });
-          clearTimeout(timeoutId);
           logger.info(`Backend API is listening on port ${port}.`);
           this.markReady();
-          break;
+          return;
         } catch {
-          await new Promise((resolve) => setTimeout(resolve, BACKEND_STARTUP_CHECK_INTERVAL_MS));
+          const retryDelay = Math.min(
+            BACKEND_STARTUP_CHECK_INTERVAL_MS * 2 ** Math.min(i, 3),
+            BACKEND_STARTUP_CHECK_MAX_INTERVAL_MS,
+          );
+          const remaining = deadline - Date.now();
+          if (remaining > 0) {
+            await new Promise((resolve) => setTimeout(resolve, Math.min(retryDelay, remaining)));
+          }
+        } finally {
+          if (timeoutId) clearTimeout(timeoutId);
         }
       }
     } catch (err) {
       logger.warn('Backend health check terminated unexpectedly:', err);
+    }
+
+    if (!this.isReadyState && !this.readyError) {
+      this.markFailed(new Error('Backend readiness check timed out.'));
     }
   }
 
@@ -290,6 +417,7 @@ export class BackendManager {
       const msg = `Failed to execute backend process: ${err.message}`;
       logger.error(msg);
       dialog.showErrorBox('Backend Fatal Error', msg);
+      this.markFailed(new Error(msg));
     });
 
     this.pyProcess.stderr?.on('data', (data) => {
@@ -300,30 +428,62 @@ export class BackendManager {
       logger.info(`Backend service terminated with code ${code}`);
       this.pyProcess = null;
       if (!this.isReadyState) {
-        this.rejectReady(new Error(`Backend service terminated with code ${code}`));
+        this.markFailed(new Error(`Backend service terminated with code ${code}`));
       }
     });
   }
 
   private markReady() {
-    if (!this.isReadyState) {
+    if (!this.isClosing && !this.isReadyState && !this.readyError) {
       this.isReadyState = true;
       this.resolveReady();
       logger.info('Backend service initialization completed.');
     }
   }
 
+  private markFailed(error: Error) {
+    if (this.isReadyState || this.readyError) return;
+    this.readyError = error;
+    this.rejectReady(error);
+  }
+
+  private terminateCancelledProcess(process: ChildProcess): void {
+    if (this.pyProcess === process) this.pyProcess = null;
+    if (process.killed) return;
+    try {
+      process.kill('SIGKILL');
+    } catch (error) {
+      logger.warn('Failed to terminate a cancelled backend process:', error);
+    }
+  }
+
   public async waitForReady(timeoutMs: number = BACKEND_READY_TIMEOUT_MS): Promise<boolean> {
     if (this.isReadyState) return true;
+    if (this.readyError) return false;
 
+    let timeoutId: NodeJS.Timeout | undefined;
     const timeoutPromise = new Promise<boolean>((resolve) => {
-      setTimeout(() => resolve(false), timeoutMs);
+      timeoutId = setTimeout(() => resolve(false), timeoutMs);
     });
 
-    return Promise.race([this.readyPromise.then(() => true).catch(() => false), timeoutPromise]);
+    try {
+      return await Promise.race([
+        this.readyPromise.then(() => true).catch(() => false),
+        timeoutPromise,
+      ]);
+    } finally {
+      if (timeoutId) clearTimeout(timeoutId);
+    }
   }
 
   public async stop() {
+    this.isClosing = true;
+    this.markFailed(new Error('Backend startup cancelled because shutdown has started.'));
+
+    if (this.isMockMode) {
+      this.isMockMode = false;
+      return;
+    }
     if (!this.isRunning()) return;
 
     try {

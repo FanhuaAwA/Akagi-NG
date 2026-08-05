@@ -10,6 +10,7 @@
 """
 
 import queue
+import threading
 import time
 from unittest.mock import MagicMock
 
@@ -34,7 +35,6 @@ def mock_mitm_settings(monkeypatch):
 def mock_dump_master(monkeypatch):
     """Mock mitmproxy DumpMaster"""
     import asyncio
-    import threading
 
     mock_cls = MagicMock()
     mock_instance = MagicMock()
@@ -43,6 +43,8 @@ def mock_dump_master(monkeypatch):
     stop_event = threading.Event()
 
     async def async_run():
+        addon = mock_instance.addons.add.call_args.args[0]
+        addon.running()
         while not stop_event.is_set():
             await asyncio.sleep(0.05)
 
@@ -64,7 +66,7 @@ def test_mitm_client_lifecycle(mock_mitm_settings, mock_dump_master):
     client = MitmClient(shared_queue=q)
 
     # 1. Test Start
-    client.start()
+    assert client.start() is True
 
     # Wait for thread to initialize master
     timeout = 2.0
@@ -82,11 +84,13 @@ def test_mitm_client_lifecycle(mock_mitm_settings, mock_dump_master):
     assert len(client._master.addons.add.call_args_list) > 0
 
     # 2. Test Stop
-    client.stop()
+    master = client._master
+    assert client.stop() is True
 
     assert client.running is False
-    client._master.shutdown.assert_called_once()
-    assert not client._thread.is_alive()
+    assert master is not None
+    master.shutdown.assert_called_once()
+    assert client._thread is None
 
 
 def test_mitm_client_disabled(mock_mitm_settings):
@@ -95,7 +99,7 @@ def test_mitm_client_disabled(mock_mitm_settings):
     q = queue.Queue()
     client = MitmClient(shared_queue=q)
 
-    client.start()
+    assert client.start() is False
     assert client.running is False
     assert client._thread is None
 
@@ -106,7 +110,7 @@ def test_mitm_client_upstream(mock_mitm_settings, mock_dump_master):
     q = queue.Queue()
     client = MitmClient(shared_queue=q)
 
-    client.start()
+    assert client.start() is True
 
     # Wait for master init
     timeout = 2.0
@@ -119,7 +123,7 @@ def test_mitm_client_upstream(mock_mitm_settings, mock_dump_master):
     # we can trust that if _start_proxy ran without error, it parsed options.
     # To be more precise, we could patch options.Options but let's assume if it runs it's fine.
 
-    client.stop()
+    assert client.stop() is True
 
 
 def test_mitm_client_start_failure_resets_running(mock_mitm_settings, monkeypatch):
@@ -134,7 +138,83 @@ def test_mitm_client_start_failure_resets_running(mock_mitm_settings, monkeypatc
     monkeypatch.setattr("akagi_ng.mitm_client.client.DumpMaster", mock_cls)
 
     client = MitmClient(shared_queue=queue.Queue())
-    client.start()
-    client._thread.join(timeout=2.0)
+    assert client.start(timeout=1.0) is False
+    assert client.last_error == "RuntimeError: start failed"
+    assert client.stop() is True
 
+    assert client.running is False
+
+
+def test_mitm_client_is_not_running_before_listener_ready(mock_mitm_settings, monkeypatch):
+    import asyncio
+
+    mock_cls = MagicMock()
+    mock_instance = MagicMock()
+    ready_gate = threading.Event()
+    stop_event = threading.Event()
+
+    async def delayed_run():
+        while not ready_gate.is_set() and not stop_event.is_set():
+            await asyncio.sleep(0.01)
+        if stop_event.is_set():
+            return
+        addon = mock_instance.addons.add.call_args.args[0]
+        addon.running()
+        while not stop_event.is_set():
+            await asyncio.sleep(0.01)
+
+    mock_instance.run.side_effect = delayed_run
+    mock_instance.shutdown.side_effect = stop_event.set
+    mock_cls.return_value = mock_instance
+    monkeypatch.setattr("akagi_ng.mitm_client.client.DumpMaster", mock_cls)
+
+    client = MitmClient(shared_queue=queue.Queue())
+    result: list[bool] = []
+    starter = threading.Thread(target=lambda: result.append(client.start(timeout=2.0)))
+    starter.start()
+
+    deadline = time.time() + 1.0
+    while not client.starting and time.time() < deadline:
+        time.sleep(0.01)
+    assert client.starting is True
+    assert client.running is False
+
+    ready_gate.set()
+    starter.join(timeout=2.0)
+    assert result == [True]
+    assert client.starting is False
+    assert client.running is True
+    assert client.stop() is True
+
+
+def test_mitm_client_stop_while_starting(mock_mitm_settings, monkeypatch):
+    import asyncio
+
+    mock_cls = MagicMock()
+    mock_instance = MagicMock()
+    stop_event = threading.Event()
+
+    async def never_ready_run():
+        while not stop_event.is_set():
+            await asyncio.sleep(0.01)
+
+    mock_instance.run.side_effect = never_ready_run
+    mock_instance.shutdown.side_effect = stop_event.set
+    mock_cls.return_value = mock_instance
+    monkeypatch.setattr("akagi_ng.mitm_client.client.DumpMaster", mock_cls)
+
+    client = MitmClient(shared_queue=queue.Queue())
+    result: list[bool] = []
+    starter = threading.Thread(target=lambda: result.append(client.start(timeout=2.0)))
+    starter.start()
+
+    deadline = time.time() + 1.0
+    while client._master is None and time.time() < deadline:
+        time.sleep(0.01)
+    assert client.starting is True
+    assert client.stop() is True
+
+    starter.join(timeout=2.0)
+    assert result == [False]
+    assert client.starting is False
     assert client.running is False

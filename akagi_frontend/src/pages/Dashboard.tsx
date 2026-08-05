@@ -4,6 +4,7 @@ import { ToastContainer } from 'react-toastify';
 
 import { Footer } from '@/components/layout/Footer';
 import { Header } from '@/components/layout/Header';
+import PluginPanel from '@/components/PluginPanel';
 import SettingsPanel from '@/components/SettingsPanel';
 import StreamPlayer from '@/components/StreamPlayer';
 import {
@@ -22,6 +23,7 @@ import { GameContext } from '@/contexts/GameContext';
 import { fetchSettingsApi, useSettings } from '@/hooks/useSettings';
 import { useTheme } from '@/hooks/useTheme';
 import { notify } from '@/lib/notify';
+import { fetchPluginsApi } from '@/lib/plugins-api';
 import { cn } from '@/lib/utils';
 import type { Settings } from '@/types';
 
@@ -52,6 +54,7 @@ function Dashboard({ settingsPromise, isSplashActive = false }: DashboardProps) 
     MITM_REQUIRED_PLATFORMS.includes(settings.platform) && !settings.mitm.enabled;
 
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [pluginsOpen, setPluginsOpen] = useState(false);
   const [showShutdownConfirm, setShowShutdownConfirm] = useState(false);
   const [isLaunching, setIsLaunching] = useState(false);
 
@@ -112,10 +115,14 @@ function Dashboard({ settingsPromise, isSplashActive = false }: DashboardProps) 
   const handleLaunchGame = useCallback(async () => {
     setIsLaunching(true);
     try {
-      const currentSettings = await fetchSettingsApi().catch(() => initialSettings);
+      const [currentSettings, plugins] = await Promise.all([
+        fetchSettingsApi().catch(() => initialSettings),
+        fetchPluginsApi().catch(() => []),
+      ]);
+      const pluginNeedsMitm = plugins.some((plugin) => plugin.enabled && plugin.requires_mitm);
       await window.electron.startGame({
         url: currentSettings.game_url,
-        useMitm: currentSettings.mitm.enabled,
+        useMitm: currentSettings.mitm.enabled || pluginNeedsMitm,
         platform: currentSettings.platform,
       });
     } catch (e) {
@@ -153,7 +160,7 @@ function Dashboard({ settingsPromise, isSplashActive = false }: DashboardProps) 
     <>
       <div
         className={cn(
-          'flex h-full flex-col transition duration-1000',
+          'flex h-full flex-col transition duration-300',
           isSplashActive ? 'pointer-events-none opacity-0 blur-xl' : 'blur-0 opacity-100',
         )}
       >
@@ -162,6 +169,7 @@ function Dashboard({ settingsPromise, isSplashActive = false }: DashboardProps) 
           isLaunchDisabled={isLaunchDisabled}
           onLaunch={handleLaunchGame}
           onOpenSettings={handleOpenSettings}
+          onOpenPlugins={() => setPluginsOpen(true)}
           locale={i18n.language}
           onLocaleChange={handleLocaleChange}
           onShutdown={handleShutdownClick}
@@ -176,6 +184,7 @@ function Dashboard({ settingsPromise, isSplashActive = false }: DashboardProps) 
       </div>
 
       <SettingsPanel open={settingsOpen} onClose={handleCloseSettings} />
+      <PluginPanel open={pluginsOpen} onClose={() => setPluginsOpen(false)} />
 
       <AlertDialog open={showShutdownConfirm} onOpenChange={setShowShutdownConfirm}>
         <AlertDialogContent>

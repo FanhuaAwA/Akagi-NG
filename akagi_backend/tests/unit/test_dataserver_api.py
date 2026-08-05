@@ -9,6 +9,7 @@
 - 修改配置时触发的资源缓存清理逻辑。
 """
 
+import json
 import queue
 from unittest.mock import MagicMock, patch
 
@@ -16,7 +17,12 @@ import pytest
 from aiohttp import web
 from aiohttp.test_utils import TestClient, TestServer
 
-from akagi_ng.dataserver.api import _is_allowed_origin, cors_middleware, setup_routes
+from akagi_ng.dataserver.api import (
+    _atomic_write_text,
+    _is_allowed_origin,
+    cors_middleware,
+    setup_routes,
+)
 from akagi_ng.schema.types import SystemShutdownEvent, WebSocketClosedMessage
 
 
@@ -318,6 +324,7 @@ async def test_ingest_mjai_no_client(cli):
 async def test_shutdown_no_message_queue(cli):
     mock_app = MagicMock()
     mock_app.shared_queue = None
+    mock_app.request_shutdown = None
 
     with patch("akagi_ng.dataserver.api.get_app_context", return_value=mock_app):
         resp = await cli.post("/api/shutdown")
@@ -341,6 +348,18 @@ async def test_shutdown_with_message_queue(cli):
 
     shutdown_msg = mock_app.shared_queue.get_nowait()
     assert isinstance(shutdown_msg, SystemShutdownEvent)
+    mock_app.request_shutdown.assert_called_once_with()
+
+
+async def test_shutdown_without_message_queue_uses_direct_callback(cli):
+    mock_app = MagicMock()
+    mock_app.shared_queue = None
+    mock_app.request_shutdown = MagicMock()
+
+    with patch("akagi_ng.dataserver.api.get_app_context", return_value=mock_app):
+        resp = await cli.post("/api/shutdown")
+
+    assert resp.status == 200
     mock_app.request_shutdown.assert_called_once_with()
 
 
@@ -400,6 +419,7 @@ async def test_shutdown_queue_full(cli):
 
     mock_app = MagicMock()
     mock_app.shared_queue = full_queue
+    mock_app.request_shutdown = None
 
     with patch("akagi_ng.dataserver.api.get_app_context", return_value=mock_app):
         resp = await cli.post("/api/shutdown")
@@ -409,12 +429,26 @@ async def test_shutdown_queue_full(cli):
         assert data["error"] == "Message queue is full"
 
 
-async def test_update_protocol_success(cli):
-    """测试协议更新成功，包括文件保存和热重载逻辑"""
-    from pathlib import Path
+async def test_shutdown_queue_full_uses_direct_callback(cli):
+    full_queue = queue.Queue(maxsize=1)
+    full_queue.put(object())
 
+    mock_app = MagicMock()
+    mock_app.shared_queue = full_queue
+    mock_app.request_shutdown = MagicMock()
+
+    with patch("akagi_ng.dataserver.api.get_app_context", return_value=mock_app):
+        resp = await cli.post("/api/shutdown")
+
+    assert resp.status == 200
+    mock_app.request_shutdown.assert_called_once_with()
+
+
+async def test_update_protocol_success(cli, tmp_path):
+    """测试协议更新成功，包括文件保存和热重载逻辑"""
     from akagi_ng.bridge.majsoul.bridge import MajsoulBridge
 
+    protocol = {"nested": {"lq": {"nested": {}}}}
     mock_app = MagicMock()
     mock_electron = MagicMock()
     mock_electron.bridge = MajsoulBridge()
@@ -424,20 +458,17 @@ async def test_update_protocol_success(cli):
     mock_mitm.addon.bridges = {"f1": MajsoulBridge()}
     mock_app.mitm_client = mock_mitm
 
-    mock_path = MagicMock(spec=Path)
-
     with (
-        patch("akagi_ng.dataserver.api.get_assets_dir", return_value=mock_path),
-        patch("akagi_ng.dataserver.api.ensure_dir"),
+        patch("akagi_ng.dataserver.api.get_settings_dir", return_value=tmp_path),
         patch("akagi_ng.dataserver.api.get_app_context", return_value=mock_app),
     ):
-        liqi_file_mock = mock_path.__truediv__.return_value
-
-        resp = await cli.post("/api/protocol/update", json={"data": '{"test": 1}'})
+        resp = await cli.post("/api/protocol/update", json={"data": json.dumps(protocol)})
         assert resp.status == 200
         data = await resp.json()
         assert data["ok"] is True
-        assert liqi_file_mock.write_text.called
+        assert json.loads((tmp_path / "liqi.json").read_text(encoding="utf-8")) == protocol
+        assert mock_electron.bridge.liqi_proto.jsonProto == protocol
+        assert mock_mitm.addon.bridges["f1"].liqi_proto.jsonProto == protocol
 
 
 async def test_update_protocol_missing_data(cli):
@@ -456,20 +487,49 @@ async def test_update_protocol_invalid_json(cli):
     assert "Invalid JSON in liqi data" in data["error"]
 
 
-async def test_update_protocol_os_error(cli):
-    """测试协议更新：文件系统错误"""
-    from pathlib import Path
-
-    mock_path = MagicMock(spec=Path)
-    liqi_file_mock = mock_path.__truediv__.return_value
-    liqi_file_mock.write_text.side_effect = OSError("disk full")
+async def test_update_protocol_invalid_structure_does_not_replace_override(cli, tmp_path):
+    liqi_path = tmp_path / "liqi.json"
+    liqi_path.write_text('{"preserved": true}', encoding="utf-8")
 
     with (
-        patch("akagi_ng.dataserver.api.get_assets_dir", return_value=mock_path),
-        patch("akagi_ng.dataserver.api.ensure_dir"),
+        patch("akagi_ng.dataserver.api.get_settings_dir", return_value=tmp_path),
+        patch(
+            "akagi_ng.dataserver.api.get_app_context",
+            side_effect=RuntimeError("Should not be called"),
+        ),
+    ):
+        resp = await cli.post("/api/protocol/update", json={"data": '{"test": 1}'})
+
+    assert resp.status == 400
+    data = await resp.json()
+    assert data["error"] == "Invalid liqi protocol structure"
+    assert liqi_path.read_text(encoding="utf-8") == '{"preserved": true}'
+
+
+def test_atomic_write_text_preserves_existing_file_when_replace_fails(tmp_path):
+    liqi_path = tmp_path / "liqi.json"
+    liqi_path.write_text("old", encoding="utf-8")
+
+    with (
+        patch("akagi_ng.dataserver.api.os.replace", side_effect=OSError("locked")),
+        pytest.raises(OSError, match="locked"),
+    ):
+        _atomic_write_text(liqi_path, "new")
+
+    assert liqi_path.read_text(encoding="utf-8") == "old"
+    assert list(tmp_path.glob(".liqi.json.*.tmp")) == []
+
+
+async def test_update_protocol_os_error(cli, tmp_path):
+    """测试协议更新：文件系统错误"""
+    protocol = {"nested": {"lq": {"nested": {}}}}
+
+    with (
+        patch("akagi_ng.dataserver.api.get_settings_dir", return_value=tmp_path),
+        patch("akagi_ng.dataserver.api._atomic_write_text", side_effect=OSError("disk full")),
         patch("akagi_ng.dataserver.api.get_app_context", side_effect=RuntimeError("Should not be called")),
     ):
-        resp = await cli.post("/api/protocol/update", json={"data": "{}"})
+        resp = await cli.post("/api/protocol/update", json={"data": json.dumps(protocol)})
         assert resp.status == 500
         data = await resp.json()
         assert "disk full" in data["error"]

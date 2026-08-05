@@ -1,6 +1,7 @@
 import queue
 import threading
 import time
+from collections.abc import Callable
 
 import mitmproxy.http
 import mitmproxy.websocket
@@ -13,6 +14,7 @@ from akagi_ng.bridge import (
     TenhouBridge,
 )
 from akagi_ng.mitm_client.logger import logger
+from akagi_ng.plugins import PluginManager
 from akagi_ng.schema.constants import Platform
 from akagi_ng.schema.notifications import NotificationCode
 from akagi_ng.schema.types import AkagiEvent, SystemEvent
@@ -28,10 +30,17 @@ PLATFORM_URL_PATTERNS = {
 
 
 class BridgeAddon:
-    def __init__(self, shared_queue: queue.Queue[AkagiEvent]):
+    def __init__(
+        self,
+        shared_queue: queue.Queue[AkagiEvent],
+        plugin_manager: PluginManager | None = None,
+        on_running: Callable[[], None] | None = None,
+    ):
         self.active_majsoul_flow: mitmproxy.http.HTTPFlow | None = None
         # 共享的消息队列（事件驱动模式）
         self.mjai_messages = shared_queue
+        self.plugin_manager = plugin_manager
+        self._on_running = on_running
 
         # 存储活动的流及其对应的 Bridge
         self.activated_flows: list[str] = []
@@ -41,6 +50,11 @@ class BridgeAddon:
 
         # 连接状态跟踪
         self._active_connections = 0
+
+    def running(self) -> None:
+        """Signal that mitmproxy has bound all configured listeners."""
+        if self._on_running:
+            self._on_running()
 
     def _enqueue_event(self, event: AkagiEvent):
         try:
@@ -91,6 +105,8 @@ class BridgeAddon:
 
     def request(self, flow: mitmproxy.http.HTTPFlow):
         """处理 HTTP 请求"""
+        if self.plugin_manager:
+            self.plugin_manager.request(flow)
         # 如果是已知 WebSocket 流的 HTTP 握手或后续请求
         if flow.id in self.bridges:
             bridge = self.bridges[flow.id]
@@ -144,6 +160,11 @@ class BridgeAddon:
                     return
                 bridge = self.bridges[flow.id]
                 self.last_activity[flow.id] = time.time()
+                if self.plugin_manager:
+                    self.plugin_manager.websocket_message(flow, bridge)
+                if msg.dropped is True:
+                    logger.debug(f"Plugin dropped WebSocket message for flow {flow.id}; skipping bridge parser.")
+                    return
                 msgs = bridge.parse(msg.content)
 
             if msgs:

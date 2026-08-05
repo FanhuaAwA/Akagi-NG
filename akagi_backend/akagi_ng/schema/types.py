@@ -12,6 +12,18 @@ from akagi_ng.schema.notifications import NotificationCode
 
 type EngineType = Literal["mortal", "akagiot", "flya", "unknown", "null"]
 type DecisionSource = Literal["local", "ot3", "ot3_fallback", "flya", "flya_fallback", "legacy_ot"]
+type InferencePhase = Literal["requesting", "success", "error"]
+
+
+class InferenceStatus(TypedDict):
+    """Provider-neutral lifecycle event for one online inference request."""
+
+    request_id: str
+    phase: InferencePhase
+    provider: str
+    model: NotRequired[str]
+    started_at_ms: int
+    elapsed_ms: int
 
 
 class EngineAdditionalMeta(TypedDict, total=False):
@@ -205,7 +217,7 @@ class SSEClientData(NamedTuple):
     """SSE 客户端数据"""
 
     response: web.StreamResponse
-    queue: asyncio.Queue[bytes]
+    queue: asyncio.Queue[bytes | None]
 
 
 # ==========================================================

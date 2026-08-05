@@ -20,7 +20,8 @@ export const HUD_MAX_HEIGHT = 720;
 
 // 后端启动检查配置
 export const BACKEND_STARTUP_CHECK_RETRIES = 60;
-export const BACKEND_STARTUP_CHECK_INTERVAL_MS = 500;
+export const BACKEND_STARTUP_CHECK_INTERVAL_MS = 100;
+export const BACKEND_STARTUP_CHECK_MAX_INTERVAL_MS = 500;
 export const BACKEND_STARTUP_CHECK_TIMEOUT_MS = 1000;
 
 // 后端关闭配置
@@ -36,8 +37,8 @@ export const GITHUB_OWNER = 'FanhuaAwA';
 export const GITHUB_REPO = 'Akagi-NG';
 export const GITHUB_RELEASES_API = `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/releases/latest`;
 
-// 退出动画等待时间（ExitOverlay fade-in 动画 500ms + 展示缓冲）
-export const EXIT_ANIMATION_DELAY_MS = 800;
+// 退出动画等待时间（需与 ExitOverlay duration-300 对齐）
+export const EXIT_ANIMATION_DELAY_MS = 300;
 
 // 后端就绪检查默认超时
 export const BACKEND_READY_TIMEOUT_MS = 20000;

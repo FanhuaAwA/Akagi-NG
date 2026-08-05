@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next';
 
 import StreamPlayer from '@/components/StreamPlayer';
 import { HudControlButton } from '@/components/ui/hud-control-button';
+import { InferenceStatusIndicator } from '@/components/ui/inference-status-indicator';
 import { ModelStatusIndicator } from '@/components/ui/model-status-indicator';
 import { cn } from '@/lib/utils';
 
@@ -38,6 +39,7 @@ export default function Hud() {
 
       {/* Model Status Indicator */}
       <ModelStatusIndicator className='top-3 left-3' />
+      <InferenceStatusIndicator className='absolute top-1.5 left-8' />
 
       {/* This control island stays interactive while the rest of the HUD passes clicks through. */}
       <div

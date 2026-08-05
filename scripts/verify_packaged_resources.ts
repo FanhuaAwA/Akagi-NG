@@ -1,14 +1,30 @@
-import { readFile } from 'node:fs/promises';
+import { existsSync } from 'node:fs';
+import { readdir, readFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 
 import { ResourceValidator } from '../electron/src/resource-validator.js';
+
+async function detectPackagedRoot(rootDir: string): Promise<string> {
+  const releaseDir = join(rootDir, 'dist', 'release');
+  if (process.platform === 'win32') return join(releaseDir, 'win-unpacked');
+  if (process.platform === 'linux') return join(releaseDir, 'linux-unpacked');
+
+  const directories = await readdir(releaseDir, { withFileTypes: true });
+  for (const directory of directories) {
+    if (!directory.isDirectory() || !directory.name.startsWith('mac')) continue;
+    const contents = join(releaseDir, directory.name, 'Akagi-NG.app', 'Contents');
+    if (existsSync(contents)) return contents;
+  }
+  throw new Error(`Could not locate the packaged macOS application under ${releaseDir}.`);
+}
 
 async function main(): Promise<void> {
   const rootDir = resolve(__dirname, '..');
   const marker = process.argv.indexOf('--root');
   const packagedRootArgument = marker >= 0 ? process.argv[marker + 1] : undefined;
-  if (!packagedRootArgument) throw new Error('--root is required.');
-  const packagedRoot = resolve(packagedRootArgument);
+  const packagedRoot = packagedRootArgument
+    ? resolve(packagedRootArgument)
+    : await detectPackagedRoot(rootDir);
 
   const [compiledAnchor, packageJsonText] = await Promise.all([
     readFile(join(rootDir, 'dist', 'main', 'resource-trust-anchor.js'), 'utf8'),

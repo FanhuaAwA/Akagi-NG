@@ -1,6 +1,9 @@
+from __future__ import annotations
+
 import queue
 from collections.abc import Callable
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 from akagi_ng.schema.protocols import (
     ControllerProtocol,
@@ -10,6 +13,9 @@ from akagi_ng.schema.protocols import (
 )
 from akagi_ng.schema.types import AkagiEvent
 from akagi_ng.settings import Settings
+
+if TYPE_CHECKING:
+    from akagi_ng.plugins import PluginManager
 
 
 @dataclass(slots=True)
@@ -21,6 +27,7 @@ class AppContext:
     controller: ControllerProtocol | None
     state_tracker: StateTrackerProtocol | None
     mitm_client: MitmClientProtocol | None
+    plugin_manager: PluginManager | None = None
     electron_client: ElectronClientProtocol | None = None
     request_shutdown: Callable[[], None] | None = None
 
