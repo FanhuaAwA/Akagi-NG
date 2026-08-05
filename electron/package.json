@@ -29,8 +29,6 @@
     ],
     "artifactName": "Akagi-NG-${version}-${os}-${arch}.${ext}",
     "productName": "Akagi-NG",
-    "afterPack": "../scripts/after_pack_resource_manifest.cjs",
-    "afterSign": "../scripts/after_sign_resource_manifest.cjs",
     "icon": "../assets/torii.ico",
     "electronLanguages": [
       "en-US",

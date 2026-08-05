@@ -167,5 +167,5 @@ jobs:
       - name: Run startup and shutdown lifecycle regressions
         run: npm run test:lifecycle-regressions
 
-      - name: Run resource integrity regression tests
-        run: npm run test:resource-integrity
+      - name: Run fast resource availability regression tests
+        run: npm run test:resource-availability
