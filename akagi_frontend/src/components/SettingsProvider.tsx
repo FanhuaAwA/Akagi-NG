@@ -113,9 +113,14 @@ function settingsReducer(state: State, action: Action): State {
 interface SettingsProviderProps {
   children: ReactNode;
   initialSettings: Settings;
+  resolvedSettingsPromise?: Promise<Settings>;
 }
 
-export function SettingsProvider({ children, initialSettings }: SettingsProviderProps) {
+export function SettingsProvider({
+  children,
+  initialSettings,
+  resolvedSettingsPromise,
+}: SettingsProviderProps) {
   const [state, dispatch] = useReducer(settingsReducer, {
     settings: initialSettings,
     saveStatus: 'saved',
@@ -159,10 +164,21 @@ export function SettingsProvider({ children, initialSettings }: SettingsProvider
 
   // 4. 初始模型列表获取
   useEffect(() => {
-    fetchModelsApi()
-      .then((models) => dispatch({ type: 'SET_AVAILABLE_MODELS', payload: models }))
+    let active = true;
+    const ready = resolvedSettingsPromise ?? Promise.resolve(initialSettings);
+    void ready
+      .then((resolvedSettings) => {
+        if (active) dispatch({ type: 'INIT_SYNC', payload: resolvedSettings });
+        return fetchModelsApi();
+      })
+      .then((models) => {
+        if (active) dispatch({ type: 'SET_AVAILABLE_MODELS', payload: models });
+      })
       .catch(console.error);
-  }, []);
+    return () => {
+      active = false;
+    };
+  }, [initialSettings, resolvedSettingsPromise]);
 
   // --- 核心方法 ---
 

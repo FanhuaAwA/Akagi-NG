@@ -32,28 +32,34 @@ const wait = (ms: number, signal?: AbortSignal) =>
 /**
  * 应用程序初始化逻辑
  */
-const initApp = async () => {
+const loadStartupConfig = async () => {
   if (!window.electron) {
     throw new Error('Akagi-NG requires Electron environment to boot.');
   }
-  // This includes packaged-resource hashing before process spawn. A larger
-  // ceiling prevents slow disks/antivirus cold scans from racing the backend's
-  // own post-spawn health timeout without delaying the successful fast path.
-  const { host, port } = await window.electron.waitForBackend(60_000);
+  const { host, port, settings } = await window.electron.getStartupConfig();
   const apiBase = `http://${host}:${port}`;
   setBaseUrl(apiBase);
-  const settings = await fetchSettingsApi();
   return { host, port, settings, apiBase };
 };
 
 // 预加载应用数据
-const appDataPromise = initApp();
-const settingsResolvedPromise = appDataPromise.then((d) => d.settings);
+const startupConfigPromise = loadStartupConfig();
+const backendSettingsPromise = startupConfigPromise.then(async () => {
+  // Full packaged-resource hashing and Python imports continue after the first
+  // frame. They still gate backend execution; they no longer gate the dashboard.
+  const { host, port } = await window.electron.waitForBackend(60_000);
+  setBaseUrl(`http://${host}:${port}`);
+  return await fetchSettingsApi();
+});
+void backendSettingsPromise.catch(() => {});
 
 function AppInner() {
-  const data = use(appDataPromise);
+  const data = use(startupConfigPromise);
   const isHud = useMemo(() => window.location.hash === '#/hud', []);
   const [isExiting, setIsExiting] = useState(false);
+  const [backendState, setBackendState] = useState<
+    { status: 'starting' | 'ready'; error: null } | { status: 'error'; error: string }
+  >({ status: 'starting', error: null });
 
   const [splashStage, setSplashStage] = useState<'splash' | 'exiting' | 'ready'>(
     isHud ? 'ready' : 'splash',
@@ -89,17 +95,39 @@ function AppInner() {
     return () => unsubExit();
   }, []);
 
+  useEffect(() => {
+    let active = true;
+    void backendSettingsPromise.then(
+      () => {
+        if (active) setBackendState({ status: 'ready', error: null });
+      },
+      (error: unknown) => {
+        if (!active) return;
+        setBackendState({
+          status: 'error',
+          error: error instanceof Error ? error.message : String(error),
+        });
+      },
+    );
+    return () => {
+      active = false;
+    };
+  }, []);
+
   return (
     <ConnectionProvider host={data.host} port={data.port} apiBase={data.apiBase}>
-      <SettingsProvider initialSettings={data.settings}>
-        <GameProvider>
+      <SettingsProvider
+        initialSettings={data.settings}
+        resolvedSettingsPromise={backendSettingsPromise}
+      >
+        <GameProvider backendReady={backendState.status === 'ready'}>
           <HashRouter>
             <Routes>
               <Route
                 path='/'
                 element={
                   <Dashboard
-                    settingsPromise={settingsResolvedPromise}
+                    backendState={backendState}
                     isSplashActive={!isHud && splashStage === 'splash'}
                   />
                 }

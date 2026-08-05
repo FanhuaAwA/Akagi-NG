@@ -73,6 +73,10 @@ assert.equal(isRoleAllowed('hud-set-click-through', 'dashboard'), false);
 assert.doesNotMatch(preloadSource, /^\s*(send|on|invoke):/m);
 assert.doesNotMatch(preloadSource, /ipcRenderer\.send\(/);
 assert.match(preloadSource, /requestShutdown: \(\) => ipcRenderer\.invoke\('request-shutdown'\)/);
+assert.match(
+  preloadSource,
+  /getStartupConfig: \(\) => ipcRenderer\.invoke\('get-startup-config'\)/,
+);
 
 const registeredChannels = new Set(
   [...ipcSource.matchAll(/\bhandle\('([^']+)'/g)].map((match) => match[1]),

@@ -4,6 +4,21 @@ All notable changes to Akagi-NG are documented in this file.
 
 ## [Unreleased]
 
+### Fixed
+
+- The Dashboard no longer waits for packaged resource hashing, Python startup,
+  and the settings API before rendering. It now loads from a sanitized local
+  startup snapshot, keeps backend-dependent controls disabled until ready, and
+  reports startup progress or failure inside the main interface.
+
+### Performance
+
+- Reduced packaged resource verification overhead by avoiding redundant
+  per-file realpath resolution after a symlink-safe inventory pass and by
+  hashing small files without creating thousands of read streams. Startup logs
+  now record Electron readiness, Dashboard load, verification, spawn, and
+  backend-ready timings for future diagnosis.
+
 ## [1.2.0] - 2026-08-05
 
 ### Added

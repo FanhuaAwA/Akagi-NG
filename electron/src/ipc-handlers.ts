@@ -211,6 +211,8 @@ export function registerIpcHandlers(
 
   handle('check-resource-status', () => backendManager.getResourceStatus());
 
+  handle('get-startup-config', () => backendManager.getStartupConfig());
+
   handle('wait-for-backend', async (_event, value?: unknown) => {
     const timeoutMs = value === undefined ? undefined : Number(value);
     if (

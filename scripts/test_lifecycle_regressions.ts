@@ -31,6 +31,21 @@ assert.ok(
   'The trusted dashboard must load while backend validation/startup continues.',
 );
 
+const localStartupLoad = appSource.slice(
+  appSource.indexOf('const loadStartupConfig'),
+  appSource.indexOf('const startupConfigPromise'),
+);
+assert.match(localStartupLoad, /getStartupConfig\(\)/);
+assert.doesNotMatch(localStartupLoad, /waitForBackend|fetchSettingsApi/);
+assert.match(
+  appSource,
+  /const backendSettingsPromise[\s\S]*waitForBackend\(60_000\)[\s\S]*fetchSettingsApi\(\)/,
+);
+assert.match(appSource, /const data = use\(startupConfigPromise\)/);
+assert.match(appSource, /<GameProvider backendReady=\{backendState\.status === 'ready'\}>/);
+assert.doesNotMatch(appSource, /const data = use\(backendSettingsPromise\)/);
+assert.match(dashboardSource, /controlsDisabled=\{!backendReady\}/);
+
 const prodStart = backendSource.indexOf('private async startProdBackend');
 const healthStart = backendSource.indexOf('private async startHealthCheck');
 const prodSource = backendSource.slice(prodStart, healthStart);
@@ -43,6 +58,7 @@ assert.ok(
 assert.match(prodSource, /PYTHONDONTWRITEBYTECODE: '1'/);
 assert.match(prodSource, /AKAGI_USER_DATA_DIR: getUserDataRoot\(\)/);
 assert.match(backendSource, /join\(getUserDataRoot\(\), 'config', 'settings\.json'\)/);
+assert.match(backendSource, /public async getStartupConfig\(\)/);
 assert.match(mainSource, /initializeLogger\(join\(getUserDataRoot\(\), 'logs'\)\)/);
 assert.match(utilsSource, /app\.getPath\('userData'\)/);
 const validationAwait = prodSource.indexOf('await this.getResourceStatus()');

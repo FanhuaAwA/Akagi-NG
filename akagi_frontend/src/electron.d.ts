@@ -1,8 +1,12 @@
-import type { ResourceStatus } from '@/types';
+import type { ResourceStatus, Settings } from '@/types';
 
 export interface BackendEndpoint {
   host: string;
   port: number;
+}
+
+export interface StartupConfig extends BackendEndpoint {
+  settings: Settings;
 }
 
 export interface HudClickThroughStatus {
@@ -24,6 +28,7 @@ export interface StartGameOptions {
 
 export interface ElectronApi {
   readonly platform: NodeJS.Platform;
+  getStartupConfig: () => Promise<StartupConfig>;
   waitForBackend: (timeoutMs?: number) => Promise<BackendEndpoint>;
   checkResourceStatus: () => Promise<ResourceStatus>;
   startGame: (options: StartGameOptions) => Promise<boolean>;
