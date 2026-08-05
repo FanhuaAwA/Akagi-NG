@@ -4,6 +4,7 @@ import {
   Globe,
   Minus,
   PictureInPicture,
+  Puzzle,
   RefreshCw,
   SettingsIcon,
   Square,
@@ -13,6 +14,7 @@ import { use, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { Button } from '@/components/ui/button';
+import { InferenceStatusIndicator } from '@/components/ui/inference-status-indicator';
 import { ModelStatusIndicator } from '@/components/ui/model-status-indicator';
 import { NavbarActionButton as HeaderIconButton } from '@/components/ui/navbar-action-button';
 import { Select, SelectContent, SelectItem, SelectTrigger } from '@/components/ui/select';
@@ -27,6 +29,7 @@ interface HeaderProps {
   isLaunchDisabled?: boolean;
   onLaunch: () => void;
   onOpenSettings: () => void;
+  onOpenPlugins: () => void;
   locale?: string;
   onLocaleChange?: (locale: string) => void;
   onShutdown?: () => void;
@@ -40,6 +43,7 @@ function HeaderContent({
   isLaunchDisabled = false,
   onLaunch,
   onOpenSettings,
+  onOpenPlugins,
   locale,
   onLocaleChange,
   onShutdown,
@@ -73,6 +77,7 @@ function HeaderContent({
           <h1 className='bg-linear-to-r from-pink-600 to-violet-600 bg-clip-text text-xl font-bold text-transparent dark:from-pink-400 dark:to-violet-400'>
             {t('app.title')}
           </h1>
+          <InferenceStatusIndicator />
         </div>
 
         {/* Actions - Control Group */}
@@ -113,6 +118,8 @@ function HeaderContent({
           <ThemeToggle theme={theme} setTheme={setTheme} />
 
           {/* Settings Button */}
+          <HeaderIconButton icon={Puzzle} onClick={onOpenPlugins} aria-label={t('plugins.open')} />
+
           <HeaderIconButton
             icon={SettingsIcon}
             onClick={onOpenSettings}

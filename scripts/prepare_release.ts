@@ -24,10 +24,11 @@ console.log('📦 Preparing release assets...');
 // 2. Bundle Models
 ['mortal.pth', 'mortal3p.pth', 'LICENSE'].forEach((modelFile) => {
   const src = join(rootDir, 'models', modelFile);
-  if (existsSync(src)) {
-    copyFileSync(src, join(extraDir, 'models', modelFile));
-    console.log(`   ✅ Bundled model: ${modelFile}`);
+  if (!existsSync(src)) {
+    throw new Error(`Required model asset is missing: ${src}`);
   }
+  copyFileSync(src, join(extraDir, 'models', modelFile));
+  console.log(`   ✅ Bundled model: ${modelFile}`);
 });
 
 // 3. Bundle and rename libriichi for current platform
@@ -55,7 +56,7 @@ const archStr = platform === 'darwin' ? 'aarch64' : 'x86_64';
       copyFileSync(fallbackSrc, join(extraDir, 'lib', `${prefix}.${ext}`));
       console.log(`   ✅ Bundled lib: ${prefix}.${ext} (from fallback exact match)`);
     } else {
-      console.warn(`   ⚠️ Warning: Could not find lib file ${pattern}`);
+      throw new Error(`Required native library is missing: ${pattern}`);
     }
   }
 });

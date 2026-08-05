@@ -205,6 +205,9 @@ class MitmClientProtocol(MessageSource, Protocol):
     """MITM 客户端协议接口。"""
 
     addon: MitmAddonProtocol | None
+    running: bool
+    starting: bool
+    last_error: str | None
 
 
 class ElectronClientProtocol(MessageSource, Protocol):

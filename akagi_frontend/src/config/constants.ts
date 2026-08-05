@@ -10,8 +10,7 @@ export const TOAST_DURATION_SHORT = 3000;
 export const TOAST_DURATION_DEFAULT = 5000;
 
 // 启动与加载动画延迟配置 (ms)
-export const APP_SPLASH_SHOW_MS = 500; // 闪屏停留时间
-export const APP_SPLASH_EXIT_MS = 1000; // 闪屏淡出持续时间（需与 Tailwind duration-1000 对齐）
+export const APP_SPLASH_EXIT_MS = 300; // 闪屏淡出持续时间（需与 Tailwind duration-300 对齐）
 
 // 打牌推荐内容尺寸 (逻辑尺寸)
 export const STREAM_PLAYER_WIDTH = 1280;

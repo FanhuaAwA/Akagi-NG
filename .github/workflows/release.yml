@@ -15,33 +15,45 @@ env:
   PIP_EXTRA_INDEX_URL: https://download.pytorch.org/whl/cpu
 
 jobs:
+  validate-version:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Verify release tag matches package version
+        shell: pwsh
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          $package = Get-Content package.json -Raw | ConvertFrom-Json
+          $expectedTag = "v$($package.version)"
+          if ($env:RELEASE_TAG -cne $expectedTag) {
+            throw "Release tag '$env:RELEASE_TAG' does not match package.json version '$expectedTag'."
+          }
+          Write-Host "Release version validated: $expectedTag"
+
   pre-release-test:
+    needs: validate-version
     uses: ./.github/workflows/test.yml
 
-  release:
-    needs: pre-release-test
+  build:
+    needs: [validate-version, pre-release-test]
     strategy:
       fail-fast: false
       matrix:
-        os: [windows-latest, ubuntu-24.04, macos-14]
+        os: [windows-latest, ubuntu-24.04, macos-15]
     runs-on: ${{ matrix.os }}
     permissions:
-      contents: write
+      contents: read
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v7
         with:
           fetch-depth: 0
-
-      - name: Extract version from tag
-        id: version
-        shell: pwsh
-        run: |
-          $version = "${{ github.ref_name }}"
-          echo "VERSION=$version" >> $env:GITHUB_OUTPUT
-          $clean_version = $version -replace '^v', ''
-          echo "CLEAN_VERSION=$clean_version" >> $env:GITHUB_OUTPUT
 
       - name: Set up Python 3.12
         uses: actions/setup-python@v6
@@ -79,6 +91,9 @@ jobs:
       - name: Install JS dependencies
         run: npm ci
 
+      - name: Verify synchronized package versions
+        run: npm exec -- tsx scripts/sync_version.ts --check
+
       - name: Build Electron App
         run: npm run build
         env:
@@ -86,21 +101,21 @@ jobs:
           AKAGI_REQUIRE_RESOURCE_SIGNING: 1
           AKAGI_RESOURCE_SIGNING_KEY: ${{ secrets.AKAGI_RESOURCE_SIGNING_KEY }}
 
-      - name: Create GitHub Release
-        uses: softprops/action-gh-release@v3
+      - name: Verify packaged resource integrity
+        run: npm run test:packaged-resource-integrity
+
+      - name: Stage release artifacts
+        uses: actions/upload-artifact@v7
         with:
-          files: |
+          name: release-assets-${{ runner.os }}
+          path: |
             dist/release/*.exe
             dist/release/*.zip
             dist/release/*.dmg
             dist/release/*.tar.gz
             dist/release/*.AppImage
-          generate_release_notes: ${{ matrix.os == 'ubuntu-24.04' }}
-          draft: false
-          prerelease: ${{ contains(github.ref_name, 'alpha') || contains(github.ref_name, 'beta') || contains(github.ref_name, 'rc') }}
-          name: ${{ steps.version.outputs.VERSION }}
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          if-no-files-found: error
+          retention-days: 7
 
       - name: Upload build artifacts on failure
         uses: actions/upload-artifact@v7
@@ -111,3 +126,30 @@ jobs:
             dist/
             electron/**/*.log
           retention-days: 14
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Download all platform artifacts
+        uses: actions/download-artifact@v8
+        with:
+          pattern: release-assets-*
+          path: release-assets
+          merge-multiple: true
+
+      - name: Create complete GitHub Release
+        uses: softprops/action-gh-release@v3
+        with:
+          files: release-assets/*
+          body_path: docs/RELEASE_NOTES_v1.2.0.md
+          draft: false
+          prerelease: ${{ contains(github.ref_name, 'alpha') || contains(github.ref_name, 'beta') || contains(github.ref_name, 'rc') }}
+          name: ${{ github.ref_name }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

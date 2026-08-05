@@ -22,6 +22,17 @@ export type DecisionSource =
   | 'flya_fallback'
   | 'legacy_ot';
 
+export type InferencePhase = 'requesting' | 'success' | 'error';
+
+export interface InferenceStatus {
+  request_id: string;
+  phase: InferencePhase;
+  provider: string;
+  model?: string;
+  started_at_ms: number;
+  elapsed_ms: number;
+}
+
 export interface FullRecommendationData {
   recommendations: Recommendation[];
   engine_type: EngineType;
@@ -41,6 +52,28 @@ export interface ApiResponse<T = void> {
   ok: boolean;
   data?: T;
   error?: string;
+}
+
+export type PluginRuntimeStatus = 'disabled' | 'waiting_for_mitm' | 'active' | 'error';
+
+export interface PluginInfo {
+  id: string;
+  name: string;
+  version: string;
+  description: string;
+  author: string;
+  homepage: string;
+  requires_mitm: boolean;
+  capabilities: string[];
+  risk_notice: string;
+  enabled: boolean;
+  runtime_status: PluginRuntimeStatus;
+  error: string;
+}
+
+export interface PluginUpdateResponse extends ApiResponse<PluginInfo> {
+  proxyError?: string;
+  proxyChanged?: boolean;
 }
 
 export interface Settings {
@@ -115,6 +148,7 @@ export interface Settings {
 export interface SaveSettingsResponse extends ApiResponse<Settings> {
   restartRequired?: boolean;
   proxyChanged?: boolean;
+  gameProxyChanged?: boolean;
   proxyError?: string;
   desktopChanged?: boolean;
 }

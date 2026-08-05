@@ -1,9 +1,15 @@
 import { createContext } from 'react';
 
-import type { FullRecommendationData, NotificationItem, SSEErrorCode } from '@/types';
+import type {
+  FullRecommendationData,
+  InferenceStatus,
+  NotificationItem,
+  SSEErrorCode,
+} from '@/types';
 
 export interface GameContextType {
   data: FullRecommendationData | null;
+  inferenceStatus: InferenceStatus | null;
   notifications: NotificationItem[];
   isConnected: boolean;
   error: SSEErrorCode | string | null;

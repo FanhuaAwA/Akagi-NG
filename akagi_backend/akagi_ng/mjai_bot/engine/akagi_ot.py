@@ -122,7 +122,8 @@ class AkagiOTEngine(BaseEngine):
         list_obs = obs.tolist()
         list_masks = masks.tolist()
 
-        r_json = self.client.predict(self.is_3p, list_obs, list_masks, self.status)
+        with self.status.track_inference("AkagiOT Legacy"):
+            r_json = self.client.predict(self.is_3p, list_obs, list_masks, self.status)
 
         expected_dims = ModelConstants.ACTION_DIMS_3P if self.is_3p else ModelConstants.ACTION_DIMS_4P
         actual_dims = len(r_json["q_out"][0])

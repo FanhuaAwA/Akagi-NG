@@ -53,10 +53,42 @@ def cleanup_python_dist(python_dir: Path):
         p.unlink(missing_ok=True)
     for p in python_dir.glob("**/share"):
         shutil.rmtree(p, ignore_errors=True)
+    for p in python_dir.glob("**/pkgconfig"):
+        shutil.rmtree(p, ignore_errors=True)
     for useless_dir in ["idlelib", "tkinter", "turtledemo", "test"]:
         for p in python_dir.rglob(useless_dir):
             if p.is_dir():
                 shutil.rmtree(p, ignore_errors=True)
+
+
+def materialize_python_symlinks(python_dir: Path) -> None:
+    """Replace portable-runtime file symlinks with contained regular files.
+
+    The signed resource inventory deliberately rejects symlinks in the Python
+    tree. python-build-standalone ships a few development aliases (and, on
+    Linux, a libpython alias), so retain their runtime semantics without leaving
+    a path-redirection primitive in the packaged application.
+    """
+
+    root = python_dir.resolve(strict=True)
+    symlinks = sorted(
+        (path for path in python_dir.rglob("*") if path.is_symlink()),
+        key=lambda path: len(path.parts),
+        reverse=True,
+    )
+    for path in symlinks:
+        try:
+            target = path.resolve(strict=True)
+        except (OSError, RuntimeError) as error:
+            raise RuntimeError(f"Portable Python contains a broken symlink: {path}") from error
+
+        if target != root and root not in target.parents:
+            raise RuntimeError(f"Portable Python symlink escapes its root: {path} -> {target}")
+        if not target.is_file():
+            raise RuntimeError(f"Portable Python contains an unsupported directory symlink: {path}")
+
+        path.unlink()
+        shutil.copy2(target, path)
 
 
 def cleanup_app_packages(app_packages_dir: Path):
@@ -193,6 +225,7 @@ def main():
 
     version_str = write_version_to_dest(backend_root, packages_dest)
     patch_and_rename_binaries(dist_dir, backend_root, version_str)
+    materialize_python_symlinks(dist_dir / "python")
 
     print(f"Backend build successful. Portable backend is at: {dist_dir}")
 

@@ -1,15 +1,18 @@
 import asyncio
 import json
+import os
 import queue
+import tempfile
 from collections.abc import Callable
+from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
 
 from aiohttp import web
 
-from akagi_ng.core.context import get_app_context
+from akagi_ng.core.context import AppContext, get_app_context
 from akagi_ng.core.logging import configure_logging
-from akagi_ng.core.paths import ensure_dir, get_assets_dir, get_models_dir
+from akagi_ng.core.paths import ensure_dir, get_models_dir, get_settings_dir
 from akagi_ng.dataserver.logger import logger
 from akagi_ng.mjai_bot.engine import clear_resource_cache
 from akagi_ng.mjai_bot.flya_service import FlyATestServiceClient, FlyATestServiceError
@@ -34,6 +37,44 @@ CORS_HEADERS = {
     "Access-Control-Allow-Methods": "GET,POST,OPTIONS",
     "Access-Control-Allow-Headers": "Content-Type",
 }
+
+
+def _atomic_write_text(path: Path, content: str) -> None:
+    """Write a UTF-8 file without exposing a partially written replacement."""
+    fd, temporary_name = tempfile.mkstemp(
+        dir=path.parent,
+        prefix=f".{path.name}.",
+        suffix=".tmp",
+    )
+    temporary_path = Path(temporary_name)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as temporary_file:
+            temporary_file.write(content)
+            temporary_file.flush()
+            os.fsync(temporary_file.fileno())
+        os.replace(temporary_path, path)
+    except Exception:
+        temporary_path.unlink(missing_ok=True)
+        raise
+
+
+def _parse_validated_liqi_protocol(data: str) -> tuple[dict | None, str | None]:
+    try:
+        json_obj = json.loads(data)
+    except (json.JSONDecodeError, TypeError):
+        logger.warning("Received invalid JSON for liqi.json")
+        return None, "Invalid JSON in liqi data"
+
+    from akagi_ng.bridge.majsoul.liqi import LiqiProto
+
+    try:
+        # Building the descriptor pool validates the schema beyond JSON syntax.
+        LiqiProto(json_proto=json_obj)
+    except Exception as e:
+        logger.warning(f"Rejected invalid liqi protocol structure: {e}")
+        return None, "Invalid liqi protocol structure"
+
+    return json_obj, None
 
 
 def _is_allowed_origin(origin: str | None) -> bool:
@@ -148,20 +189,88 @@ async def _flya_response(operation: Callable[[], object]) -> web.Response:
         return _json_response({"ok": False, "error": "Internal server error"}, status=500)
 
 
-async def _reconcile_mitm_client() -> str:
-    """Apply MITM settings immediately and return a safe runtime warning."""
+def _effective_mitm_required(app: AppContext) -> bool:
+    return bool(local_settings.mitm.enabled or (app.plugin_manager and app.plugin_manager.requires_mitm()))
+
+
+async def _reconcile_mitm_client(*, previous_required: bool | None = None, force_reload: bool = True) -> str:
+    """Reconcile the MITM runtime without disrupting an unchanged transport."""
     try:
         app = get_app_context()
         client = app.mitm_client
         if not client:
             return ""
-        await asyncio.to_thread(client.stop)
-        if local_settings.mitm.enabled:
-            client.start()
+
+        required = _effective_mitm_required(app)
+        if not force_reload:
+            if previous_required is None:
+                raise ValueError("previous_required is required for a hot reconcile")
+            if previous_required == required:
+                return ""
+
+        if force_reload or not required:
+            stopped = await asyncio.to_thread(client.stop)
+            if stopped is False:
+                logger.error(f"MITM client did not stop cleanly: {getattr(client, 'last_error', None)}")
+                return "MITM runtime reload failed; restart Akagi-NG to apply the proxy settings"
+
+        if required:
+            started = await asyncio.to_thread(client.start)
+            if started is False:
+                logger.error(f"MITM client did not become ready: {getattr(client, 'last_error', None)}")
+                return "MITM runtime reload failed; restart Akagi-NG to apply the proxy settings"
         return ""
     except Exception:
-        logger.exception("Failed to reload the MITM client after a settings update")
+        logger.exception("Failed to reconcile the MITM client")
         return "MITM runtime reload failed; restart Akagi-NG to apply the proxy settings"
+
+
+def _plugin_snapshot() -> list[dict[str, Any]]:
+    app = get_app_context()
+    if app.plugin_manager is None:
+        return []
+    mitm_running = bool(app.mitm_client and app.mitm_client.running)
+    return app.plugin_manager.list_plugins(mitm_running=mitm_running)
+
+
+async def get_plugins_handler(_request: web.Request) -> web.Response:
+    return _json_response({"ok": True, "data": _plugin_snapshot()})
+
+
+async def set_plugin_enabled_handler(request: web.Request) -> web.Response:
+    plugin_id = request.match_info["plugin_id"]
+    try:
+        payload = await _request_object(request)
+        enabled = payload.get("enabled")
+        if not isinstance(enabled, bool):
+            raise ValueError("enabled must be a boolean")
+
+        app = get_app_context()
+        if app.plugin_manager is None:
+            return _json_response({"ok": False, "error": "Plugin manager is unavailable"}, status=503)
+        previous_required = _effective_mitm_required(app)
+        app.plugin_manager.set_enabled(plugin_id, enabled)
+        effective_required = _effective_mitm_required(app)
+        proxy_error = await _reconcile_mitm_client(previous_required=previous_required, force_reload=False)
+        plugin = app.plugin_manager.get(plugin_id)
+        if plugin is None:
+            raise KeyError(plugin_id)
+        mitm_running = bool(app.mitm_client and app.mitm_client.running)
+        return _json_response(
+            {
+                "ok": True,
+                "data": plugin.to_public_dict(mitm_running=mitm_running),
+                "proxyError": proxy_error,
+                "proxyChanged": previous_required != effective_required,
+            }
+        )
+    except KeyError:
+        return _json_response({"ok": False, "error": "Plugin not found"}, status=404)
+    except ValueError as exc:
+        return _json_response({"ok": False, "error": str(exc)}, status=400)
+    except Exception:
+        logger.exception(f"Failed to update plugin state: {plugin_id}")
+        return _json_response({"ok": False, "error": "Plugin state update failed"}, status=500)
 
 
 async def ot3_health_handler(request: web.Request) -> web.Response:
@@ -303,7 +412,8 @@ async def save_settings_handler(request: web.Request) -> web.Response:
         old_settings = get_settings_dict()
         old_mitm = old_settings.get("mitm", {})
         new_mitm = payload.get("mitm", {})
-        proxy_changed = new_mitm != old_mitm or payload.get("mihomo", {}) != old_settings.get("mihomo", {})
+        game_proxy_changed = new_mitm != old_mitm
+        proxy_changed = game_proxy_changed or payload.get("mihomo", {}) != old_settings.get("mihomo", {})
         desktop_changed = payload.get("desktop", {}) != old_settings.get("desktop", {})
         try:
             local_settings.update(payload)
@@ -341,6 +451,7 @@ async def save_settings_handler(request: web.Request) -> web.Response:
                 "data": get_settings_dict(),
                 "restartRequired": restart_required,
                 "proxyChanged": proxy_changed,
+                "gameProxyChanged": game_proxy_changed,
                 "proxyError": proxy_error,
                 "desktopChanged": desktop_changed,
             }
@@ -385,17 +496,20 @@ async def update_protocol_handler(request: web.Request) -> web.Response:
     if not data:
         return _json_response({"ok": False, "error": "Missing 'data' field"}, status=400)
 
+    json_obj, validation_error = _parse_validated_liqi_protocol(data)
+    if validation_error is not None:
+        return _json_response({"ok": False, "error": validation_error}, status=400)
+    assert json_obj is not None
+
     try:
-        json_obj = json.loads(data)
-
-        assets_dir = get_assets_dir()
-        ensure_dir(assets_dir)
-        liqi_path = assets_dir / "liqi.json"
-
-        liqi_path.write_text(json.dumps(json_obj, indent=2, ensure_ascii=False), encoding="utf-8")
+        settings_dir = ensure_dir(get_settings_dir())
+        liqi_path = settings_dir / "liqi.json"
+        serialized = json.dumps(json_obj, indent=2, ensure_ascii=False)
+        _atomic_write_text(liqi_path, serialized)
 
         # 热重载：收集所有活跃的 MajsoulBridge 实例并重置 proto
         from akagi_ng.bridge.majsoul.bridge import MajsoulBridge
+        from akagi_ng.bridge.majsoul.liqi import LiqiProto
 
         app = get_app_context()
         bridges: list[MajsoulBridge] = []
@@ -408,8 +522,9 @@ async def update_protocol_handler(request: web.Request) -> web.Response:
         if app.mitm_client and app.mitm_client.addon:
             bridges.extend(b for b in app.mitm_client.addon.bridges.values() if isinstance(b, MajsoulBridge))
 
-        for bridge in bridges:
-            bridge.liqi_proto = bridge.liqi_proto.__class__()
+        replacement_protos = [LiqiProto(json_proto=json_obj) for _ in bridges]
+        for bridge, replacement_proto in zip(bridges, replacement_protos, strict=True):
+            bridge.liqi_proto = replacement_proto
 
         if bridges:
             logger.info(f"Hot-reloaded liqi proto in {len(bridges)} active bridge(s).")
@@ -417,9 +532,6 @@ async def update_protocol_handler(request: web.Request) -> web.Response:
         logger.info(f"Successfully updated liqi.json at {liqi_path}")
         return _json_response({"ok": True})
 
-    except json.JSONDecodeError:
-        logger.warning("Received invalid JSON for liqi.json")
-        return _json_response({"ok": False, "error": "Invalid JSON in liqi data"}, status=400)
     except OSError as e:
         logger.error(f"File system error updating liqi.json: {e}")
         return _json_response({"ok": False, "error": f"File system error: {e}"}, status=500)
@@ -474,21 +586,30 @@ async def shutdown_handler(_request: web.Request) -> web.Response:
     try:
         app = get_app_context()
 
+        queued = False
+        queue_error: str | None = None
         if hasattr(app, "shared_queue") and app.shared_queue:
             shutdown_message = SystemShutdownEvent()
             try:
                 app.shared_queue.put(shutdown_message, block=False)
+                queued = True
             except queue.Full:
                 logger.warning("Message queue is full, shutdown request dropped")
-                return _json_response({"ok": False, "error": "Message queue is full"}, status=503)
-            request_shutdown = getattr(app, "request_shutdown", None)
-            if callable(request_shutdown):
-                request_shutdown()
-            logger.info("Shutdown signal sent to message queue.")
+                queue_error = "Message queue is full"
+        else:
+            queue_error = "Message queue not available"
+
+        request_shutdown = getattr(app, "request_shutdown", None)
+        direct_shutdown = callable(request_shutdown)
+        if direct_shutdown:
+            request_shutdown()
+
+        if queued or direct_shutdown:
+            logger.info(f"Shutdown initiated (queued={queued}, direct_callback={direct_shutdown}).")
             return _json_response({"ok": True, "message": "Shutdown initiated"})
 
-        logger.warning("Message queue not available, shutdown failed")
-        return _json_response({"ok": False, "error": "Message queue not available"}, status=503)
+        logger.warning(f"{queue_error}, shutdown failed")
+        return _json_response({"ok": False, "error": queue_error}, status=503)
 
     except Exception as e:
         logger.error(f"Shutdown handler error: {e}")
@@ -500,6 +621,8 @@ def setup_routes(app: web.Application):
     app.router.add_post("/api/settings", save_settings_handler)
     app.router.add_post("/api/settings/reset", reset_settings_handler)
     app.router.add_get("/api/models", get_models_handler)
+    app.router.add_get("/api/plugins", get_plugins_handler)
+    app.router.add_post("/api/plugins/{plugin_id}", set_plugin_enabled_handler)
     app.router.add_post("/api/ot3/health", ot3_health_handler)
     app.router.add_post("/api/ot3/key-status", ot3_key_status_handler)
     app.router.add_post("/api/ot3/models", ot3_models_handler)

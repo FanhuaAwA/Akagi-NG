@@ -32,7 +32,8 @@ contextBridge.exposeInMainWorld('electron', {
     ipcRenderer.invoke('hud-set-controls-interactive', interactive),
   reconcileDesktop: () => ipcRenderer.invoke('desktop-reconcile'),
   getMihomoStatus: () => ipcRenderer.invoke('mihomo-status'),
-  reconcileMihomo: () => ipcRenderer.invoke('mihomo-reconcile'),
+  reconcileMihomo: (gameProxyChanged = false) =>
+    ipcRenderer.invoke('mihomo-reconcile', gameProxyChanged),
   stopMihomo: () => ipcRenderer.invoke('mihomo-stop'),
   updateLiqi: () => ipcRenderer.invoke('update-liqi'),
   updateLocale: (locale: string) => ipcRenderer.invoke('update-locale', locale),

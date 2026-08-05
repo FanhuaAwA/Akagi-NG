@@ -60,6 +60,7 @@ export function registerIpcHandlers(
   windowManager: WindowManager,
   backendManager: BackendManager,
   mihomoManager: MihomoManager,
+  shutdownApplication: () => Promise<void>,
 ) {
   const assertTrustedRenderer = (event: Electron.IpcMainInvokeEvent, channel: IpcChannel) => {
     const role = windowManager.getRendererRole(event.sender);
@@ -110,21 +111,28 @@ export function registerIpcHandlers(
     return true;
   });
 
-  handle('request-shutdown', async () => {
-    safeSend(windowManager.getMainWindow(), 'exit-animation-start');
-    const animation = new Promise((resolve) => setTimeout(resolve, EXIT_ANIMATION_DELAY_MS));
-    await mihomoManager.stop().catch((err: unknown) => logger.error('mihomo stop error:', err));
-    await backendManager.stop().catch((err: unknown) => logger.error('Backend stop error:', err));
-    await Promise.all([
-      animation,
-      windowManager.shutdown().catch((err: unknown) => logger.error('Window stop error:', err)),
-    ]);
-    app.quit();
-    return true;
+  let rendererShutdownPromise: Promise<boolean> | null = null;
+  handle('request-shutdown', () => {
+    if (rendererShutdownPromise) return rendererShutdownPromise;
+    rendererShutdownPromise = (async () => {
+      safeSend(windowManager.getMainWindow(), 'exit-animation-start');
+      const animation = new Promise((resolve) => setTimeout(resolve, EXIT_ANIMATION_DELAY_MS));
+      await Promise.all([animation, shutdownApplication()]);
+      app.quit();
+      return true;
+    })();
+    return rendererShutdownPromise;
   });
 
   handle('mihomo-status', () => mihomoManager.getStatus());
-  handle('mihomo-reconcile', () => mihomoManager.reconcile());
+  handle('mihomo-reconcile', async (_event, gameProxyChanged: unknown = false) => {
+    const shouldResetGame = requireBoolean(gameProxyChanged, 'gameProxyChanged');
+    const gameWindowClosed = shouldResetGame
+      ? windowManager.resetGameWindowForProxyChange()
+      : false;
+    const status = await mihomoManager.reconcile();
+    return { ...status, gameWindowClosed };
+  });
   handle('mihomo-stop', async () => {
     await mihomoManager.stop();
     return mihomoManager.getStatus();

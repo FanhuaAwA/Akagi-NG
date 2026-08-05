@@ -7,17 +7,31 @@ import {
   sign,
 } from 'node:crypto';
 import { createReadStream, existsSync, readFileSync } from 'node:fs';
-import { lstat, mkdir, readdir, readFile, writeFile } from 'node:fs/promises';
-import { basename, extname, join, relative, resolve, sep } from 'node:path';
+import { lstat, mkdir, readdir, readFile, realpath, writeFile } from 'node:fs/promises';
+import { basename, extname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 
 const rootDir = resolve(__dirname, '..');
 const trustAnchorPath = join(rootDir, 'dist', 'main', 'resource-trust-anchor.js');
 const trustAnchorPlaceholder = 'AKAGI_RESOURCE_PUBLIC_KEY_PLACEHOLDER';
-const protectedExtensions = new Set(['.exe', '.pyd', '.so', '.dylib', '.pth', '.pt', '.onnx']);
+const pythonCodeExtensions = new Set(['.py', '.pyc']);
+const pythonArchiveExtensions = new Set(['.zip', '.egg', '.whl']);
+const pluginDataExtensions = new Set(['.yaml', '.yml', '.json']);
+const nativeLibraryExtensions = new Set(['.dll', '.pyd', '.so', '.dylib']);
+const modelExtensions = new Set(['.pt', '.onnx']);
+const hashConcurrency = 8;
+const maxManifestEntries = 25_000;
+const requiredModels = ['models/mortal.pth', 'models/mortal3p.pth'] as const;
+
+type ProtectedResourceType =
+  | 'executable'
+  | 'native-library'
+  | 'model'
+  | 'python-code'
+  | 'plugin-data';
 
 interface ManifestEntry {
   path: string;
-  type: 'executable' | 'native-library' | 'model';
+  type: ProtectedResourceType;
   size: number;
   sha256: string;
 }
@@ -31,17 +45,45 @@ function normalizePath(value: string): string {
   return value.split(sep).join('/');
 }
 
-function classify(path: string): ManifestEntry['type'] {
-  const extension = extname(path).toLowerCase();
-  if (['.pth', '.pt', '.onnx'].includes(extension)) return 'model';
-  if (extension === '.exe' || (extension === '' && basename(path) === 'akagi-ng')) {
-    return 'executable';
-  }
-  return 'native-library';
+function isWithin(path: string, root: string): boolean {
+  const comparablePath = process.platform === 'win32' ? path.toLowerCase() : path;
+  const comparableRoot = process.platform === 'win32' ? root.toLowerCase() : root;
+  return comparablePath === comparableRoot || comparablePath.startsWith(`${comparableRoot}/`);
 }
 
-function isProtected(path: string): boolean {
-  return protectedExtensions.has(extname(path).toLowerCase()) || basename(path) === 'akagi-ng';
+function classifyProtectedPath(
+  path: string,
+  platform: NodeJS.Platform = process.platform,
+): ProtectedResourceType | undefined {
+  const extension = extname(path).toLowerCase();
+  // The macOS manifest is generated before codesign so that the manifest itself is
+  // covered by the application bundle signature. Codesign subsequently rewrites
+  // Mach-O executables/libraries, therefore their integrity is delegated to the
+  // bundle signature instead of recording hashes that would immediately go stale.
+  if (platform !== 'darwin') {
+    if (extension === '.exe' || (extension === '' && basename(path) === 'akagi-ng')) {
+      return 'executable';
+    }
+    if (nativeLibraryExtensions.has(extension) || basename(path).toLowerCase().includes('.so.')) {
+      return 'native-library';
+    }
+  }
+  if (modelExtensions.has(extension)) return 'model';
+  if (extension === '.pth') {
+    return isWithin(path, 'bin/app_packages') || isWithin(path, 'bin/python')
+      ? 'python-code'
+      : 'model';
+  }
+  if (
+    (isWithin(path, 'bin/app_packages') || isWithin(path, 'bin/python')) &&
+    (pythonCodeExtensions.has(extension) || pythonArchiveExtensions.has(extension))
+  ) {
+    return 'python-code';
+  }
+  if (isWithin(path, 'assets/plugins') && pluginDataExtensions.has(extension)) {
+    return 'plugin-data';
+  }
+  return undefined;
 }
 
 async function sha256File(path: string): Promise<string> {
@@ -57,31 +99,64 @@ async function sha256File(path: string): Promise<string> {
 
 async function scanRoot(scanRoot: ScanRoot): Promise<ManifestEntry[]> {
   if (!existsSync(scanRoot.source)) return [];
-  const entries: ManifestEntry[] = [];
+  const candidates: Array<{
+    sourcePath: string;
+    path: string;
+    type: ProtectedResourceType;
+    size: number;
+  }> = [];
 
   async function visit(directory: string): Promise<void> {
     const children = await readdir(directory, { withFileTypes: true });
     children.sort((left, right) => left.name.localeCompare(right.name, 'en'));
     for (const child of children) {
       const path = join(directory, child.name);
-      if (child.isSymbolicLink())
-        throw new Error(`Refusing symlink in protected resource tree: ${path}`);
+      const targetPath = normalizePath(join(scanRoot.target, relative(scanRoot.source, path)));
+      const type = classifyProtectedPath(targetPath);
+      const strictTree =
+        isWithin(targetPath, 'bin/app_packages') ||
+        isWithin(targetPath, 'bin/python') ||
+        isWithin(targetPath, 'assets/plugins');
+      if (child.isSymbolicLink()) {
+        if (strictTree || type) {
+          throw new Error(`Refusing symlink in protected resource tree: ${path}`);
+        }
+        continue;
+      }
       if (child.isDirectory()) {
         await visit(path);
-      } else if (child.isFile() && isProtected(path)) {
+      } else if (child.isFile()) {
+        if (!type) continue;
         const stats = await lstat(path);
-        const targetPath = normalizePath(join(scanRoot.target, relative(scanRoot.source, path)));
-        entries.push({
+        candidates.push({
+          sourcePath: path,
           path: targetPath,
-          type: classify(path),
+          type,
           size: stats.size,
-          sha256: await sha256File(path),
         });
       }
     }
   }
 
   await visit(scanRoot.source);
+  const entries = new Array<ManifestEntry>(candidates.length);
+  let nextIndex = 0;
+  const workers = Array.from(
+    { length: Math.min(hashConcurrency, Math.max(candidates.length, 1)) },
+    async () => {
+      while (nextIndex < candidates.length) {
+        const index = nextIndex++;
+        const candidate = candidates[index];
+        entries[index] = {
+          path: candidate.path,
+          type: candidate.type,
+          size: candidate.size,
+          sha256: await sha256File(candidate.sourcePath),
+        };
+      }
+    },
+  );
+  await Promise.all(workers);
   return entries;
 }
 
@@ -130,11 +205,29 @@ export async function injectTrustAnchor(publicKeySpkiBase64: string): Promise<vo
 }
 
 function assertCoverage(entries: ManifestEntry[]): void {
+  if (entries.length > maxManifestEntries) {
+    throw new Error(`Protected release resources exceed the ${maxManifestEntries} entry limit.`);
+  }
   const paths = new Set(entries.map((entry) => entry.path));
-  const backend =
-    process.platform === 'win32' ? 'bin/python/akagi-ng.exe' : 'bin/python/bin/akagi-ng';
-  const nativeExt = process.platform === 'win32' ? 'pyd' : 'so';
-  const required = [backend, `lib/libriichi.${nativeExt}`, `lib/libriichi3p.${nativeExt}`];
+  const required = [
+    'bin/app_packages/akagi_ng/application.py',
+    'bin/app_packages/akagi_ng/__main__.py',
+    'assets/plugins/majsoul-max/max_data.yaml',
+    ...requiredModels,
+  ];
+  if (process.platform !== 'darwin') {
+    const backend =
+      process.platform === 'win32' ? 'bin/python/akagi-ng.exe' : 'bin/python/bin/akagi-ng';
+    const nativeExt = process.platform === 'win32' ? 'pyd' : 'so';
+    required.push(backend, `lib/libriichi.${nativeExt}`, `lib/libriichi3p.${nativeExt}`);
+  }
+  if (process.platform === 'win32') {
+    required.push('bin/python/python312.dll', 'bin/python/Lib/os.py');
+  } else if (process.platform === 'darwin') {
+    required.push('bin/python/lib/python3.12/os.py');
+  } else {
+    required.push('bin/python/lib/libpython3.12.so.1.0', 'bin/python/lib/python3.12/os.py');
+  }
   if (process.platform === 'win32') {
     required.push(
       'assets/mihomo/windows-x64/mihomo.exe',
@@ -147,6 +240,39 @@ function assertCoverage(entries: ManifestEntry[]): void {
   if (!entries.some((entry) => entry.type === 'model')) {
     throw new Error('Protected release resources contain no model files.');
   }
+  if (!entries.some((entry) => entry.type === 'python-code')) {
+    throw new Error('Protected release resources contain no Python runtime code.');
+  }
+  if (!entries.some((entry) => entry.type === 'plugin-data')) {
+    throw new Error('Protected release resources contain no plugin data.');
+  }
+}
+
+async function assertUnhashedPlatformResources(packagedRoot: string): Promise<void> {
+  if (process.platform !== 'darwin') return;
+
+  // These Mach-O files are rewritten after afterPack by codesign. Their bytes are
+  // therefore sealed by the outer .app signature instead of this pre-sign manifest,
+  // but a release must still fail closed if a critical runtime file is absent.
+  const required = [
+    'bin/python/bin/akagi-ng',
+    'bin/python/lib/libpython3.12.dylib',
+    'lib/libriichi.so',
+    'lib/libriichi3p.so',
+  ];
+  const rootRealPath = await realpath(packagedRoot);
+  for (const path of required) {
+    const filePath = resolve(packagedRoot, ...path.split('/'));
+    const fileRealPath = await realpath(filePath);
+    const child = relative(rootRealPath, fileRealPath);
+    if (child === '' || child === '..' || child.startsWith(`..${sep}`) || isAbsolute(child)) {
+      throw new Error(`Required macOS runtime resolves outside the application root: ${path}`);
+    }
+    const stats = await lstat(filePath);
+    if (!stats.isFile() || stats.isSymbolicLink()) {
+      throw new Error(`Required macOS runtime is not a regular file: ${path}`);
+    }
+  }
 }
 
 export async function generatePackagedManifest(
@@ -158,6 +284,7 @@ export async function generatePackagedManifest(
   };
   if (typeof packageJson.version !== 'string') throw new Error('Root package version is missing.');
 
+  await assertUnhashedPlatformResources(packagedRoot);
   const entries = await scanRoot({ source: packagedRoot, target: '' });
   entries.sort((left, right) => left.path.localeCompare(right.path, 'en'));
   const seen = new Set<string>();

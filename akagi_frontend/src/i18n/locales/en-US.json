@@ -186,6 +186,26 @@
     "close": "Close",
     "exit_app": "Exit Application"
   },
+  "plugins": {
+    "title": "Extension Tools",
+    "description": "Manage local extensions attached to Akagi-NG. Disabled plugins do not process game traffic.",
+    "open": "Open extension tools",
+    "loading": "Loading plugin status…",
+    "retry": "Retry",
+    "author": "Author",
+    "homepage": "Project home",
+    "mitm_required": "This plugin requires the local MITM. Games launched by NG are routed automatically; external clients still require correct routing and certificate trust.",
+    "no_mitm_required": "This plugin does not require MITM.",
+    "enabled_success": "Plugin enabled",
+    "disabled_success": "Plugin disabled",
+    "game_closed_for_proxy": "The proxy route changed, so the active game window was closed. Launch it again to use the new route.",
+    "status": {
+      "active": "Active",
+      "disabled": "Disabled",
+      "waiting_for_mitm": "Waiting for proxy",
+      "error": "Error"
+    }
+  },
   "app": {
     "title": "Akagi Next-Generation",
     "launch_game": "Launch Game",
@@ -215,6 +235,13 @@
     "nukidora": "Kita",
     "none": "Skip",
     "discard": "Discard"
+  },
+  "inference_status": {
+    "online": "Online inference",
+    "waiting": "Waiting",
+    "requesting": "Inferring",
+    "success": "Completed",
+    "error": "Failed"
   },
   "status_messages": {
     "client_connected": "Game connected.",

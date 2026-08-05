@@ -22,18 +22,21 @@ It does not modify the game client and does not perform automatic gameplay.
 
 ## Configuration | 配置说明
 
-Akagi-NG 的配置文件位于程序目录下：
+Akagi-NG 的配置文件位于操作系统分配的应用用户数据目录：
 
-`config/settings.json`
+`<userData>/config/settings.json`
 
 配置文件结构 **可能会在不同版本之间发生变化**。  
 当检测到配置不兼容时，程序会自动将原配置备份为
 `settings.json.bak`，并生成新的配置文件。
 
-Akagi-NG stores its configuration at:
+Akagi-NG stores its configuration in the operating system's application user
+data directory:
 
-`config/settings.json`
-(located alongside the executable)
+`<userData>/config/settings.json`
+
+Existing configuration beside an older portable executable is migrated on the
+first launch of this version.
 
 The configuration format may change between versions.  
 If an incompatible configuration is detected, it will be automatically
@@ -63,10 +66,10 @@ Configuration files may be reset if the format has changed.
 
 ## Logs | 日志
 
-运行日志会生成在 `logs/` 目录中。  
+运行日志会生成在 `<userData>/logs/` 目录中。
 当程序无法启动或行为异常时，请优先查看该目录下的日志文件。
 
-Runtime logs are written to the `logs/` directory.  
+Runtime logs are written to the `<userData>/logs/` directory.
 If the application fails to start or behaves unexpectedly,
 please check the log files first.
 

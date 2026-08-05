@@ -15,6 +15,7 @@ from akagi_ng.mjai_bot import Controller, StateTracker
 from akagi_ng.mjai_bot.flya import FlyADecider
 from akagi_ng.mjai_bot.online_inference import OnlineInferenceExecutor
 from akagi_ng.mjai_bot.status import BotStatusContext
+from akagi_ng.plugins import PluginManager
 from akagi_ng.schema.constants import Platform, ServerConstants
 from akagi_ng.schema.protocols import ControllerProtocol, StateTrackerProtocol
 from akagi_ng.schema.types import (
@@ -56,9 +57,11 @@ class AkagiApp:
 
         tracker: StateTracker | None = None
         controller: Controller | None = None
+        plugin_manager = PluginManager()
         try:
             importlib.import_module("akagi_ng.core.lib_loader")
             status = BotStatusContext()
+            status.set_inference_listener(self.ds.send_inference_status)
             self.status = status
             self.flya_decider = FlyADecider(status, self.online_executor)
             controller = Controller(status=status, flya_probe=True, online_executor=self.online_executor)
@@ -71,7 +74,8 @@ class AkagiApp:
             settings=settings,
             controller=controller,
             state_tracker=tracker,
-            mitm_client=MitmClient(shared_queue=self.message_queue),
+            mitm_client=MitmClient(shared_queue=self.message_queue, plugin_manager=plugin_manager),
+            plugin_manager=plugin_manager,
             electron_client=create_electron_client(settings.platform, shared_queue=self.message_queue),
             shared_queue=self.message_queue,
             request_shutdown=self.stop,
@@ -84,7 +88,8 @@ class AkagiApp:
         logger.info(f"DataServer started at {self.frontend_url}")
 
         app = get_app_context()
-        for source in filter(None, (app.mitm_client if app.settings.mitm.enabled else None, app.electron_client)):
+        mitm_required = app.settings.mitm.enabled or bool(app.plugin_manager and app.plugin_manager.requires_mitm())
+        for source in filter(None, (app.mitm_client if mitm_required else None, app.electron_client)):
             source.start()
 
         self._setup_signals()
@@ -104,7 +109,8 @@ class AkagiApp:
 
     def _get_active_bridge(self) -> object | None:
         app = get_app_context()
-        if app.settings.mitm.enabled and app.mitm_client and app.mitm_client.addon:
+        mitm_required = app.settings.mitm.enabled or bool(app.plugin_manager and app.plugin_manager.requires_mitm())
+        if mitm_required and app.mitm_client and app.mitm_client.addon:
             addon = app.mitm_client.addon
             if addon.activated_flows:
                 flow_id = addon.activated_flows[-1]

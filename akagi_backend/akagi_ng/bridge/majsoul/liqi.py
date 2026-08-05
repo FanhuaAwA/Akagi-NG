@@ -11,7 +11,7 @@ from google.protobuf.json_format import MessageToDict
 
 from akagi_ng.bridge.logger import logger
 from akagi_ng.bridge.majsoul.consts import LiqiProtocolConstants
-from akagi_ng.core.paths import get_assets_dir
+from akagi_ng.core.paths import get_liqi_path
 from akagi_ng.schema.protocols import MessageWithContent
 
 
@@ -25,7 +25,7 @@ keys = [0x84, 0x5E, 0x4E, 0x42, 0x39, 0xA2, 0x1F, 0x60, 0x1C]
 
 
 class LiqiProto:
-    def __init__(self):
+    def __init__(self, json_proto: dict | None = None):
         self.msg_id = 1
         self.parsed_msg_count = 0
         self.last_heartbeat_time = 0.0
@@ -35,7 +35,7 @@ class LiqiProto:
         # 动态构建 Protobuf 描述池
         self.pool = _descriptor_pool.DescriptorPool()
 
-        self.jsonProto = json.loads((get_assets_dir() / "liqi.json").read_text(encoding="utf-8"))
+        self.jsonProto = json.loads(get_liqi_path().read_text(encoding="utf-8")) if json_proto is None else json_proto
 
         self._build_descriptors()
 
@@ -247,8 +247,23 @@ class LiqiProto:
 
     def _parse_response(self, msg_id: int, msg_block: list[dict]) -> tuple[str, dict]:
         """解析 Response 类型消息"""
-        if len(msg_block[0]["data"]) != LiqiProtocolConstants.EMPTY_DATA_LEN:
-            raise ValueError(f"Response first block not empty, got {len(msg_block[0]['data'])} bytes")
+        fields: dict[int, bytes] = {}
+        for block in msg_block:
+            block_id = block.get("id")
+            if block_id not in (1, 2):
+                raise ValueError(f"Unexpected response field id: {block_id}")
+            if block_id in fields:
+                raise ValueError(f"Duplicate response field id: {block_id}")
+            if block.get("type") != "string":
+                raise ValueError(f"Response field {block_id} must be length-delimited")
+            data = block.get("data")
+            if not isinstance(data, bytes):
+                raise ValueError(f"Response field {block_id} must contain bytes")
+            fields[block_id] = data
+
+        method_name_field = fields.get(1, b"")
+        if len(method_name_field) != LiqiProtocolConstants.EMPTY_DATA_LEN:
+            raise ValueError(f"Response method_name field not empty, got {len(method_name_field)} bytes")
         if msg_id not in self.res_type:
             raise ValueError(f"Response msg_id {msg_id} not found in pending requests")
 
@@ -257,7 +272,10 @@ class LiqiProto:
             logger.warning(f"Unknown Response Message: {method_name}")
             raise AttributeError(f"Unknown Response Message: {method_name}")
 
-        proto_obj = res_cls.FromString(msg_block[1]["data"])
+        # Proto3 omits scalar fields with their default value. Both the empty
+        # method_name (field 1) and an empty response body (field 2) may
+        # therefore be absent after a plugin re-serializes the envelope.
+        proto_obj = res_cls.FromString(fields.get(2, b""))
         dict_obj = MessageToDict(proto_obj, always_print_fields_with_no_presence=True)
         return method_name, dict_obj
 

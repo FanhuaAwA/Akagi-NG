@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "akagi-ng"
-version = "1.1.2"
+version = "1.2.0"
 description = "Akagi-NG is a next-generation rewrite inspired by Akagi and MajsoulHelper, focusing on modern architecture and UI."
 requires-python = ">=3.12"
 license = "AGPL-3.0-only"
@@ -31,6 +31,7 @@ dependencies = [
     "numpy~=2.4.4",
     # MITM
     "mitmproxy~=12.2.2",
+    "ruamel.yaml~=0.19.1",
     # DataServer
     "aiohttp~=3.13.5",
 ]
@@ -50,7 +51,7 @@ akagi-ng = "akagi_ng.__main__:main"
 src = ["akagi_ng"]
 line-length = 120
 target-version = "py312"
-extend-exclude = []
+extend-exclude = ["akagi_ng/plugins/builtin/majsoul_max/vendor"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "B", "UP", "SIM", "RET", "C90", "PLR", "TID", "C4", "RUF", "ANN"]
@@ -78,6 +79,7 @@ ban-relative-imports = "all"
 
 [tool.ruff.lint.per-file-ignores]
 "tests/*" = ["ANN", "PLR2004", "E402"]
+"akagi_ng/plugins/builtin/majsoul_max/vendor/*" = ["ALL"]
 
 
 [tool.setuptools]

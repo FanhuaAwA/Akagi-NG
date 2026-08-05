@@ -92,7 +92,12 @@ function rotateLogFile() {
   const timestamp = `${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}_${pad(d.getHours())}${pad(d.getMinutes())}${pad(d.getSeconds())}`;
 
   logFilePath = join(currentLogsDir, `electron_${timestamp}.log`);
-  fileStream = createWriteStream(logFilePath, { flags: 'a' });
+  const nextStream = createWriteStream(logFilePath, { flags: 'a' });
+  nextStream.on('error', (error) => {
+    originalConsole.error('[Logger] Failed to write Electron log file:', error);
+    if (fileStream === nextStream) fileStream = null;
+  });
+  fileStream = nextStream;
   currentBytesWritten = 0;
 }
 
@@ -171,9 +176,15 @@ async function cleanupOldLogs(logsDir: string) {
  * 初始化日志系统（必须在应用程序生命周期尽早调用）
  */
 export function initializeLogger(logsDir: string) {
-  mkdirSync(logsDir, { recursive: true });
   currentLogsDir = logsDir;
-  rotateLogFile(); // 初始化第一个文件
+  try {
+    mkdirSync(logsDir, { recursive: true });
+    rotateLogFile(); // 初始化第一个文件
+  } catch (error) {
+    originalConsole.error('[Logger] File logging is unavailable:', error);
+    logFilePath = '';
+    fileStream = null;
+  }
 
   // 1. 注入补丁
   patchConsole();

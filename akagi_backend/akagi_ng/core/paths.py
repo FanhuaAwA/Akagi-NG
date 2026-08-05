@@ -1,3 +1,5 @@
+import os
+import shutil
 from functools import cache
 from pathlib import Path
 
@@ -21,7 +23,13 @@ def get_assets_dir() -> Path:
 
 
 def get_settings_dir() -> Path:
-    return get_app_root() / "config"
+    target = get_user_data_root() / "config"
+    legacy = get_app_root() / "config"
+    if target != legacy and not target.exists() and legacy.is_dir():
+        # Preserve portable Windows settings while moving all future writes out
+        # of immutable AppImage/.app roots. copytree never mutates the bundle.
+        shutil.copytree(legacy, target)
+    return target
 
 
 def get_lib_dir() -> Path:
@@ -33,7 +41,23 @@ def get_models_dir() -> Path:
 
 
 def get_logs_dir() -> Path:
-    return get_app_root() / "logs"
+    return get_user_data_root() / "logs"
+
+
+@cache
+def get_user_data_root() -> Path:
+    configured = os.environ.get("AKAGI_USER_DATA_DIR", "").strip()
+    if not configured:
+        return get_app_root()
+    path = Path(configured).expanduser()
+    if not path.is_absolute():
+        raise ValueError("AKAGI_USER_DATA_DIR must be an absolute path")
+    return path.resolve()
+
+
+def get_liqi_path() -> Path:
+    override = get_settings_dir() / "liqi.json"
+    return override if override.is_file() else get_assets_dir() / "liqi.json"
 
 
 def ensure_dir(path: Path) -> Path:

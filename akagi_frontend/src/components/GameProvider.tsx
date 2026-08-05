@@ -7,13 +7,14 @@ import { useStatusNotification } from '@/hooks/useStatusNotification';
 
 export function GameProvider({ children }: { children: ReactNode }) {
   const { backendUrl } = useConnectionConfig();
-  const { data, notifications, isConnected, error } = useSSEConnection(backendUrl);
+  const { data, inferenceStatus, notifications, isConnected, error } = useSSEConnection(backendUrl);
   const { statusMessage, statusType } = useStatusNotification(notifications, error);
   const [isHudActive, setIsHudActive] = useState(window.location.hash === '#/hud');
 
   const value = useMemo(
     () => ({
       data,
+      inferenceStatus,
       notifications,
       isConnected,
       error,
@@ -22,7 +23,16 @@ export function GameProvider({ children }: { children: ReactNode }) {
       isHudActive,
       setIsHudActive,
     }),
-    [data, notifications, isConnected, error, statusMessage, statusType, isHudActive],
+    [
+      data,
+      inferenceStatus,
+      notifications,
+      isConnected,
+      error,
+      statusMessage,
+      statusType,
+      isHudActive,
+    ],
   );
 
   return <GameContext value={value}>{children}</GameContext>;

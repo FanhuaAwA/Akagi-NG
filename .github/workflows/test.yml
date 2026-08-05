@@ -44,7 +44,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [windows-latest, ubuntu-24.04, macos-14]
+        os: [windows-latest, ubuntu-24.04, macos-15]
     runs-on: ${{ matrix.os }}
 
     steps:
@@ -155,11 +155,17 @@ jobs:
       - name: Run TypeScript check
         run: npm run typecheck
 
+      - name: Verify synchronized package versions
+        run: npm exec -- tsx scripts/sync_version.ts --check
+
       - name: Run frontend regression tests
         run: npm run test:frontend-regressions
 
       - name: Run Electron trust-boundary regression tests
         run: npm run test:electron-security
+
+      - name: Run startup and shutdown lifecycle regressions
+        run: npm run test:lifecycle-regressions
 
       - name: Run resource integrity regression tests
         run: npm run test:resource-integrity

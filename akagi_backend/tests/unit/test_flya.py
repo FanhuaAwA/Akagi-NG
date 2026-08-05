@@ -1,4 +1,5 @@
 import json
+import threading
 from unittest.mock import MagicMock
 from uuid import UUID
 
@@ -16,7 +17,7 @@ from akagi_ng.mjai_bot.flya import (
     canonical_event,
     compute_state_digest,
 )
-from akagi_ng.mjai_bot.online_inference import OnlineInferenceCancelled
+from akagi_ng.mjai_bot.online_inference import OnlineInferenceCancelled, OnlineInferenceExecutor
 from akagi_ng.mjai_bot.status import BotStatusContext
 from akagi_ng.schema.notifications import NotificationCode
 from akagi_ng.schema.types import (
@@ -268,7 +269,10 @@ def test_decision_client_accepts_new_public_action_shapes(action, expected) -> N
 
 def test_decider_replaces_local_action_and_marks_flya_source(monkeypatch: pytest.MonkeyPatch) -> None:
     _enable_flya(monkeypatch)
-    decider = FlyADecider(BotStatusContext())
+    events = []
+    status = BotStatusContext()
+    status.set_inference_listener(events.append)
+    decider = FlyADecider(status)
     _record_four_player_start(decider)
     client = MagicMock(circuit_open=False)
     selected = {"type": "dahai", "pai": "1m", "tsumogiri": False}
@@ -289,6 +293,8 @@ def test_decider_replaces_local_action_and_marks_flya_source(monkeypatch: pytest
     assert result["meta"]["flya_actions"] == actions
     assert result["meta"]["fallback_used"] is False
     assert "q_values" not in result["meta"]
+    assert [event["phase"] for event in events] == ["requesting", "success"]
+    assert events[-1]["model"] == "flya-heyman-2.1"
     request = client.react.call_args.args[0]
     assert request["session_id"] == decider.session_id
     assert "rule_profile" not in request["state"]
@@ -370,6 +376,54 @@ def test_decider_skips_expensive_local_replay_when_shutdown_cancels_inference(
 
     assert result is local
     replay.assert_not_called()
+
+
+def test_flya_cancellation_telemetry_ignores_late_worker_success(monkeypatch: pytest.MonkeyPatch) -> None:
+    _enable_flya(monkeypatch)
+    events = []
+    status = BotStatusContext()
+    status.set_inference_listener(events.append)
+    executor = OnlineInferenceExecutor()
+    decider = FlyADecider(status, executor)
+    _record_four_player_start(decider)
+    release = threading.Event()
+    started = threading.Event()
+    worker_finished = threading.Event()
+    selected = {"type": "dahai", "pai": "1m", "tsumogiri": False}
+    client = MagicMock(circuit_open=False)
+
+    def late_success(_payload, _call_status):
+        started.set()
+        release.wait(timeout=2.0)
+        worker_finished.set()
+        return selected, [{"action": selected, "prob": 1.0}], "late-model"
+
+    client.react.side_effect = late_success
+    monkeypatch.setattr(decider, "_get_client", lambda: client)
+    local = {"type": "dahai", "actor": 0, "pai": "2s", "meta": {"mask_bits": 1}}
+    results = []
+
+    def caller() -> None:
+        results.append(decider.process(TsumoEvent(actor=0, pai="2s"), local, MagicMock(last_kawa_tile=None)))
+
+    thread = threading.Thread(target=caller)
+    thread.start()
+    try:
+        assert started.wait(timeout=1.0)
+        executor.next_generation()
+        thread.join(timeout=1.0)
+
+        assert not thread.is_alive()
+        assert results == [local]
+        assert [event["phase"] for event in events] == ["requesting", "error"]
+
+        release.set()
+        assert worker_finished.wait(timeout=1.0)
+        assert [event["phase"] for event in events] == ["requesting", "error"]
+    finally:
+        release.set()
+        thread.join(timeout=1.0)
+        executor.close()
 
 
 def test_decider_suppresses_local_action_when_server_rejects_the_state(

@@ -1,7 +1,7 @@
 {
   "name": "akagi-ng-desktop",
   "private": true,
-  "version": "1.1.2",
+  "version": "1.2.0",
   "description": "Akagi-NG Electron Desktop App",
   "author": "Akagi-NG Contributors",
   "license": "AGPL-3.0",
@@ -29,6 +29,7 @@
     ],
     "artifactName": "Akagi-NG-${version}-${os}-${arch}.${ext}",
     "productName": "Akagi-NG",
+    "afterPack": "../scripts/after_pack_resource_manifest.cjs",
     "afterSign": "../scripts/after_sign_resource_manifest.cjs",
     "icon": "../assets/torii.ico",
     "electronLanguages": [
@@ -62,6 +63,14 @@
         "to": "assets"
       },
       {
+        "from": "../README.txt",
+        "to": "README.txt"
+      },
+      {
+        "from": "../LICENSE",
+        "to": "LICENSE"
+      },
+      {
         "from": "../build/extra",
         "to": "."
       },
@@ -85,16 +94,6 @@
       "requestedExecutionLevel": "asInvoker",
       "signExts": [
         "!mihomo.exe"
-      ],
-      "extraFiles": [
-        {
-          "from": "../README.txt",
-          "to": "."
-        },
-        {
-          "from": "../LICENSE",
-          "to": "."
-        }
       ]
     },
     "mac": {
@@ -107,17 +106,7 @@
     },
     "linux": {
       "target": "AppImage",
-      "icon": "../assets/torii.png",
-      "extraFiles": [
-        {
-          "from": "../README.txt",
-          "to": "."
-        },
-        {
-          "from": "../LICENSE",
-          "to": "."
-        }
-      ]
+      "icon": "../assets/torii.png"
     },
     "copyright": "Copyright (C) 2026 Akagi-NG Contributors"
   }

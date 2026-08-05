@@ -1,8 +1,12 @@
+import threading
+import time
 from unittest.mock import MagicMock
 
 import pytest
 import requests
 
+from akagi_ng.mjai_bot.bot import MortalBot
+from akagi_ng.mjai_bot.online_inference import OnlineInferenceCancelled, OnlineInferenceExecutor
 from akagi_ng.mjai_bot.ot3 import (
     OT3Client,
     OT3ProtocolError,
@@ -52,6 +56,72 @@ def test_ot3_client_uses_v3_bearer_contract() -> None:
     assert body["player_id"] == 0
     assert "model" not in body
     assert result["model"] == "4p-ot3"
+
+
+def test_ot3_executor_telemetry_reports_returned_model() -> None:
+    events = []
+    status = BotStatusContext()
+    status.set_inference_listener(events.append)
+    executor = MagicMock()
+    executor.run.side_effect = lambda operation, **_kwargs: operation()
+    bot = MortalBot(status, online_executor=executor)
+    bot.player_id = 0
+    client = MagicMock()
+    client.react.return_value = {"model": "returned-model"}
+
+    result = bot._run_ot3(client, model="requested-model", events=[], deadline=time.monotonic() + 1.0)
+
+    assert result == {"model": "returned-model"}
+    assert [event["phase"] for event in events] == ["requesting", "success"]
+    assert events[-1]["model"] == "returned-model"
+
+
+def test_ot3_cancellation_telemetry_ignores_late_worker_success() -> None:
+    events = []
+    status = BotStatusContext()
+    status.set_inference_listener(events.append)
+    executor = OnlineInferenceExecutor()
+    bot = MortalBot(status, online_executor=executor)
+    bot.player_id = 0
+    release = threading.Event()
+    started = threading.Event()
+    worker_finished = threading.Event()
+    errors: list[BaseException] = []
+    client = MagicMock()
+
+    def late_success(**_kwargs):
+        started.set()
+        release.wait(timeout=2.0)
+        worker_finished.set()
+        return {"model": "late-model"}
+
+    client.react.side_effect = late_success
+
+    def caller() -> None:
+        try:
+            bot._run_ot3(client, model="requested-model", events=[], deadline=time.monotonic() + 2.0)
+        except BaseException as exc:
+            errors.append(exc)
+
+    thread = threading.Thread(target=caller)
+    thread.start()
+    try:
+        assert started.wait(timeout=1.0)
+        executor.next_generation()
+        thread.join(timeout=1.0)
+
+        assert not thread.is_alive()
+        assert len(errors) == 1
+        assert isinstance(errors[0], OnlineInferenceCancelled)
+        assert [event["phase"] for event in events] == ["requesting", "error"]
+
+        release.set()
+        assert worker_finished.wait(timeout=1.0)
+        assert [event["phase"] for event in events] == ["requesting", "error"]
+    finally:
+        release.set()
+        thread.join(timeout=1.0)
+        executor.close()
 
 
 def test_ot3_client_applies_socks_proxy_and_ignores_environment() -> None:

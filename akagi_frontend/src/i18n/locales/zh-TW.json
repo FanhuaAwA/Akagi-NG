@@ -186,6 +186,26 @@
     "close": "關閉",
     "exit_app": "退出應用程式"
   },
+  "plugins": {
+    "title": "擴充工具",
+    "description": "管理可掛接到 Akagi-NG 的本機擴充。外掛在啟用前不會處理遊戲流量。",
+    "open": "開啟擴充工具",
+    "loading": "正在讀取外掛狀態…",
+    "retry": "重試",
+    "author": "作者",
+    "homepage": "專案首頁",
+    "mitm_required": "此外掛需要本機 MITM。啟用後，NG 啟動的雀魂視窗會自動經過代理；外部客戶端仍需正確設定分流與憑證。",
+    "no_mitm_required": "此外掛不需要 MITM。",
+    "enabled_success": "外掛已啟用",
+    "disabled_success": "外掛已停用",
+    "game_closed_for_proxy": "代理路徑已變更，目前遊戲視窗已關閉；請重新啟動遊戲以套用新路徑。",
+    "status": {
+      "active": "執行中",
+      "disabled": "未啟用",
+      "waiting_for_mitm": "等待代理",
+      "error": "異常"
+    }
+  },
   "app": {
     "title": "Akagi Next-Generation",
     "launch_game": "啟動遊戲",
@@ -215,6 +235,13 @@
     "nukidora": "拔北",
     "none": "跳過",
     "discard": "打"
+  },
+  "inference_status": {
+    "online": "線上推理",
+    "waiting": "等待請求",
+    "requesting": "推理中",
+    "success": "已完成",
+    "error": "請求失敗"
   },
   "status_messages": {
     "client_connected": "遊戲已連線",

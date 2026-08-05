@@ -403,10 +403,14 @@ class FlyADecider:
                 payload["model_id"] = model_id
             call_status = BotStatusContext()
             try:
-                selected, actions, model_id = self.online_executor.run(
-                    lambda: client.react(payload, call_status),
-                    deadline=deadline,
-                )
+                # The executor may abandon an uncooperative HTTP call. Track the
+                # caller-visible wait so a discarded late result cannot report success.
+                with self.status.track_inference("FlyA", model_id) as inference:
+                    selected, actions, model_id = self.online_executor.run(
+                        lambda: client.react(payload, call_status),
+                        deadline=deadline,
+                    )
+                    inference.set_model(model_id)
             finally:
                 self.status.update_flags(call_status.flags)
                 self.status.update_metadata(call_status.metadata)

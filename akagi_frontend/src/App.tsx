@@ -10,7 +10,7 @@ import { LaunchScreen } from '@/components/LaunchScreen';
 import { SettingsProvider } from '@/components/SettingsProvider';
 import { StartupErrorBoundary } from '@/components/StartupErrorBoundary';
 import { ThemeProvider } from '@/components/ThemeProvider';
-import { APP_SPLASH_EXIT_MS, APP_SPLASH_SHOW_MS } from '@/config/constants';
+import { APP_SPLASH_EXIT_MS } from '@/config/constants';
 import { fetchSettingsApi } from '@/hooks/useSettings';
 import { setBaseUrl } from '@/lib/api-client';
 import { cn } from '@/lib/utils';
@@ -36,7 +36,10 @@ const initApp = async () => {
   if (!window.electron) {
     throw new Error('Akagi-NG requires Electron environment to boot.');
   }
-  const { host, port } = await window.electron.waitForBackend();
+  // This includes packaged-resource hashing before process spawn. A larger
+  // ceiling prevents slow disks/antivirus cold scans from racing the backend's
+  // own post-spawn health timeout without delaying the successful fast path.
+  const { host, port } = await window.electron.waitForBackend(60_000);
   const apiBase = `http://${host}:${port}`;
   setBaseUrl(apiBase);
   const settings = await fetchSettingsApi();
@@ -69,7 +72,6 @@ function AppInner() {
     const ac = new AbortController();
     (async () => {
       try {
-        await wait(APP_SPLASH_SHOW_MS, ac.signal);
         setSplashStage('exiting');
         await wait(APP_SPLASH_EXIT_MS, ac.signal);
         setSplashStage('ready');
@@ -113,7 +115,7 @@ function AppInner() {
           isStatic={true}
           className={cn(
             splashStage === 'exiting' &&
-              'animate-out fade-out-0 zoom-out-95 fill-mode-forwards duration-1000',
+              'animate-out fade-out-0 zoom-out-95 fill-mode-forwards duration-300',
           )}
         />
       )}

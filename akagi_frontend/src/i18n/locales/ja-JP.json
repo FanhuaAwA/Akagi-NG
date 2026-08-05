@@ -186,6 +186,26 @@
     "close": "閉じる",
     "exit_app": "アプリを終了"
   },
+  "plugins": {
+    "title": "拡張ツール",
+    "description": "Akagi-NG に接続するローカル拡張を管理します。無効なプラグインはゲーム通信を処理しません。",
+    "open": "拡張ツールを開く",
+    "loading": "プラグイン状態を読み込み中…",
+    "retry": "再試行",
+    "author": "作者",
+    "homepage": "プロジェクトページ",
+    "mitm_required": "このプラグインにはローカル MITM が必要です。NG から起動したゲームは自動的に経由します。外部クライアントでは経路と証明書の設定が必要です。",
+    "no_mitm_required": "このプラグインは MITM を必要としません。",
+    "enabled_success": "プラグインを有効にしました",
+    "disabled_success": "プラグインを無効にしました",
+    "game_closed_for_proxy": "プロキシ経路が変更されたため、ゲームウィンドウを閉じました。新しい経路を適用するにはゲームを再起動してください。",
+    "status": {
+      "active": "実行中",
+      "disabled": "無効",
+      "waiting_for_mitm": "プロキシ待機中",
+      "error": "エラー"
+    }
+  },
   "app": {
     "title": "Akagi Next-Generation",
     "launch_game": "ゲームを起動",
@@ -215,6 +235,13 @@
     "nukidora": "北抜き",
     "none": "スキップ",
     "discard": "切"
+  },
+  "inference_status": {
+    "online": "オンライン推論",
+    "waiting": "待機中",
+    "requesting": "推論中",
+    "success": "完了",
+    "error": "失敗"
   },
   "status_messages": {
     "client_connected": "ゲームに接続しました。",

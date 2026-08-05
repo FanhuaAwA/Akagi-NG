@@ -370,15 +370,21 @@ class MortalBot:
         player_id = self.player_id
         call_status = BotStatusContext()
         try:
-            return self.online_executor.run(
-                lambda: client.react(
-                    player_id=player_id,
-                    events=events,
-                    status=call_status,
-                    model=model,
-                ),
-                deadline=deadline,
-            )
+            # Track the interruptible wait, not the abandoned worker operation. If a
+            # deadline or generation change discards a late result, the UI receives
+            # one terminal error and can never be overwritten by that stale success.
+            with self.status.track_inference("OT3", model) as inference:
+                result = self.online_executor.run(
+                    lambda: client.react(
+                        player_id=player_id,
+                        events=events,
+                        status=call_status,
+                        model=model,
+                    ),
+                    deadline=deadline,
+                )
+                inference.set_model(result.get("model") or model)
+                return result
         finally:
             self.status.update_flags(call_status.flags)
             self.status.update_metadata(call_status.metadata)

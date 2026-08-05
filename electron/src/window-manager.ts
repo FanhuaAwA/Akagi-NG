@@ -27,6 +27,7 @@ import {
 } from './desktop-config.js';
 import { GameHandler } from './game-handler.js';
 import { createLogger } from './logger.js';
+import { buildProxyRules } from './proxy-endpoint.js';
 import { isAllowedGameUrl, isTrustedRendererUrl, type RendererRole } from './security-policy.js';
 import { getAssetPath, isSafeWindow, safeSend } from './utils.js';
 
@@ -263,9 +264,6 @@ export class WindowManager {
     this.dashboardWindow.on('unmaximize', () => {
       safeSend(this.dashboardWindow, 'window-state-changed', false);
     });
-
-    // Preload HUD window so it is ready instantly
-    this.createHudWindow();
   }
 
   public async toggleHudWindow(show: boolean): Promise<void> {
@@ -403,6 +401,23 @@ export class WindowManager {
     this.destroyTray();
   }
 
+  public resetGameWindowForProxyChange(): boolean {
+    if (!isSafeWindow(this.gameWindow)) {
+      this.gameWindow = null;
+      return false;
+    }
+
+    logger.info('Closing the active game window because its proxy route changed.');
+    if (this.gameHandler) {
+      this.gameHandler.detach();
+      this.gameHandler = null;
+    }
+    const currentWindow = this.gameWindow;
+    this.gameWindow = null;
+    currentWindow.destroy();
+    return true;
+  }
+
   private destroyTray(): void {
     if (!this.tray) return;
     this.tray.destroy();
@@ -513,16 +528,41 @@ export class WindowManager {
 
     this.gameWindow.webContents.setUserAgent(cleanUA);
 
-    // Set up proxy if using MITM
-    if (useMitm) {
-      const mitm = await this.backendManager.getMitmConfig();
-      const proxyRules = `http://${mitm.host}:${mitm.port}`;
-      logger.info(`Routing game traffic through MITM proxy: ${proxyRules}`);
-      await this.gameWindow.webContents.session.setProxy({
-        proxyRules,
-        proxyBypassRules: '127.0.0.1,localhost',
+    const gameSession = this.gameWindow.webContents.session;
+
+    try {
+      // Set up proxy if using MITM
+      if (useMitm) {
+        const mitm = await this.backendManager.getMitmConfig();
+        const proxyRules = buildProxyRules(mitm.host, mitm.port);
+        logger.info(`Routing game traffic through MITM proxy: ${proxyRules}`);
+        await gameSession.setProxy({
+          mode: 'fixed_servers',
+          proxyRules,
+          proxyBypassRules: '127.0.0.1,localhost',
+        });
+      } else {
+        // Electron sessions persist proxy settings. Explicitly clear a previous MITM route.
+        await gameSession.setProxy({ mode: 'direct' });
+      }
+
+      // Existing pooled sockets keep their old route after setProxy until explicitly closed.
+      await gameSession.closeAllConnections();
+    } catch (error) {
+      logger.error('Failed to initialize game proxy:', error);
+      // A partially applied fixed proxy belongs to the shared Electron session.
+      // Restore direct mode before discarding the blank window so a corrected
+      // configuration can be retried immediately.
+      await gameSession.setProxy({ mode: 'direct' }).catch((resetError: unknown) => {
+        logger.error('Failed to reset game proxy after initialization error:', resetError);
       });
-    } else {
+      await gameSession.closeAllConnections().catch(() => {});
+      if (isSafeWindow(this.gameWindow)) this.gameWindow.destroy();
+      this.gameWindow = null;
+      throw error;
+    }
+
+    if (!useMitm) {
       // If NOT using MITM, attach GameHandler (Debugger API) for local interception
       // MUST attach before loading URL to capture early WebSocket traffic and avoid crash
       try {

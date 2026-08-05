@@ -203,3 +203,62 @@ def test_bridge_addon_queue_full_drops_system_event():
     addon._on_connection_established()
     assert addon._active_connections == 1
     assert shared_queue.qsize() == 1
+
+
+def test_bridge_addon_running_signals_listener_readiness(shared_queue) -> None:
+    on_running = MagicMock()
+    addon = BridgeAddon(shared_queue, on_running=on_running)
+
+    addon.running()
+
+    on_running.assert_called_once_with()
+
+
+def test_bridge_addon_runs_plugins_before_ai_parser(shared_queue) -> None:
+    order: list[str] = []
+    plugin_manager = MagicMock()
+    addon = BridgeAddon(shared_queue, plugin_manager=plugin_manager)
+    flow = MagicMock()
+    flow.id = "plugin-order-flow"
+    message = MagicMock(content=b"original", from_client=False)
+    flow.websocket.messages = [message]
+    bridge = MagicMock()
+
+    def rewrite_message(_flow, _bridge) -> None:
+        order.append("plugin")
+        message.content = b"rewritten"
+
+    def parse_message(content: bytes) -> list:
+        order.append("ai")
+        assert content == b"rewritten"
+        return []
+
+    plugin_manager.websocket_message.side_effect = rewrite_message
+    bridge.parse.side_effect = parse_message
+    addon.activated_flows.append(flow.id)
+    addon.bridges[flow.id] = bridge
+
+    addon.websocket_message(flow)
+
+    assert order == ["plugin", "ai"]
+
+
+def test_bridge_addon_does_not_parse_plugin_dropped_message(shared_queue) -> None:
+    plugin_manager = MagicMock()
+    addon = BridgeAddon(shared_queue, plugin_manager=plugin_manager)
+    flow = MagicMock()
+    flow.id = "plugin-drop-flow"
+    message = MagicMock(content=b"dropped", from_client=True, dropped=False)
+    flow.websocket.messages = [message]
+    bridge = MagicMock()
+
+    def drop_message(_flow, _bridge) -> None:
+        message.dropped = True
+
+    plugin_manager.websocket_message.side_effect = drop_message
+    addon.activated_flows.append(flow.id)
+    addon.bridges[flow.id] = bridge
+
+    addon.websocket_message(flow)
+
+    bridge.parse.assert_not_called()
