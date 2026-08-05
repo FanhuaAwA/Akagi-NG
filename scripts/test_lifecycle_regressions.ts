@@ -28,7 +28,7 @@ const backendAwait = mainSource.indexOf('await backendStartPromise');
 assert.ok(backendStart >= 0, 'Backend startup must have an explicit promise.');
 assert.ok(
   backendStart < dashboardCreate && dashboardCreate < backendAwait,
-  'The trusted dashboard must load while backend validation/startup continues.',
+  'The trusted dashboard must load while backend startup continues.',
 );
 
 const localStartupLoad = appSource.slice(
@@ -53,7 +53,7 @@ assert.ok(prodStart >= 0 && healthStart > prodStart, 'Production backend method 
 assert.ok(
   prodSource.indexOf('await this.getResourceStatus()') <
     prodSource.indexOf('spawn(pythonExecutable'),
-  'Packaged backend execution must remain gated by resource validation.',
+  'Packaged backend execution must follow the bounded resource availability check.',
 );
 assert.match(prodSource, /PYTHONDONTWRITEBYTECODE: '1'/);
 assert.match(prodSource, /AKAGI_USER_DATA_DIR: getUserDataRoot\(\)/);
@@ -61,13 +61,13 @@ assert.match(backendSource, /join\(getUserDataRoot\(\), 'config', 'settings\.jso
 assert.match(backendSource, /public async getStartupConfig\(\)/);
 assert.match(mainSource, /initializeLogger\(join\(getUserDataRoot\(\), 'logs'\)\)/);
 assert.match(utilsSource, /app\.getPath\('userData'\)/);
-const validationAwait = prodSource.indexOf('await this.getResourceStatus()');
-const postValidationCancellation = prodSource.indexOf('if (this.isClosing)', validationAwait);
+const resourceCheckAwait = prodSource.indexOf('await this.getResourceStatus()');
+const postCheckCancellation = prodSource.indexOf('if (this.isClosing)', resourceCheckAwait);
 const productionSpawn = prodSource.indexOf('spawn(pythonExecutable');
 const postSpawnCancellation = prodSource.indexOf('if (this.isClosing)', productionSpawn);
 assert.ok(
-  validationAwait < postValidationCancellation && postValidationCancellation < productionSpawn,
-  'Shutdown during resource validation must cancel startup before spawn.',
+  resourceCheckAwait < postCheckCancellation && postCheckCancellation < productionSpawn,
+  'Shutdown during the resource availability check must cancel startup before spawn.',
 );
 assert.ok(
   postSpawnCancellation > productionSpawn,
@@ -80,7 +80,7 @@ assert.ok(
 );
 assert.match(stopSource, /this\.markFailed\(new Error\('Backend startup cancelled/);
 assert.match(backendSource, /terminateCancelledProcess\(childProcess\)/g);
-assert.match(prodSource, /integrity !== 'valid'[\s\S]*this\.markFailed\(new Error\(msg\)\)/);
+assert.match(prodSource, /if \(!resourceStatus\.lib\)[\s\S]*this\.markFailed\(new Error\(msg\)\)/);
 const resourceStatusMethod = backendSource.slice(
   backendSource.indexOf('public getResourceStatus()'),
   backendSource.indexOf('public async start()'),
@@ -97,6 +97,8 @@ assert.match(backendSource, /if \(this\.readyError\) return false/);
 assert.match(backendSource, /if \(timeoutId\) clearTimeout\(timeoutId\)/);
 assert.match(electronConstants, /BACKEND_STARTUP_CHECK_INTERVAL_MS = 100/);
 assert.match(electronConstants, /BACKEND_STARTUP_CHECK_MAX_INTERVAL_MS = 500/);
+assert.match(electronConstants, /BACKEND_SHUTDOWN_TIMEOUT_MS = 2000/);
+assert.match(tunHelperSource, /STOP_TIMEOUT_MS = 2_000/);
 
 assert.match(mainSource, /let shutdownPromise: Promise<void> \| null = null/);
 const shutdownFunction = mainSource.slice(
@@ -291,59 +293,59 @@ async function testMihomoShutdownCancellation(): Promise<void> {
   assert.equal(pendingManager.isRunning(), false);
 }
 
-async function testResourceValidationSingleFlight(): Promise<void> {
+async function testResourceAvailabilitySingleFlight(): Promise<void> {
   const manager = Object.create(BackendManager.prototype) as BackendManager;
-  let validateCalls = 0;
-  let resolveValidation!: (value: unknown) => void;
-  const validationPending = new Promise<unknown>((resolve) => {
-    resolveValidation = resolve;
+  let checkCalls = 0;
+  let resolveCheck!: (value: unknown) => void;
+  const checkPending = new Promise<unknown>((resolve) => {
+    resolveCheck = resolve;
   });
   const status = {
-    integrity: 'valid',
-    errors: [],
-    verifiedFiles: 1,
-    verifiedBytes: 64,
+    lib: true,
+    models: true,
+    missingCritical: [],
+    missingOptional: [],
   };
   Object.assign(manager, {
     resourceStatus: null,
     resourceStatusPromise: null,
-    validator: {
-      validate: () => {
-        validateCalls += 1;
-        return validationPending;
+    resourceChecker: {
+      check: () => {
+        checkCalls += 1;
+        return checkPending;
       },
     },
   });
 
-  const firstValidation = manager.getResourceStatus();
-  const secondValidation = manager.getResourceStatus();
-  assert.equal(firstValidation, secondValidation, 'Concurrent validation must share one promise.');
+  const firstCheck = manager.getResourceStatus();
+  const secondCheck = manager.getResourceStatus();
+  assert.equal(firstCheck, secondCheck, 'Concurrent resource checks must share one promise.');
   await Promise.resolve();
-  assert.equal(validateCalls, 1);
-  resolveValidation(status);
-  assert.deepEqual(await firstValidation, status);
-  assert.deepEqual(await secondValidation, status);
+  assert.equal(checkCalls, 1);
+  resolveCheck(status);
+  assert.deepEqual(await firstCheck, status);
+  assert.deepEqual(await secondCheck, status);
   assert.deepEqual(await manager.getResourceStatus(), status);
-  assert.equal(validateCalls, 1, 'Successful validation must remain cached.');
+  assert.equal(checkCalls, 1, 'A successful resource check must remain cached.');
 
   let retryCalls = 0;
   Object.assign(manager, {
     resourceStatus: null,
     resourceStatusPromise: null,
-    validator: {
-      validate: async () => {
+    resourceChecker: {
+      check: async () => {
         retryCalls += 1;
-        if (retryCalls === 1) throw new Error('synthetic validation failure');
+        if (retryCalls === 1) throw new Error('synthetic resource check failure');
         return status;
       },
     },
   });
-  await assert.rejects(manager.getResourceStatus(), /synthetic validation failure/);
+  await assert.rejects(manager.getResourceStatus(), /synthetic resource check failure/);
   assert.deepEqual(await manager.getResourceStatus(), status);
-  assert.equal(retryCalls, 2, 'A failed validation must clear the in-flight cache for retry.');
+  assert.equal(retryCalls, 2, 'A failed resource check must clear the in-flight cache for retry.');
 }
 
-Promise.all([testMihomoShutdownCancellation(), testResourceValidationSingleFlight()]).then(
+Promise.all([testMihomoShutdownCancellation(), testResourceAvailabilitySingleFlight()]).then(
   () => console.log('Lifecycle and proxy regression tests passed.'),
   (error) => {
     console.error(error);

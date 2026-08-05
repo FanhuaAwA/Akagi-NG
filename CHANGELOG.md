@@ -4,21 +4,6 @@ All notable changes to Akagi-NG are documented in this file.
 
 ## [Unreleased]
 
-### Fixed
-
-- The Dashboard no longer waits for packaged resource hashing, Python startup,
-  and the settings API before rendering. It now loads from a sanitized local
-  startup snapshot, keeps backend-dependent controls disabled until ready, and
-  reports startup progress or failure inside the main interface.
-
-### Performance
-
-- Reduced packaged resource verification overhead by avoiding redundant
-  per-file realpath resolution after a symlink-safe inventory pass and by
-  hashing small files without creating thousands of read streams. Startup logs
-  now record Electron readiness, Dashboard load, verification, spawn, and
-  backend-ready timings for future diagnosis.
-
 ## [1.2.0] - 2026-08-05
 
 ### Added
@@ -54,16 +39,21 @@ All notable changes to Akagi-NG are documented in this file.
 
 ### Performance
 
-- The trusted local Dashboard now loads while protected resources are validated;
-  external backend and TUN processes remain strictly gated on successful
-  validation.
+- Removed the packaged full-tree resource manifest, signature, inventory, and
+  SHA-256 startup pass. Startup now performs only bounded availability checks
+  for two native libraries and the model directory before starting the backend.
+- The Dashboard no longer waits for Python startup or the settings API before
+  rendering. It loads from a sanitized local startup snapshot, keeps
+  backend-dependent controls disabled until ready, and reports startup progress
+  or failure inside the main interface.
 - Removed fixed startup and exit waits, tightened backend readiness polling, and
   made HUD creation lazy so normal Dashboard startup does less work.
 - Unified desktop shutdown into one idempotent path and shortened graceful SSE
   teardown so repeated quit signals do not duplicate backend or mihomo cleanup.
-- Extended only the packaged cold-start deadline to cover resource hashing on
-  slow or antivirus-scanned disks; successful startup still completes as soon
-  as the backend is ready.
+- Reduced the backend and elevated mihomo forced-shutdown ceilings from five to
+  two seconds while retaining graceful shutdown first.
+- Startup logs record Electron readiness, Dashboard load, resource availability,
+  backend spawn, and backend-ready timings for future diagnosis.
 
 ### Security
 
@@ -78,13 +68,8 @@ All notable changes to Akagi-NG are documented in this file.
   unguarded direct-start IPC route, and serialized start/reconcile/stop work.
 - Excluded mihomo from build-time Authenticode rewriting so its pinned hash
   remains reproducible. This release does not include trusted Authenticode or
-  Apple Developer ID/notarization credentials; its resource signature does not
-  claim an operating-system publisher identity.
-- Added a detached Ed25519-signed resource manifest covering packaged
-  executables, native libraries, both model weights, Python source, bytecode and
-  import archives, and built-in plugin data. Packaged startup rejects missing,
-  unlisted, mismatched, path-escaping, oversized, symlinked, or tampered
-  protected resources before launching the backend or optional mihomo helper.
+  Apple Developer ID/notarization credentials, so artifacts do not claim an
+  operating-system publisher identity.
 - Replaced the renderer's arbitrary-channel IPC bridge with named capabilities,
   enforced dashboard/HUD role and main-frame authorization on every handler,
   blocked untrusted navigation, child frames, permissions, and popups, restricted
@@ -112,9 +97,8 @@ All notable changes to Akagi-NG are documented in this file.
 - Added automated privilege-boundary coverage for PE manifests, helper protocol
   parsing, strict TUN configuration validation, mihomo hash pinning, IPC trust
   checks, startup/shutdown ordering, and packaged artifact contents.
-- Added resource-integrity regressions for EXE/native/model/Python/plugin-data
-  tampering, unlisted files, manifest-signature tampering, version mismatch,
-  path traversal, portable-runtime symlinks, and macOS critical-file presence.
+- Added fast resource-availability regressions for required native libraries and
+  optional local model files.
 - Added Electron trust-boundary regressions for renderer URLs, IPC role policy,
   external/game URL allowlists, preload exposure, navigation guards, and CSP.
 - Added online-inference regressions for worker isolation, bounded capacity,
@@ -126,8 +110,6 @@ All notable changes to Akagi-NG are documented in this file.
   plugin-to-AI ordering, MITM startup/failure, and hot-toggle lifecycle coverage.
 - Added Electron startup, lazy-HUD, direct-proxy reset, and single-path shutdown
   regression checks.
-- Added actual packaged-tree verification on Windows, Linux, and macOS before
-  release assets are accepted.
 
 ## [1.1.2] - 2026-08-02
 

@@ -82,11 +82,11 @@ app.whenReady().then(async () => {
   // 0. Register all IPC handlers
   registerIpcHandlers(windowManager, backendManager, mihomoManager, shutdownOnce);
 
-  // 1. Begin protected-resource verification while the trusted local renderer loads.
-  // BackendManager still gates every packaged external process on successful verification.
+  // 1. Start the backend while the trusted local renderer loads. The bounded
+  // critical-resource availability check does not enumerate or hash the bundle.
   const backendStartPromise = backendManager.start();
 
-  // 2. Render the dashboard before verification, backend imports, or optional UAC can delay it.
+  // 2. Render the dashboard before backend imports or optional UAC can delay it.
   await windowManager.reconcileDesktopSettings(checkForUpdatesIfActive);
   if (shutdownStarted) return;
   void windowManager.createDashboardWindow().then(() => {

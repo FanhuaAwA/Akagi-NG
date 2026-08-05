@@ -4,7 +4,7 @@ import { randomBytes } from 'node:crypto';
 import { createServer, type Server, type Socket } from 'node:net';
 
 const CONNECT_TIMEOUT_MS = 30_000;
-const STOP_TIMEOUT_MS = 5_000;
+const STOP_TIMEOUT_MS = 2_000;
 const MAX_PROTOCOL_BUFFER_BYTES = 1024 * 1024;
 const PIPE_PREFIX = 'akagi-ng-tun-';
 const HELPER_PATH_ENV = 'AKAGI_TUN_HELPER_PATH';

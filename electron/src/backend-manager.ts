@@ -50,15 +50,15 @@ import {
   BACKEND_STARTUP_CHECK_RETRIES,
   BACKEND_STARTUP_CHECK_TIMEOUT_MS,
 } from './constants.js';
-import type { ResourceStatus } from './resource-validator.js';
-import { ResourceValidator } from './resource-validator.js';
+import type { ResourceStatus } from './resource-checker.js';
+import { ResourceChecker } from './resource-checker.js';
 import { getAssetPath, getProjectRoot, getUserDataRoot } from './utils.js';
 
 const logger = createLogger('BackendManager');
 
 export class BackendManager {
   private pyProcess: ChildProcess | null = null;
-  private validator: ResourceValidator;
+  private resourceChecker: ResourceChecker;
   private resourceStatus: ResourceStatus | null = null;
   private resourceStatusPromise: Promise<ResourceStatus> | null = null;
   private isReadyState: boolean = false;
@@ -225,32 +225,29 @@ export class BackendManager {
     });
     this.readyPromise.catch(() => {});
 
-    this.validator = new ResourceValidator(getProjectRoot(), {
-      enforceIntegrity: app.isPackaged,
-      expectedVersion: app.getVersion(),
-    });
+    this.resourceChecker = new ResourceChecker(getProjectRoot());
   }
 
   public getResourceStatus(): Promise<ResourceStatus> {
     if (this.resourceStatus) return Promise.resolve(this.resourceStatus);
     if (this.resourceStatusPromise) return this.resourceStatusPromise;
 
-    const validationPromise = Promise.resolve()
-      .then(() => this.validator.validate())
+    const checkPromise = Promise.resolve()
+      .then(() => this.resourceChecker.check())
       .then((status) => {
         this.resourceStatus = status;
         return status;
       });
-    this.resourceStatusPromise = validationPromise;
-    void validationPromise.then(
+    this.resourceStatusPromise = checkPromise;
+    void checkPromise.then(
       () => {
-        if (this.resourceStatusPromise === validationPromise) this.resourceStatusPromise = null;
+        if (this.resourceStatusPromise === checkPromise) this.resourceStatusPromise = null;
       },
       () => {
-        if (this.resourceStatusPromise === validationPromise) this.resourceStatusPromise = null;
+        if (this.resourceStatusPromise === checkPromise) this.resourceStatusPromise = null;
       },
     );
-    return validationPromise;
+    return checkPromise;
   }
 
   public async start(): Promise<boolean> {
@@ -355,23 +352,20 @@ export class BackendManager {
   private async startProdBackend(): Promise<boolean> {
     logger.info('Starting Python backend service...');
 
-    const validationStartedAt = Date.now();
+    const resourceCheckStartedAt = Date.now();
     const resourceStatus = await this.getResourceStatus();
     if (this.isClosing) {
-      logger.info('Backend startup cancelled after protected-resource verification.');
+      logger.info('Backend startup cancelled after resource availability check.');
       return false;
     }
-    if (resourceStatus.integrity !== 'valid') {
-      const detail = resourceStatus.errors[0] ?? 'Unknown resource integrity failure.';
-      const msg = `Protected resource verification failed. No external runtime was executed.\n\n${detail}`;
+    if (!resourceStatus.lib) {
+      const msg = 'Required native libraries are missing. The backend cannot be started.';
       logger.error(msg);
-      dialog.showErrorBox('Resource Integrity Error', msg);
+      dialog.showErrorBox('Startup Error', msg);
       this.markFailed(new Error(msg));
       return false;
     }
-    logger.info(
-      `Verified ${resourceStatus.verifiedFiles} protected resources (${resourceStatus.verifiedBytes} bytes) in ${Date.now() - validationStartedAt} ms.`,
-    );
+    logger.info(`Resource availability checked in ${Date.now() - resourceCheckStartedAt} ms.`);
 
     const isWin = process.platform === 'win32';
     const bundleDir = getAssetPath('bin');

@@ -45,8 +45,7 @@ const loadStartupConfig = async () => {
 // 预加载应用数据
 const startupConfigPromise = loadStartupConfig();
 const backendSettingsPromise = startupConfigPromise.then(async () => {
-  // Full packaged-resource hashing and Python imports continue after the first
-  // frame. They still gate backend execution; they no longer gate the dashboard.
+  // Python imports continue after the first frame, without delaying the dashboard.
   const { host, port } = await window.electron.waitForBackend(60_000);
   setBaseUrl(`http://${host}:${port}`);
   return await fetchSettingsApi();

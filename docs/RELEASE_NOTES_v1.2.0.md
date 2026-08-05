@@ -7,7 +7,7 @@
 - **推理状态可见**：AkagiOT Legacy、OT3 和 FlyA 的请求、成功、失败状态会通过 SSE 实时显示在 Dashboard 顶栏与 HUD 中，并附带提供方、模型和耗时信息。新连接也能收到最近一次状态，不再需要根据界面是否更新来猜测 AI 是否正在工作。
 - **雀魂 MAX 与 AI 可同时工作**：皮肤解锁不再启动或依赖第二个代理。游戏流量在 Akagi-NG 的同一个 MITM 连接中固定按“雀魂 MAX 插件 -> 平台 Bridge / AI”处理，服务端返回帧也遵循相同的显式顺序。
 - **插件入口**：Dashboard 新增扩展工具面板，可查看插件能力、运行状态、MITM 要求和风险提示，并持久化启用状态。当前内置插件为“雀魂 MAX”。
-- **启动与退出提速**：可信的本地 Dashboard 会与受保护资源校验并行加载，但 Python 后端、mihomo 和其他外部二进制仍必须在校验成功后才能启动。HUD 改为首次使用时创建，移除了固定启动/退出等待，并缩短了后端就绪轮询和 SSE 关闭路径。
+- **启动与退出提速**：删除启动阶段的全量资源清单、签名、遍历和 SHA-256 校验，只保留原生库与模型目录的毫秒级可用性检查。Dashboard 不再等待 Python 后端，HUD 改为首次使用时创建，后端与 mihomo 的强制退出上限也由 5 秒缩短为 2 秒。
 
 ### 皮肤解锁 / AI 串联修复
 
@@ -38,13 +38,13 @@ v1.2.0 使用一个 mitmproxy 监听器完成插件改写与 AI 解析：
 
 ### 性能与生命周期
 
-- Dashboard 不再等待大体积受保护资源完成哈希校验后才创建窗口；安全边界仍由后端启动前的完整性门禁保证。
+- 启动阶段不再遍历或哈希整个安装目录，只检查两个必需原生库以及是否存在本地模型文件。
+- Dashboard 使用本地启动快照直接创建；依赖后端的按钮会在服务就绪前保持禁用，并在主界面显示启动进度或错误。
 - 后端启动失败会立即结束就绪等待，轮询从较短间隔开始并退避，避免无意义的固定超时。
 - HUD 不再随 Dashboard 预创建，减少普通启动时的第二个渲染器和 SSE 连接。
 - 启动、退出过渡缩短为约 300 ms；退出动画与清理并行进行。
-- Electron 的退出入口复用同一个幂等清理任务，并继续保持 `mihomo -> 后端` 的停机顺序。后端会主动唤醒 SSE 客户端并进行有界关闭，避免每次退出都等待完整超时。
+- Electron 的退出入口复用同一个幂等清理任务，并继续保持 `mihomo -> 后端` 的停机顺序。后端会主动唤醒 SSE 客户端并进行有界关闭；后端和 mihomo 的强制退出上限均由 5 秒缩短为 2 秒。
 - 设置、密钥、日志、插件状态/配置和手动下载的 Liqi 协议现写入操作系统用户数据目录；首次运行会迁移旧便携目录中的配置。Linux AppImage 与 macOS `.app` 不再尝试修改只读包体。
-- 冷启动总等待上限由 20 秒调整为 60 秒，以容纳慢盘或杀毒软件冷扫描下的资源哈希；后端正常就绪时不会额外等待。
 
 ### 发布前验证范围
 
@@ -52,9 +52,9 @@ v1.2.0 使用一个 mitmproxy 监听器完成插件改写与 AI 解析：
 
 - Python：推理状态生命周期、SSE 缓存/重放、在线推理取消与截止时间、插件持久化和异常隔离、Liqi 字段解析、插件到 AI 的端到端顺序、MITM 就绪/失败与热切换生命周期。
 - 前端：TypeScript 类型检查、目标 ESLint 检查、生产构建，以及 Dashboard/HUD 推理状态消费。
-- Electron：启动顺序、资源校验门禁、后端快速失败、延迟创建 HUD、代理直连复位、退出单例化、权限边界和资源完整性回归。
+- Electron：启动顺序、快速资源可用性检查、后端快速失败、延迟创建 HUD、代理直连复位、退出单例化和权限边界回归。
 - 发布链：`vX.Y.Z` 标签必须与根 `package.json` 一致；同步脚本同时校验后端、前端、Electron 和 `package-lock.json` 的根/工作区版本。
-- 发行产物：Windows、Linux、macOS 的真实解包目录都会验证签名资源清单；三个构建全部成功后才一次性创建公开 Release，避免残缺发布。
+- 发行产物：Windows、Linux、macOS 三个平台构建全部成功后才一次性创建公开 Release，避免残缺发布。
 
 ### 重要风险边界
 
@@ -63,7 +63,7 @@ v1.2.0 使用一个 mitmproxy 监听器完成插件改写与 AI 解析：
 - 外部游戏客户端仍需正确安装/信任本机 mitmproxy CA，并把目标流量路由到 Akagi-NG MITM；需要时可使用内置 mihomo TUN。不要为雀魂 MAX 再串联第二个 mitmproxy。
 - 插件异常会被隔离并记录，但第三方改写逻辑仍可能随游戏协议更新失效。遇到异常时先禁用插件，以区分插件问题、代理问题和 AI 服务问题。
 - 雀魂 MAX 适配代码与数据的第三方许可证随包保存在 `assets/plugins/majsoul-max/LICENSE`。
-- 本版使用稳定的 Ed25519 密钥签署资源清单，但当前仓库没有 Windows Authenticode 或 Apple Developer ID/公证凭据。因此 Windows/macOS 产物**没有可信的操作系统发布者签名**，可能触发 SmartScreen 或 Gatekeeper；资源清单签名不能替代平台代码签名。
+- 当前仓库没有 Windows Authenticode 或 Apple Developer ID/公证凭据，因此 Windows/macOS 产物**没有可信的操作系统发布者签名**，可能触发 SmartScreen 或 Gatekeeper。
 
 ---
 
@@ -74,7 +74,7 @@ v1.2.0 使用一个 mitmproxy 监听器完成插件改写与 AI 解析：
 - **Visible inference lifecycle**: request, success, and failure states for AkagiOT Legacy, OT3, and FlyA are streamed over SSE to both the Dashboard header and HUD, including provider, model, and elapsed-time context.
 - **MajsoulMax and AI now work together**: skin rewriting and AI parsing share one Akagi-NG MITM connection. Frames are processed deterministically by the MajsoulMax plugin first and by the platform bridge/AI second in both directions.
 - **Plugin UI**: the Dashboard extension panel exposes plugin capabilities, runtime health, MITM requirements, risk notices, and persisted enablement. MajsoulMax is the first built-in plugin.
-- **Faster startup and shutdown**: the trusted local Dashboard loads while protected resources are validated, HUD creation is lazy, fixed startup/exit waits are removed, and backend readiness plus SSE teardown are bounded more tightly. External binaries remain gated on successful resource validation.
+- **Faster startup and shutdown**: the full resource manifest, signature, inventory, and SHA-256 startup pass are removed. Startup performs only bounded native-library/model availability checks, the Dashboard no longer waits for Python, HUD creation is lazy, and backend/mihomo forced-shutdown ceilings are reduced from five to two seconds.
 
 ### MajsoulMax / AI pipeline fix
 
@@ -105,13 +105,13 @@ Game or mihomo TUN
 
 ### Performance and lifecycle
 
-- Dashboard creation no longer waits for hashing of large protected resources; the integrity gate still runs before any backend or optional TUN executable is spawned.
+- Startup no longer enumerates or hashes the packaged tree; it checks only the two required native libraries and whether a local model file is available.
+- The Dashboard renders from a local startup snapshot. Backend-dependent controls remain disabled until the service is ready, and startup progress or failures are shown in the main interface.
 - Backend startup failures terminate readiness waits immediately, while polling starts quickly and backs off.
 - The HUD is created only on first use, avoiding a second renderer and SSE connection during ordinary Dashboard startup.
 - Startup and exit transitions are approximately 300 ms, with exit animation and cleanup running concurrently.
-- All Electron quit paths share one idempotent cleanup promise and retain `mihomo -> backend` shutdown ordering. Backend SSE clients are actively woken for a bounded graceful close.
+- All Electron quit paths share one idempotent cleanup promise and retain `mihomo -> backend` shutdown ordering. Backend SSE clients are actively woken for a bounded graceful close, and backend/mihomo forced-shutdown ceilings are reduced from five to two seconds.
 - Settings, secrets, logs, plugin state/configuration, and downloaded Liqi overrides now live in the OS user-data directory, with first-run migration from the old portable-root configuration. Linux AppImage and macOS `.app` bundles are no longer treated as writable storage.
-- The packaged cold-start ceiling is 60 seconds to accommodate hashing on slow or antivirus-scanned disks; the successful fast path does not wait longer.
 
 ### Release verification scope
 
@@ -119,9 +119,9 @@ The release gates cover the following areas; the Actions status attached to the 
 
 - Python inference telemetry and SSE replay; online deadline/cancellation behavior; plugin persistence and hook isolation; Liqi field compatibility; end-to-end plugin-to-AI ordering; MITM readiness, failure, and hot-toggle lifecycle.
 - Frontend TypeScript checks, targeted ESLint checks, production build, and inference-status consumption in Dashboard/HUD.
-- Electron startup ordering, integrity gating, backend fast failure, lazy HUD creation, proxy reset, single-path shutdown, privilege-boundary, and resource-integrity regressions.
+- Electron startup ordering, fast resource availability, backend fast failure, lazy HUD creation, proxy reset, single-path shutdown, and privilege-boundary regressions.
 - Release metadata: a `vX.Y.Z` tag must match root `package.json`; the synchronization script verifies backend, frontend, Electron, and root/workspace lockfile versions.
-- Release artifacts: each real Windows/Linux/macOS unpacked tree is integrity-checked, and the public Release is created only after every platform build succeeds.
+- Release artifacts: the public Release is created only after every Windows, Linux, and macOS build succeeds.
 
 ### Important risk boundaries
 
@@ -130,6 +130,6 @@ The release gates cover the following areas; the Actions status attached to the 
 - External game clients still need to trust the local mitmproxy CA and route the target traffic through Akagi-NG MITM, optionally via the bundled mihomo TUN. Do not add a second mitmproxy for MajsoulMax.
 - Plugin failures are isolated and reported, but third-party rewriting logic can still break after protocol changes. Disable the plugin first when separating plugin, proxy, and AI-service failures.
 - The bundled third-party license is available at `assets/plugins/majsoul-max/LICENSE`.
-- The release resource manifest is signed with the stable Ed25519 release key, but this repository currently has no Windows Authenticode or Apple Developer ID/notarization credentials. Windows/macOS artifacts therefore **do not carry a trusted OS publisher signature** and may trigger SmartScreen or Gatekeeper; the resource signature is not a substitute for platform code signing.
+- This repository currently has no Windows Authenticode or Apple Developer ID/notarization credentials. Windows/macOS artifacts therefore **do not carry a trusted OS publisher signature** and may trigger SmartScreen or Gatekeeper.
 
 **Full Changelog**: https://github.com/FanhuaAwA/Akagi-NG/compare/v1.1.2...v1.2.0

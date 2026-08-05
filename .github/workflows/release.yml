@@ -98,11 +98,6 @@ jobs:
         run: npm run build
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          AKAGI_REQUIRE_RESOURCE_SIGNING: 1
-          AKAGI_RESOURCE_SIGNING_KEY: ${{ secrets.AKAGI_RESOURCE_SIGNING_KEY }}
-
-      - name: Verify packaged resource integrity
-        run: npm run test:packaged-resource-integrity
 
       - name: Stage release artifacts
         uses: actions/upload-artifact@v7

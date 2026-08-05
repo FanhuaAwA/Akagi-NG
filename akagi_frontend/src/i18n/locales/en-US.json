@@ -211,7 +211,7 @@
     "launch_game": "Launch Game",
     "startup_failed": "Application startup failed",
     "backend_starting": "Starting background service",
-    "backend_starting_desc": "Verifying application resources and loading the AI service. The dashboard is already available.",
+    "backend_starting_desc": "Loading the AI service. The dashboard is already available.",
     "backend_start_failed": "Background service failed to start",
     "launch_error": "Could not retrieve game URL. Please check settings.",
     "settings_title": "Akagi NG Settings",
