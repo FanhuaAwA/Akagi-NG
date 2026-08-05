@@ -168,6 +168,16 @@ function main(): void {
         entry.to === 'assets/privileged' && entry.filter?.includes('AkagiNg.TunHelper.exe'),
     ),
   );
+  assert.ok(
+    electronPackage.build.extraFiles.some(
+      (entry) => entry.from === '../LICENSE' && entry.to === 'LICENSE.txt',
+    ),
+    'The public license must use a .txt target so macOS codesign does not treat it as nested code.',
+  );
+  assert.ok(
+    electronPackage.build.extraFiles.every((entry) => entry.to !== 'LICENSE'),
+    'Do not place an extensionless LICENSE directly in the macOS Contents directory.',
+  );
 
   const sourceManifest = readFileSync(helperManifestPath, 'utf8');
   assert.match(sourceManifest, /requestedExecutionLevel level="requireAdministrator"/);

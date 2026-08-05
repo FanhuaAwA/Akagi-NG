@@ -68,7 +68,7 @@
       },
       {
         "from": "../LICENSE",
-        "to": "LICENSE"
+        "to": "LICENSE.txt"
       },
       {
         "from": "../build/extra",
