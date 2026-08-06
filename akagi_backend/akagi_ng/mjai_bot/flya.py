@@ -14,6 +14,9 @@ import requests
 
 from akagi_ng.mjai_bot.flya_service import (
     FLYA_TEST_TIMEOUT_SECONDS,
+    _log_flya_http_exception,
+    _log_flya_http_request,
+    _log_flya_http_response,
     _normalize_base_url,
     _resolve_ca_file,
     _response_error_code,
@@ -86,6 +89,10 @@ class FlyADecisionError(RuntimeError):
 
 class FlyADecisionSuppressed(FlyADecisionError):
     """The server authoritatively determined that no client action should be shown."""
+
+    def __init__(self, code: str):
+        super().__init__(code)
+        self.code = code
 
 
 def canonical_event(event: MJAIEvent, seat_count: int) -> dict[str, Any]:
@@ -237,10 +244,10 @@ class FlyADecisionClient:
                 separators=(",", ":"),
             ).encode()
             frozen_request = json.loads(body)
-            response = self._post_with_retry(body)
+            response = self._post_with_retry(body, frozen_request)
             if response.status_code == HTTPStatus.FORBIDDEN and _response_error_code(response) == "test_api_key_frozen":
                 self._activate_key()
-                response = self._post_with_retry(body)
+                response = self._post_with_retry(body, frozen_request)
             if response.status_code != HTTPStatus.OK:
                 code = _safe_response_error_code(response)
                 if code in {
@@ -269,12 +276,27 @@ class FlyADecisionClient:
             self._reset_breaker(status)
         return action, actions, model_id
 
-    def _post_with_retry(self, body: bytes) -> requests.Response:
+    def _post_with_retry(self, body: bytes, request: dict[str, Any]) -> requests.Response:
+        url = f"{self.base_url}{FLYA_DECISION_PATH}"
+        state = request.get("state") if isinstance(request.get("state"), dict) else {}
         for attempt in range(2):
+            attempt_number = attempt + 1
+            started_at = _log_flya_http_request(
+                "decision",
+                "POST",
+                url,
+                attempt_number,
+                request_id=request.get("request_id"),
+                session_id=request.get("session_id"),
+                model_id=request.get("model_id"),
+                from_seq=state.get("from_seq"),
+                to_seq=state.get("to_seq"),
+                state_digest=state.get("state_digest"),
+            )
             try:
                 response = self.session.request(
                     "POST",
-                    f"{self.base_url}{FLYA_DECISION_PATH}",
+                    url,
                     headers={
                         "Accept": "application/json",
                         "Authorization": f"Bearer {self._key}",
@@ -285,19 +307,25 @@ class FlyADecisionClient:
                     verify=self._verify,
                     allow_redirects=False,
                 )
-            except requests.RequestException:
+            except requests.RequestException as error:
+                _log_flya_http_exception(
+                    "decision", "POST", url, attempt_number, started_at, error, self._key
+                )
                 if attempt == 0:
                     continue
                 raise
+            _log_flya_http_response("decision", "POST", url, attempt_number, started_at, response)
             if not HTTPStatus.INTERNAL_SERVER_ERROR <= response.status_code < HTTP_SERVER_ERROR_LIMIT or attempt == 1:
                 return response
         raise AssertionError("retry loop must return or raise")
 
     def _activate_key(self) -> None:
+        url = f"{self.base_url}/quota"
+        started_at = _log_flya_http_request("key-activation", "GET", url, 1)
         try:
             response = self.session.request(
                 "GET",
-                f"{self.base_url}/quota",
+                url,
                 headers={
                     "Accept": "application/json",
                     "Authorization": f"Bearer {self._key}",
@@ -306,8 +334,10 @@ class FlyADecisionClient:
                 verify=self._verify,
                 allow_redirects=False,
             )
-        except requests.RequestException:
+        except requests.RequestException as error:
+            _log_flya_http_exception("key-activation", "GET", url, 1, started_at, error, self._key)
             raise FlyADecisionError("FlyA key activation could not reach the service") from None
+        _log_flya_http_response("key-activation", "GET", url, 1, started_at, response)
         if response.status_code != HTTPStatus.OK:
             code = _safe_response_error_code(response)
             detail = f", {code}" if code else ""
@@ -419,9 +449,18 @@ class FlyADecider:
                 self.player_id,
                 getattr(tracker, "last_kawa_tile", None),
             )
-        except FlyADecisionSuppressed:
-            logger.warning("FlyA suppressed a recommendation for the submitted event stream")
-            return MJAIResponse(type="none")
+        except FlyADecisionSuppressed as error:
+            # process() reaches FlyA only when libriichi's legal mask says this
+            # is a real local decision. Returning none here can time out a
+            # mandatory discard, so immediately use Mortal and rotate the
+            # server session before the next decision.
+            logger.warning(
+                f"FlyA suppression at required decision code={error.code} "
+                f"events={len(self.events)} session_id={self.session_id or 'none'}; "
+                "using local Mortal and rebuilding the FlyA session."
+            )
+            self._rebuild_remote_state(error.code)
+            return self._fallback(response)
         except OnlineInferenceCancelled:
             logger.info("FlyA inference cancelled; skipping local replay during lifecycle transition")
             return response
@@ -501,13 +540,31 @@ class FlyADecider:
         self.client = None
         self._client_signature = None
 
+    def _rebuild_remote_state(self, reason: str) -> None:
+        """Keep observed history but force a fresh full replay on a new server session."""
+        previous_session = self.session_id
+        self.session_id = str(uuid4()) if self.player_id is not None else None
+        if self.client:
+            self.client.close()
+        self.client = None
+        self._client_signature = None
+        logger.info(
+            f"FlyA remote state rebuilt reason={reason} events={len(self.events)} "
+            f"previous_session={previous_session or 'none'} new_session={self.session_id or 'none'}."
+        )
+
     def close(self) -> None:
         self._disable_client()
         if self._owns_online_executor:
             self.online_executor.close()
 
     def _fallback(self, response: MJAIResponse) -> MJAIResponse:
-        response = self._replay_local_decision() or response
+        replayed = self._replay_local_decision()
+        if replayed is None:
+            logger.error(
+                f"FlyA local fallback replay produced no response; preserving response_type={response.get('type')}."
+            )
+        response = replayed or response
         meta = response.get("meta")
         if meta is not None:
             meta.update(

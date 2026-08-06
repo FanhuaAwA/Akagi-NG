@@ -9,6 +9,7 @@
 - 系统区域语言 (Locale) 的自动检测逻辑 (Windows/Python fallback)。
 """
 
+import json
 import sys
 import unittest
 from unittest.mock import mock_open, patch
@@ -18,6 +19,7 @@ import pytest
 from akagi_ng.settings.settings import (
     DEFAULT_FLYA_SERVER,
     DEFAULT_OT3_SERVER,
+    SCHEMA_PATH,
     SETTINGS_JSON_PATH,
     MihomoConfig,
     MITMConfig,
@@ -50,6 +52,11 @@ class TestSettingsDataclasses(unittest.TestCase):
         self.assertEqual(config.model_for(True), "")
         self.assertFalse(config.proxy_enabled)
         self.assertEqual(config.effective_proxy(), "")
+
+    def test_bundled_startup_defaults_match_backend_defaults(self):
+        bundled = json.loads((SCHEMA_PATH.parent / "settings.default.json").read_text(encoding="utf-8"))
+
+        self.assertEqual(bundled, get_default_settings_dict())
 
     def test_mitm_config_creation(self):
         config = MITMConfig(enabled=True, host="127.0.0.1", port=6789, upstream="")
@@ -213,7 +220,31 @@ class TestSettingsLifecycle(unittest.TestCase):
         self.assertTrue(verify_settings(legacy))
         settings = Settings.from_dict(legacy)
         self.assertFalse(settings.autoplay.enabled)
-        self.assertEqual(settings.autoplay.timing.first_tile, 5.0)
+        self.assertEqual(settings.autoplay.timing.first_discard.max, 5.0)
+
+    def test_old_lua_timing_is_migrated_to_visual_advanced_mode(self):
+        legacy = get_default_settings_dict()
+        legacy["autoplay"]["delay_mode"] = "lua"
+        legacy["autoplay"]["timing"] = {
+            "first_tile": 4.0,
+            "rand_min": 1.25,
+            "rand_max": 2.75,
+            "candidate": 0.6,
+        }
+        legacy["autoplay"].pop("advanced_timing")
+
+        self.assertTrue(verify_settings(legacy))
+        settings = Settings.from_dict(legacy)
+        self.assertEqual(settings.autoplay.delay_mode, "advanced")
+        self.assertEqual(settings.autoplay.timing.first_discard.min, 4.0)
+        self.assertEqual(settings.autoplay.timing.discard.max, 2.75)
+        self.assertEqual(settings.autoplay.advanced_timing.ron.min, 0.3)
+
+    def test_autoplay_range_minimum_cannot_exceed_maximum(self):
+        invalid = get_default_settings_dict()
+        invalid["autoplay"]["advanced_timing"]["ron"] = {"min": 3.0, "max": 1.0}
+
+        self.assertFalse(verify_settings(invalid))
 
     def test_deprecated_dashboard_privacy_settings_are_ignored(self):
         legacy = get_default_settings_dict()

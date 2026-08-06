@@ -41,6 +41,40 @@ export interface StartupConfig {
   settings: Record<string, unknown>;
 }
 
+const BLOCKED_SETTINGS_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
+
+function isSettingsObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+/**
+ * Fill fields added by newer releases without discarding any existing user
+ * values. The Python backend performs the durable, semantic migration later;
+ * this merge only guarantees that the renderer's first frame has a complete
+ * shape while the backend is still starting.
+ */
+export function mergeStartupSettings(
+  defaults: Record<string, unknown>,
+  current: Record<string, unknown>,
+): Record<string, unknown> {
+  const merged: Record<string, unknown> = {};
+  for (const [key, defaultValue] of Object.entries(defaults)) {
+    if (BLOCKED_SETTINGS_KEYS.has(key)) continue;
+    merged[key] = isSettingsObject(defaultValue)
+      ? mergeStartupSettings(defaultValue, {})
+      : structuredClone(defaultValue);
+  }
+  for (const [key, currentValue] of Object.entries(current)) {
+    if (BLOCKED_SETTINGS_KEYS.has(key)) continue;
+    const defaultValue = defaults[key];
+    merged[key] =
+      isSettingsObject(defaultValue) && isSettingsObject(currentValue)
+        ? mergeStartupSettings(defaultValue, currentValue)
+        : structuredClone(currentValue);
+  }
+  return merged;
+}
+
 import {
   BACKEND_READY_TIMEOUT_MS,
   BACKEND_SHUTDOWN_API_TIMEOUT_MS,
@@ -80,7 +114,7 @@ export class BackendManager {
         if ((error as NodeJS.ErrnoException).code !== 'ENOENT' || !app.isPackaged) throw error;
         // Python performs the durable first-run migration. This fallback keeps
         // pre-backend desktop settings correct during the same startup race.
-        fileContent = await readFile(getAssetPath('config', 'settings.json'), 'utf8');
+        fileContent = await readFile(getAssetPath('assets', 'settings.default.json'), 'utf8');
       }
       return JSON.parse(fileContent) as AppSettings;
     } catch (err) {
@@ -97,7 +131,7 @@ export class BackendManager {
       if (app.isPackaged) {
         try {
           return JSON.parse(
-            await readFile(getAssetPath('config', 'settings.json'), 'utf8'),
+            await readFile(getAssetPath('assets', 'settings.default.json'), 'utf8'),
           ) as AppSettings;
         } catch (fallbackError) {
           logger.warn(
@@ -146,7 +180,19 @@ export class BackendManager {
 
   public async getStartupConfig(): Promise<StartupConfig> {
     const settings = await this.getSettings();
-    const publicSettings = structuredClone(settings) as Record<string, unknown>;
+    let startupSettings = settings as Record<string, unknown>;
+    try {
+      const bundledDefaults = JSON.parse(
+        await readFile(getAssetPath('assets', 'settings.default.json'), 'utf8'),
+      ) as Record<string, unknown>;
+      startupSettings = mergeStartupSettings(bundledDefaults, startupSettings);
+    } catch (error) {
+      logger.warn(
+        'Failed to normalize startup settings with bundled defaults:',
+        error instanceof Error ? error.message : String(error),
+      );
+    }
+    const publicSettings = structuredClone(startupSettings);
     const ot = publicSettings.ot;
     if (ot && typeof ot === 'object' && !Array.isArray(ot)) {
       const publicOt = ot as Record<string, unknown>;

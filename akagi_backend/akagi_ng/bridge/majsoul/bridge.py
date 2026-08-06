@@ -52,6 +52,16 @@ class MajsoulBridge(BaseBridge):
         step = wrapper.get("step")
         operation = payload.get("operation")
         if not operation:
+            action_name = wrapper.get("name")
+            is_self_discard_window = action_name == "ActionDealTile" and int(payload.get("seat", -1)) == self.seat
+            is_dealer_opening_window = (
+                action_name == "ActionNewRound" and len(payload.get("tiles", [])) == MahjongConstants.TSUMO_TEHAI_SIZE
+            )
+            if is_self_discard_window or is_dealer_opening_window:
+                self.latest_self_operation_list = []
+                self.latest_operation_step = int(step) if step is not None else None
+                logger.debug(f"[Majsoul] Captured implicit discard window at step={self.latest_operation_step}")
+                return
             # Majsoul only sends self operationList while the decision window is active.
             # Once a later action arrives without operation data, the previous self-operation
             # window has expired and stale buttons must be cleared for autoplay retry logic.
@@ -62,6 +72,7 @@ class MajsoulBridge(BaseBridge):
 
         seat = int(operation.get("seat", -1))
         if seat != self.seat:
+            self._clear_self_operation_state()
             return
 
         operation_list = operation.get("operationList", operation.get("operation_list", []))
@@ -504,7 +515,26 @@ class MajsoulBridge(BaseBridge):
             return self._parse_auth_game_res(liqi_message)
         return []
 
-    def parse_liqi(self, liqi_message: dict) -> list[MJAIEvent]:
+    def _parse_lobby_lifecycle(
+        self, method: str, msg_type: MsgType, data: dict
+    ) -> list[AkagiEvent] | None:
+        # A socket exists before the menu is usable. Only an authenticated
+        # lobby response may authorize initial auto-join navigation.
+        if method in {".lq.Lobby.login", ".lq.Lobby.oauth2Login"} and msg_type == MsgType.Res:
+            account = data.get("account") or {}
+            account_id = data.get("accountId") or account.get("accountId") or 0
+            if int(account_id) > 0:
+                return [self.make_system_event(NotificationCode.LOBBY_READY)]
+            return []
+
+        # Cancel lobby coordinate input as soon as matchmaking is submitted.
+        is_match_response = method == ".lq.Lobby.matchGame" and msg_type == MsgType.Res
+        is_match_start = method == ".lq.NotifyMatchGameStart" and msg_type == MsgType.Notify
+        if is_match_response or is_match_start:
+            return [self.make_system_event(NotificationCode.MATCHING_STARTED)]
+        return None
+
+    def parse_liqi(self, liqi_message: dict) -> list[AkagiEvent]:
         """解析Liqi协议消息"""
         if not liqi_message:
             return []
@@ -515,7 +545,11 @@ class MajsoulBridge(BaseBridge):
             case _:
                 return []
 
-        result: list[MJAIEvent] = []
+        result: list[AkagiEvent] = []
+
+        lifecycle_result = self._parse_lobby_lifecycle(method, msg_type, data)
+        if lifecycle_result is not None:
+            return lifecycle_result
 
         match (method, msg_type):
             # 游戏同步（重连）

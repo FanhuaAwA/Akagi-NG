@@ -5,10 +5,12 @@ import time
 from collections.abc import Callable
 from dataclasses import dataclass
 
+from akagi_ng.autoplay.autojoin import AutoJoinManager
 from akagi_ng.autoplay.executor import WindowsInputExecutor
 from akagi_ng.autoplay.planner import ActionPlanner, PlannedClick
 from akagi_ng.core.logging import logger as base_logger
 from akagi_ng.schema.constants import Platform
+from akagi_ng.schema.notifications import NotificationCode
 from akagi_ng.schema.protocols import StateTrackerProtocol
 from akagi_ng.settings import local_settings
 
@@ -35,11 +37,52 @@ class AutoPlayManager:
         self._task: threading.Thread | None = None
         self._stop_event = threading.Event()
         self._lock = threading.Lock()
+        self._decision_started_at = time.monotonic()
+        self._auto_join = AutoJoinManager(runtime_provider, self._executor)
+        self._game_active = False
+        self._lobby_ready_seen = False
 
     def observe_event(self, event: object) -> None:
+        self._decision_started_at = time.monotonic()
         self._planner.observe_event(event)
-        if getattr(event, "type", None) in {"start_game", "start_kyoku", "end_kyoku", "end_game"}:
+        event_type = getattr(event, "type", None)
+        if event_type == "end_game":
+            self._game_active = False
+            self._lobby_ready_seen = False
+            self._stop_action_task()
+            self._auto_join.schedule()
+        elif event_type in {"start_game", "start_kyoku"}:
+            self._game_active = True
+            self._lobby_ready_seen = False
             self.stop()
+        elif event_type == "end_kyoku":
+            # A hand result is still inside the current game.
+            self._game_active = True
+            self.stop()
+
+    def observe_system_event(self, code: NotificationCode | str) -> None:
+        if code == NotificationCode.CLIENT_CONNECTED:
+            # WebSocket creation can happen on the unlock/title screen.
+            self._lobby_ready_seen = False
+            self._auto_join.stop()
+        elif code == NotificationCode.LOBBY_READY:
+            if self._game_active:
+                logger.info("Ignored lobby-ready event while a game is active.")
+                return
+            if self._lobby_ready_seen:
+                logger.debug("Ignored duplicate lobby-ready event.")
+                return
+            self._lobby_ready_seen = True
+            self._auto_join.schedule(initial_lobby=True)
+        elif code == NotificationCode.MATCHING_STARTED:
+            self._lobby_ready_seen = False
+            self._auto_join.stop()
+        elif code == NotificationCode.GAME_DISCONNECTED:
+            self._game_active = False
+            self._lobby_ready_seen = False
+            self._auto_join.stop()
+        elif code == NotificationCode.RETURN_LOBBY:
+            self._game_active = False
 
     def execute(self, response: dict | None, tracker: StateTrackerProtocol | None) -> bool:
         if not local_settings.autoplay.enabled or response is None or tracker is None:
@@ -58,6 +101,8 @@ class AutoPlayManager:
             tracker.last_self_tsumo,
             player_state=tracker.player_state,
             last_kawa_tile=tracker.last_kawa_tile,
+            elapsed_seconds=max(0.0, time.monotonic() - self._decision_started_at),
+            require_live_operations=runtime.platform == Platform.MAJSOUL,
         )
         if not plan:
             logger.warning(
@@ -93,13 +138,17 @@ class AutoPlayManager:
         return True
 
     def stop(self) -> None:
+        self._stop_action_task()
+        self._auto_join.stop()
+
+    def _stop_action_task(self) -> None:
         with self._lock:
             if self._task and self._task.is_alive():
                 self._stop_event.set()
                 self._task.join(timeout=0.2)
             self._task = None
 
-    def _run_plan(  # noqa: PLR0911
+    def _run_plan(  # noqa: C901, PLR0911, PLR0912
         self,
         plan: list[PlannedClick],
         runtime: AutoPlayRuntime,
@@ -110,12 +159,14 @@ class AutoPlayManager:
             logger.warning("Autoplay aborted: target window not found.")
             return
 
-        self._executor.focus_target_window()
+        if not self._executor.focus_target_window():
+            logger.warning("Autoplay aborted: target window could not be focused.")
+            return
         for click in plan:
             if not self._sleep(click.delay, stop_event):
                 logger.debug(f"Autoplay cancelled during delay for {click.label}.")
                 return
-            if click.requires_operation_step and operation_step is not None:
+            if operation_step is not None:
                 current_step = runtime.get_operation_step()
                 if current_step != operation_step:
                     logger.info(
@@ -123,6 +174,10 @@ class AutoPlayManager:
                         f"({operation_step} -> {current_step})."
                     )
                     return
+
+            if not self._executor.ensure_target_window(runtime.platform, runtime.window_keyword):
+                logger.warning(f"Autoplay aborted: target window changed before {click.label}.")
+                return
 
             geometry = self._executor.get_target_geometry()
             if geometry is None:
@@ -139,19 +194,39 @@ class AutoPlayManager:
                 f"geometry=({geometry.left},{geometry.top},{geometry.width},{geometry.height}) "
                 f"expected_types={click.expected_types}"
             )
-            if not self._executor.move_to(target, cancel_requested=stop_event.is_set):
+            if not self._executor.move_to(
+                target,
+                cancel_requested=lambda: self._cancel_requested(stop_event),
+            ):
                 logger.info(f"Autoplay aborted during cursor movement for {click.label}.")
                 return
-            if stop_event.is_set():
+            if self._cancel_requested(stop_event):
                 logger.debug(f"Autoplay stop requested before click {click.label}.")
                 return
 
-            self._executor.focus_target_window()
+            if operation_step is not None:
+                current_step = runtime.get_operation_step()
+                if current_step != operation_step:
+                    logger.info(
+                        f"Autoplay aborted after cursor movement: operation step changed for {click.label} "
+                        f"({operation_step} -> {current_step})."
+                    )
+                    return
+
+            if not self._executor.focus_target_window():
+                logger.warning(f"Autoplay aborted: target window could not be focused for {click.label}.")
+                return
             if not self._executor.click_with_retry(
                 target,
                 click.expected_types,
-                runtime.get_operation_list if runtime.platform == Platform.MAJSOUL else None,
-                cancel_requested=stop_event.is_set,
+                runtime.get_operation_list
+                if runtime.platform == Platform.MAJSOUL and click.verify_operation_clear
+                else None,
+                get_operation_step=runtime.get_operation_step
+                if runtime.platform == Platform.MAJSOUL and click.verify_operation_clear
+                else None,
+                expected_step=operation_step,
+                cancel_requested=lambda: self._cancel_requested(stop_event),
             ):
                 logger.warning(
                     f"Autoplay click did not resolve expected operation for {click.label}: {click.expected_types}"
@@ -162,9 +237,12 @@ class AutoPlayManager:
     def _sleep(self, delay: float, stop_event: threading.Event) -> bool:
         deadline = time.time() + max(delay, 0.0)
         while time.time() < deadline:
-            if stop_event.wait(timeout=0.05):
+            if stop_event.wait(timeout=0.05) or not local_settings.autoplay.enabled:
                 return False
-        return not stop_event.is_set()
+        return not self._cancel_requested(stop_event)
+
+    def _cancel_requested(self, stop_event: threading.Event) -> bool:
+        return stop_event.is_set() or not local_settings.autoplay.enabled
 
     def _describe_response(self, response: dict | None) -> str:
         if not response:
@@ -195,6 +273,7 @@ class AutoPlayManager:
                 "delay": round(click.delay, 3),
                 "expected_types": click.expected_types,
                 "requires_step": click.requires_operation_step,
+                "verify_clear": click.verify_operation_clear,
             }
             for click in plan
         ]

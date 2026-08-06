@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 
-import { BackendManager } from '../electron/src/backend-manager';
+import { BackendManager, mergeStartupSettings } from '../electron/src/backend-manager';
 import { MihomoManager } from '../electron/src/mihomo-manager';
 import { buildProxyRules, normalizeProxyHost } from '../electron/src/proxy-endpoint';
 
@@ -17,6 +17,7 @@ const mihomoSource = source('electron/src/mihomo-manager.ts');
 const tunHelperSource = source('electron/src/windows-tun-helper.ts');
 const windowSource = source('electron/src/window-manager.ts');
 const utilsSource = source('electron/src/utils.ts');
+const loggerSource = source('electron/src/logger.ts');
 const appSource = source('akagi_frontend/src/App.tsx');
 const exitOverlaySource = source('akagi_frontend/src/components/ExitOverlay.tsx');
 const frontendConstants = source('akagi_frontend/src/config/constants.ts');
@@ -59,8 +60,41 @@ assert.match(prodSource, /PYTHONDONTWRITEBYTECODE: '1'/);
 assert.match(prodSource, /AKAGI_USER_DATA_DIR: getUserDataRoot\(\)/);
 assert.match(backendSource, /join\(getUserDataRoot\(\), 'config', 'settings\.json'\)/);
 assert.match(backendSource, /public async getStartupConfig\(\)/);
+assert.match(backendSource, /mergeStartupSettings\(bundledDefaults, startupSettings\)/);
+assert.match(backendSource, /getAssetPath\('assets', 'settings\.default\.json'\)/);
 assert.match(mainSource, /initializeLogger\(join\(getUserDataRoot\(\), 'logs'\)\)/);
 assert.match(utilsSource, /app\.getPath\('userData'\)/);
+assert.match(loggerSource, /function safeConsoleWrite/);
+assert.match(loggerSource, /process\.stdout\?\.on\('error', disableBrokenConsole\)/);
+assert.match(loggerSource, /process\.stderr\?\.on\('error', disableBrokenConsole\)/);
+assert.doesNotMatch(loggerSource, /originalConsole\.(?:log|info|warn|error|debug)\(/);
+
+const mergedLegacySettings = mergeStartupSettings(
+  {
+    autoplay: {
+      enabled: false,
+      timing: { first_discard: { min: 2, max: 5 } },
+      advanced_timing: { ron: { min: 0.3, max: 1 } },
+      auto_join: { enabled: false, room: 'gold' },
+    },
+  },
+  {
+    autoplay: {
+      enabled: true,
+      timing: { first_tile: 3.2, rand_min: 0.3, rand_max: 2.45 },
+    },
+  },
+);
+const mergedAutoplay = mergedLegacySettings.autoplay as Record<string, unknown>;
+assert.equal(mergedAutoplay.enabled, true, 'Existing autoplay values must win over defaults.');
+assert.deepEqual(mergedAutoplay.auto_join, { enabled: false, room: 'gold' });
+assert.deepEqual(mergedAutoplay.advanced_timing, { ron: { min: 0.3, max: 1 } });
+assert.deepEqual(mergedAutoplay.timing, {
+  first_discard: { min: 2, max: 5 },
+  first_tile: 3.2,
+  rand_min: 0.3,
+  rand_max: 2.45,
+});
 const resourceCheckAwait = prodSource.indexOf('await this.getResourceStatus()');
 const postCheckCancellation = prodSource.indexOf('if (this.isClosing)', resourceCheckAwait);
 const productionSpawn = prodSource.indexOf('spawn(pythonExecutable');

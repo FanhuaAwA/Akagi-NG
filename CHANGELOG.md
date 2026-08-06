@@ -4,6 +4,68 @@ All notable changes to Akagi-NG are documented in this file.
 
 ## [Unreleased]
 
+## [1.2.1] - 2026-08-07
+
+### Added
+
+- Added a dedicated automation page that separates automatic play from the
+  general settings page and provides per-action minimum/maximum delay sliders
+  for discards, riichi, calls, kans, wins, abortive draws, kita, skip, and
+  candidate selection.
+- Added built-in humanized timing ranges and real-time timing updates without
+  routine save notifications. Changing or enabling the timing model still
+  produces an explicit notification.
+- Added HTTP interception records to the Log page, including sanitized request
+  and response metadata for inspecting Mahjong Soul telemetry.
+- Added sanitized FlyA HTTP diagnostics for decision, model-list, quota, and key
+  activation requests. Logs include endpoint, attempt, status, latency, safe
+  error code, request/session IDs, sequence bounds, and state digest without API
+  keys or authorization headers.
+- Added delayed hover labels for the automation, settings, plugins, and logs
+  navigation buttons.
+
+### Fixed
+
+- Rewrote Firefox-family MITM certificate metadata so Akagi's CA identity is no
+  longer exposed directly in Mahjong Soul telemetry. Chromium users remain
+  outside the affected certificate-reporting path.
+- Fixed mandatory actions becoming `none` when FlyA returns
+  `decision_not_required`, `state_replay_incomplete`, or
+  `state_replay_invalid`. Akagi now immediately replays the hand through local
+  Mortal, uses that decision, rotates the FlyA session, and sends the complete
+  observed event stream on the next request.
+- Fixed FlyA suppression logs losing the server error code, which previously
+  made state synchronization failures look like generic connectivity failures.
+- Hardened automatic-play input against early, late, stale, and incorrect
+  clicks by validating the live Mahjong Soul operation step before and after
+  cursor movement, checking target-window ownership, waiting for UI readiness,
+  and verifying that actionable operation buttons clear after a click.
+- Fixed riichi automation so selecting riichi is followed by the required tile
+  discard, and improved handling for pon, chi, kan, kita, win, draw, and skip
+  operation buttons.
+- Notifications can now be dismissed immediately by clicking them.
+- Added a packaged default-settings fallback so older or incomplete settings no
+  longer cause `Cannot read properties of undefined (reading 'enabled')`.
+- Fixed an Electron main-process crash caused by `EPIPE` when a launcher or
+  terminal closed its inherited stdout/stderr pipe while mihomo was still
+  emitting logs. Console output now fails closed while file logging continues.
+
+### Changed
+
+- Automatic join is temporarily hard-disabled in both backend and frontend.
+  Stale configurations containing `enabled=true` are ignored and cannot start a
+  background click task while reliable lobby/result-screen recognition is being
+  completed.
+- Timing-only automatic-play changes apply immediately and silently; functional
+  mode changes retain user-visible feedback.
+
+### Verification
+
+- Added regression coverage for FlyA suppression fallback/session rebuilding,
+  sanitized HTTP diagnostics, automatic-join hard disablement, operation-step
+  validation, per-action timing, settings migration, certificate rewriting, and
+  HTTP capture.
+
 ## [1.2.0] - 2026-08-05
 
 ### Added
@@ -214,4 +276,5 @@ All notable changes to Akagi-NG are documented in this file.
 [1.1.0]: https://github.com/FanhuaAwA/Akagi-NG/releases/tag/v1.1.0
 [1.1.2]: https://github.com/FanhuaAwA/Akagi-NG/releases/tag/v1.1.2
 [1.2.0]: https://github.com/FanhuaAwA/Akagi-NG/compare/v1.1.2...v1.2.0
-[Unreleased]: https://github.com/FanhuaAwA/Akagi-NG/compare/v1.2.0...HEAD
+[1.2.1]: https://github.com/FanhuaAwA/Akagi-NG/compare/v1.2.0...v1.2.1
+[Unreleased]: https://github.com/FanhuaAwA/Akagi-NG/compare/v1.2.1...HEAD

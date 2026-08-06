@@ -1,4 +1,5 @@
 import {
+  Bot,
   Copy,
   ExternalLink,
   Globe,
@@ -6,10 +7,12 @@ import {
   PictureInPicture,
   Puzzle,
   RefreshCw,
+  ScrollText,
   SettingsIcon,
   Square,
   X,
 } from 'lucide-react';
+import type { ComponentProps } from 'react';
 import { use, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
@@ -24,11 +27,31 @@ import { GameContext } from '@/contexts/GameContext';
 import { useTheme } from '@/hooks/useTheme';
 import { cn } from '@/lib/utils';
 
+type HeaderFeatureButtonProps = Omit<ComponentProps<typeof HeaderIconButton>, 'title'> & {
+  tooltip: string;
+};
+
+function HeaderFeatureButton({ tooltip, ...props }: HeaderFeatureButtonProps) {
+  return (
+    <div className='group relative flex h-full items-center'>
+      <HeaderIconButton {...props} />
+      <span
+        role='tooltip'
+        className='pointer-events-none invisible absolute top-[calc(100%+0.4rem)] left-1/2 z-50 -translate-x-1/2 -translate-y-1 rounded-md bg-zinc-900/90 px-2 py-1 text-xs font-medium whitespace-nowrap text-white opacity-0 shadow-lg backdrop-blur-sm transition-[opacity,transform,visibility] delay-0 duration-150 group-focus-within:visible group-focus-within:translate-y-0 group-focus-within:opacity-100 group-hover:visible group-hover:translate-y-0 group-hover:opacity-100 group-hover:delay-500 dark:bg-zinc-100/90 dark:text-zinc-900'
+      >
+        {tooltip}
+      </span>
+    </div>
+  );
+}
+
 interface HeaderProps {
   isLaunching: boolean;
   isLaunchDisabled?: boolean;
   onLaunch: () => void;
   onOpenSettings: () => void;
+  onOpenAutoplay: () => void;
+  onOpenLogs: () => void;
   onOpenPlugins: () => void;
   locale?: string;
   onLocaleChange?: (locale: string) => void;
@@ -44,6 +67,8 @@ function HeaderContent({
   isLaunchDisabled = false,
   onLaunch,
   onOpenSettings,
+  onOpenAutoplay,
+  onOpenLogs,
   onOpenPlugins,
   locale,
   onLocaleChange,
@@ -120,17 +145,35 @@ function HeaderContent({
           <ThemeToggle theme={theme} setTheme={setTheme} />
 
           {/* Settings Button */}
-          <HeaderIconButton
+          <HeaderFeatureButton
             icon={Puzzle}
             onClick={onOpenPlugins}
             aria-label={t('plugins.open')}
+            tooltip={t('plugins.title')}
             disabled={controlsDisabled}
           />
 
-          <HeaderIconButton
+          <HeaderFeatureButton
+            icon={Bot}
+            onClick={onOpenAutoplay}
+            aria-label={t('autoplay_page.open')}
+            tooltip={t('autoplay_page.title')}
+            disabled={controlsDisabled}
+          />
+
+          <HeaderFeatureButton
+            icon={ScrollText}
+            onClick={onOpenLogs}
+            aria-label={t('logs_page.open')}
+            tooltip={t('logs_page.title')}
+            disabled={controlsDisabled}
+          />
+
+          <HeaderFeatureButton
             icon={SettingsIcon}
             onClick={onOpenSettings}
             aria-label='Open settings'
+            tooltip={t('app.settings_title')}
             disabled={controlsDisabled}
           />
 

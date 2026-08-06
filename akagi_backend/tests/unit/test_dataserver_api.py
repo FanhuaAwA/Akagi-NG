@@ -376,6 +376,21 @@ async def test_save_settings_triggers_cache_clear(cli):
         mock_clear.assert_called_once()
 
 
+async def test_autoplay_only_save_keeps_loaded_model_cache(cli):
+    current = {"autoplay": {"enabled": False}}
+    updated = {"autoplay": {"enabled": True}}
+    with (
+        patch("akagi_ng.dataserver.api.verify_settings", return_value=True),
+        patch("akagi_ng.dataserver.api.local_settings"),
+        patch("akagi_ng.dataserver.api.clear_resource_cache") as mock_clear,
+        patch("akagi_ng.dataserver.api.get_settings_dict", side_effect=[current, updated]),
+    ):
+        resp = await cli.post("/api/settings", json=updated)
+
+    assert resp.status == 200
+    mock_clear.assert_not_called()
+
+
 async def test_reset_settings_triggers_cache_clear(cli):
     """验证重置设置时会触发缓存清理"""
     with (

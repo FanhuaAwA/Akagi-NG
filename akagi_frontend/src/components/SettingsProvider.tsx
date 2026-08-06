@@ -15,6 +15,12 @@ import type { Paths, PathValue, Settings } from '@/types';
 // --- 类型与归约器 ---
 
 type SaveStatus = 'saved' | 'saving' | 'error';
+type SaveFeedback = 'progress' | 'success' | 'silent';
+
+interface SaveOptions {
+  delayMs: number;
+  feedback: SaveFeedback;
+}
 
 interface State {
   settings: Settings;
@@ -132,7 +138,6 @@ export function SettingsProvider({
   const { settings, saveStatus, restartRequired, isRestored, availableModels } = state;
 
   const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const toastIdRef = useRef<string | number | null>(null);
   const saveSeqRef = useRef(0);
 
   // --- Effects ---
@@ -182,24 +187,21 @@ export function SettingsProvider({
 
   // --- 核心方法 ---
 
-  const triggerSave = useCallback((nextSettings: Settings) => {
+  const triggerSave = useCallback((nextSettings: Settings, options: SaveOptions) => {
+    const currentSaveId = ++saveSeqRef.current;
     const performSave = async () => {
-      const currentSaveId = ++saveSeqRef.current;
       dispatch({ type: 'SET_SAVE_STATUS', status: 'saving' });
 
       // 提示弹窗
-      if (toastIdRef.current) {
-        notify.update(toastIdRef.current, {
-          render: i18n.t('settings.status_saving'),
-          isLoading: true,
-        });
-      } else {
-        toastIdRef.current = notify.loading(i18n.t('settings.status_saving'));
-      }
+      const toastId =
+        options.feedback === 'progress' ? notify.loading(i18n.t('settings.status_saving')) : null;
 
       try {
         const result = await saveSettingsApi(nextSettings);
-        if (currentSaveId !== saveSeqRef.current) return;
+        if (currentSaveId !== saveSeqRef.current) {
+          if (toastId !== null) notify.dismiss(toastId);
+          return;
+        }
         if (result.restartRequired) dispatch({ type: 'SET_RESTART_REQUIRED' });
         if (result.proxyChanged) {
           try {
@@ -227,34 +229,39 @@ export function SettingsProvider({
         if (result.data) dispatch({ type: 'INIT_SYNC', payload: result.data });
 
         dispatch({ type: 'SET_SAVE_STATUS', status: 'saved' });
-        if (toastIdRef.current !== null) {
-          notify.update(toastIdRef.current, {
+        if (toastId !== null) {
+          notify.update(toastId, {
             render: i18n.t('settings.status_saved'),
             type: 'success',
             isLoading: false,
             autoClose: 2000,
           });
-          toastIdRef.current = null;
+        } else if (options.feedback === 'success') {
+          notify.success(i18n.t('settings.status_saved'), { autoClose: 2000 });
         }
       } catch (e) {
-        if (currentSaveId !== saveSeqRef.current) return;
+        if (currentSaveId !== saveSeqRef.current) {
+          if (toastId !== null) notify.dismiss(toastId);
+          return;
+        }
         console.error('Save error:', e);
         dispatch({ type: 'SET_SAVE_STATUS', status: 'error' });
-        if (toastIdRef.current !== null) {
-          notify.update(toastIdRef.current, {
+        if (toastId !== null) {
+          notify.update(toastId, {
             render: i18n.t('settings.status_error'),
             type: 'error',
             isLoading: false,
             autoClose: TOAST_DURATION_DEFAULT,
           });
-          toastIdRef.current = null;
+        } else {
+          notify.error(i18n.t('settings.status_error'));
         }
       }
     };
 
     // 防抖逻辑
     if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
-    debounceTimerRef.current = setTimeout(performSave, SETTINGS_DEBOUNCE_MS);
+    debounceTimerRef.current = setTimeout(performSave, options.delayMs);
   }, []);
 
   // --- 对外接口 ---
@@ -297,12 +304,15 @@ export function SettingsProvider({
         window.electron.updateLocale(value).catch(console.error);
       }
 
-      if (shouldDebounce) {
-        triggerSave(nextSettings as unknown as Settings);
-      } else {
-        // 立即保存时我们走防抖为 0 即可
-        triggerSave(nextSettings as unknown as Settings);
-      }
+      const autoplayChange = path[0] === 'autoplay';
+      const importantAutoplayChange =
+        autoplayChange && (path[1] === 'enabled' || path[1] === 'delay_mode');
+      const saveOptions: SaveOptions = {
+        delayMs: autoplayChange ? (shouldDebounce ? 150 : 0) : SETTINGS_DEBOUNCE_MS,
+        feedback: autoplayChange ? (importantAutoplayChange ? 'success' : 'silent') : 'progress',
+      };
+
+      triggerSave(nextSettings as unknown as Settings, saveOptions);
     },
     [settings, triggerSave],
   );
@@ -328,11 +338,16 @@ export function SettingsProvider({
         window.electron.updateLocale(newLocale).catch(console.error);
       }
 
-      if (shouldDebounce) {
-        triggerSave(nextSettings as unknown as Settings);
-      } else {
-        triggerSave(nextSettings as unknown as Settings);
-      }
+      const autoplayOnly = updates.every(({ path }) => path[0] === 'autoplay');
+      const importantAutoplayChange = updates.some(
+        ({ path }) => path[0] === 'autoplay' && (path[1] === 'enabled' || path[1] === 'delay_mode'),
+      );
+      const saveOptions: SaveOptions = {
+        delayMs: autoplayOnly ? (shouldDebounce ? 150 : 0) : SETTINGS_DEBOUNCE_MS,
+        feedback: autoplayOnly ? (importantAutoplayChange ? 'success' : 'silent') : 'progress',
+      };
+
+      triggerSave(nextSettings as unknown as Settings, saveOptions);
     },
     [settings, triggerSave],
   );

@@ -1,5 +1,16 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
+  "definitions": {
+    "delayRange": {
+      "type": "object",
+      "properties": {
+        "min": { "type": "number", "minimum": 0.0, "maximum": 15.0 },
+        "max": { "type": "number", "minimum": 0.0, "maximum": 15.0 }
+      },
+      "required": ["min", "max"],
+      "additionalProperties": false
+    }
+  },
   "type": "object",
   "required": [
     "log_level",
@@ -314,36 +325,64 @@
           "default": "",
           "description": "Optional custom window title keyword used to locate the target game window."
         },
+        "delay_mode": {
+          "type": "string",
+          "enum": ["human", "advanced", "lua", "legacy"],
+          "default": "human",
+          "description": "Built-in humanized or per-action advanced autoplay timing. Lua and legacy values are accepted only for migration."
+        },
         "timing": {
-          "type": "object",
-          "description": "Timing settings for autoplay actions.",
-          "properties": {
-            "first_tile": {
-              "type": "number",
-              "default": 5.0,
-              "minimum": 0.0,
-              "maximum": 15.0
+          "description": "Built-in timing bounds. The second branch accepts pre-range settings for migration.",
+          "oneOf": [
+            {
+              "type": "object",
+              "properties": {
+                "first_discard": { "$ref": "#/definitions/delayRange" },
+                "discard": { "$ref": "#/definitions/delayRange" },
+                "button": { "$ref": "#/definitions/delayRange" },
+                "candidate": { "$ref": "#/definitions/delayRange" }
+              },
+              "required": ["first_discard", "discard", "button", "candidate"],
+              "additionalProperties": false
             },
-            "rand_min": {
-              "type": "number",
-              "default": 1.0,
-              "minimum": 0.0,
-              "maximum": 10.0
-            },
-            "rand_max": {
-              "type": "number",
-              "default": 3.0,
-              "minimum": 0.0,
-              "maximum": 10.0
-            },
-            "candidate": {
-              "type": "number",
-              "default": 0.5,
-              "minimum": 0.0,
-              "maximum": 5.0
+            {
+              "type": "object",
+              "properties": {
+                "first_tile": { "type": "number", "minimum": 0.0, "maximum": 15.0 },
+                "rand_min": { "type": "number", "minimum": 0.0, "maximum": 10.0 },
+                "rand_max": { "type": "number", "minimum": 0.0, "maximum": 10.0 },
+                "candidate": { "type": "number", "minimum": 0.0, "maximum": 5.0 }
+              },
+              "required": ["first_tile", "rand_min", "rand_max", "candidate"],
+              "additionalProperties": false
             }
+          ]
+        },
+        "advanced_timing": {
+          "type": "object",
+          "description": "Independent delay bounds for every supported autoplay action.",
+          "properties": {
+            "first_discard": { "$ref": "#/definitions/delayRange" },
+            "discard": { "$ref": "#/definitions/delayRange" },
+            "tsumogiri": { "$ref": "#/definitions/delayRange" },
+            "reach": { "$ref": "#/definitions/delayRange" },
+            "reach_discard": { "$ref": "#/definitions/delayRange" },
+            "chi": { "$ref": "#/definitions/delayRange" },
+            "pon": { "$ref": "#/definitions/delayRange" },
+            "daiminkan": { "$ref": "#/definitions/delayRange" },
+            "ankan": { "$ref": "#/definitions/delayRange" },
+            "kakan": { "$ref": "#/definitions/delayRange" },
+            "ron": { "$ref": "#/definitions/delayRange" },
+            "tsumo": { "$ref": "#/definitions/delayRange" },
+            "ryukyoku": { "$ref": "#/definitions/delayRange" },
+            "nukidora": { "$ref": "#/definitions/delayRange" },
+            "skip": { "$ref": "#/definitions/delayRange" },
+            "candidate": { "$ref": "#/definitions/delayRange" }
           },
-          "required": ["first_tile", "rand_min", "rand_max", "candidate"],
+          "required": [
+            "first_discard", "discard", "tsumogiri", "reach", "reach_discard", "chi", "pon",
+            "daiminkan", "ankan", "kakan", "ron", "tsumo", "ryukyoku", "nukidora", "skip", "candidate"
+          ],
           "additionalProperties": false
         },
         "input": {
@@ -364,6 +403,34 @@
             }
           },
           "required": ["bezier_smoothing", "bezier_steps"],
+          "additionalProperties": false
+        },
+        "auto_join": {
+          "type": "object",
+          "description": "Automatically join a selected Mahjong Soul ranked room and match mode after a game ends.",
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "default": false
+            },
+            "room": {
+              "type": "string",
+              "enum": ["copper", "silver", "gold", "jade", "throne"],
+              "default": "gold"
+            },
+            "mode": {
+              "type": "string",
+              "enum": ["four_east", "four_south", "three_east", "three_south"],
+              "default": "four_south"
+            },
+            "result_delay": {
+              "type": "number",
+              "default": 10.0,
+              "minimum": 5.0,
+              "maximum": 60.0
+            }
+          },
+          "required": ["enabled", "room", "mode", "result_delay"],
           "additionalProperties": false
         }
       },

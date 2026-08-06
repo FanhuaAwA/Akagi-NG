@@ -16,6 +16,7 @@ let fileStream: WriteStream | null = null;
 let logFilePath: string = '';
 let currentBytesWritten = 0;
 let currentLogsDir = '';
+let consoleOutputAvailable = true;
 
 const MAX_LOG_SIZE = 10 * 1024 * 1024; // 10 MB
 
@@ -27,6 +28,28 @@ const originalConsole = {
   error: console.error,
   debug: console.debug,
 };
+
+type ConsoleMethod = keyof typeof originalConsole;
+
+function safeConsoleWrite(method: ConsoleMethod, ...args: unknown[]): void {
+  if (!consoleOutputAvailable) return;
+  try {
+    Reflect.apply(originalConsole[method], console, args);
+  } catch {
+    // Packaged GUI processes can inherit a short-lived stdout/stderr pipe from
+    // launchers and test shells. Logging must never crash Electron after that
+    // pipe closes (EPIPE), regardless of the exact stream error shape.
+    consoleOutputAvailable = false;
+  }
+}
+
+function guardConsoleStreams(): void {
+  const disableBrokenConsole = () => {
+    consoleOutputAvailable = false;
+  };
+  process.stdout?.on('error', disableBrokenConsole);
+  process.stderr?.on('error', disableBrokenConsole);
+}
 
 function formatDate(date: Date): string {
   const pad = (n: number) => n.toString().padStart(2, '0');
@@ -66,8 +89,20 @@ function formatLogLine(level: LogLevel, module: string, message: string, args: u
 
 function writeToFile(line: string) {
   if (fileStream) {
-    fileStream.write(line);
-    currentBytesWritten += Buffer.byteLength(line, 'utf8');
+    try {
+      fileStream.write(line);
+      currentBytesWritten += Buffer.byteLength(line, 'utf8');
+    } catch {
+      fileStream = null;
+      if (logFilePath) {
+        try {
+          appendFileSync(logFilePath, line);
+        } catch {
+          // Logging must never terminate the main process.
+        }
+      }
+      return;
+    }
 
     if (currentBytesWritten > MAX_LOG_SIZE) {
       rotateLogFile();
@@ -94,8 +129,8 @@ function rotateLogFile() {
   logFilePath = join(currentLogsDir, `electron_${timestamp}.log`);
   const nextStream = createWriteStream(logFilePath, { flags: 'a' });
   nextStream.on('error', (error) => {
-    originalConsole.error('[Logger] Failed to write Electron log file:', error);
     if (fileStream === nextStream) fileStream = null;
+    safeConsoleWrite('error', '[Logger] Failed to write Electron log file:', error);
   });
   fileStream = nextStream;
   currentBytesWritten = 0;
@@ -119,31 +154,31 @@ function patchConsole() {
   };
 
   console.log = (message?: unknown, ...args: unknown[]) => {
-    originalConsole.log(message, ...args);
+    safeConsoleWrite('log', message, ...args);
     const { module, cleanMsg } = parseModule(message, 'Electron');
     writeToFile(formatLogLine('INFO', module, cleanMsg, args));
   };
 
   console.info = (message?: unknown, ...args: unknown[]) => {
-    originalConsole.info(message, ...args);
+    safeConsoleWrite('info', message, ...args);
     const { module, cleanMsg } = parseModule(message, 'Electron');
     writeToFile(formatLogLine('INFO', module, cleanMsg, args));
   };
 
   console.warn = (message?: unknown, ...args: unknown[]) => {
-    originalConsole.warn(message, ...args);
+    safeConsoleWrite('warn', message, ...args);
     const { module, cleanMsg } = parseModule(message, 'Electron');
     writeToFile(formatLogLine('WARN', module, cleanMsg, args));
   };
 
   console.error = (message?: unknown, ...args: unknown[]) => {
-    originalConsole.error(message, ...args);
+    safeConsoleWrite('error', message, ...args);
     const { module, cleanMsg } = parseModule(message, 'Electron');
     writeToFile(formatLogLine('ERROR', module, cleanMsg, args));
   };
 
   console.debug = (message?: unknown, ...args: unknown[]) => {
-    originalConsole.debug(message, ...args);
+    safeConsoleWrite('debug', message, ...args);
     const { module, cleanMsg } = parseModule(message, 'Electron');
     writeToFile(formatLogLine('DEBUG', module, cleanMsg, args));
   };
@@ -177,11 +212,12 @@ async function cleanupOldLogs(logsDir: string) {
  */
 export function initializeLogger(logsDir: string) {
   currentLogsDir = logsDir;
+  guardConsoleStreams();
   try {
     mkdirSync(logsDir, { recursive: true });
     rotateLogFile(); // 初始化第一个文件
   } catch (error) {
-    originalConsole.error('[Logger] File logging is unavailable:', error);
+    safeConsoleWrite('error', '[Logger] File logging is unavailable:', error);
     logFilePath = '';
     fileStream = null;
   }
@@ -207,19 +243,19 @@ export function initializeLogger(logsDir: string) {
 export function createLogger(module: string): Logger {
   return {
     debug: (message: string, ...args: unknown[]) => {
-      originalConsole.debug(`[${module}] ${message}`, ...args);
+      safeConsoleWrite('debug', `[${module}] ${message}`, ...args);
       writeToFile(formatLogLine('DEBUG', module, message, args));
     },
     info: (message: string, ...args: unknown[]) => {
-      originalConsole.info(`[${module}] ${message}`, ...args);
+      safeConsoleWrite('info', `[${module}] ${message}`, ...args);
       writeToFile(formatLogLine('INFO', module, message, args));
     },
     warn: (message: string, ...args: unknown[]) => {
-      originalConsole.warn(`[${module}] ${message}`, ...args);
+      safeConsoleWrite('warn', `[${module}] ${message}`, ...args);
       writeToFile(formatLogLine('WARN', module, message, args));
     },
     error: (message: string, ...args: unknown[]) => {
-      originalConsole.error(`[${module}] ${message}`, ...args);
+      safeConsoleWrite('error', `[${module}] ${message}`, ...args);
       writeToFile(formatLogLine('ERROR', module, message, args));
     },
   };

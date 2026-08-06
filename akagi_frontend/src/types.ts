@@ -48,6 +48,11 @@ export interface NotificationItem {
   msg?: string;
 }
 
+export interface DelayRange {
+  min: number;
+  max: number;
+}
+
 export interface ApiResponse<T = void> {
   ok: boolean;
   data?: T;
@@ -132,17 +137,61 @@ export interface Settings {
   autoplay: {
     enabled: boolean;
     window_keyword: string;
+    delay_mode: 'human' | 'advanced';
     timing: {
-      first_tile: number;
-      rand_min: number;
-      rand_max: number;
-      candidate: number;
+      first_discard: DelayRange;
+      discard: DelayRange;
+      button: DelayRange;
+      candidate: DelayRange;
+    };
+    advanced_timing: {
+      first_discard: DelayRange;
+      discard: DelayRange;
+      tsumogiri: DelayRange;
+      reach: DelayRange;
+      reach_discard: DelayRange;
+      chi: DelayRange;
+      pon: DelayRange;
+      daiminkan: DelayRange;
+      ankan: DelayRange;
+      kakan: DelayRange;
+      ron: DelayRange;
+      tsumo: DelayRange;
+      ryukyoku: DelayRange;
+      nukidora: DelayRange;
+      skip: DelayRange;
+      candidate: DelayRange;
     };
     input: {
       bezier_smoothing: number;
       bezier_steps: number;
     };
+    auto_join: {
+      enabled: boolean;
+      room: 'copper' | 'silver' | 'gold' | 'jade' | 'throne';
+      mode: 'four_east' | 'four_south' | 'three_east' | 'three_south';
+      result_delay: number;
+    };
   };
+}
+
+export interface HttpCapture {
+  id: string;
+  timestamp: number;
+  method: string;
+  url: string;
+  request_headers: Record<string, string>;
+  request_body: string;
+  telemetry: {
+    category: string;
+    parameters: Record<string, string>;
+    content: unknown;
+  } | null;
+  certificate_rewrite: { corrected: number; uncorrected: number } | null;
+  status_code: number | null;
+  response_headers: Record<string, string>;
+  response_body: string;
+  error: string;
 }
 
 export interface SaveSettingsResponse extends ApiResponse<Settings> {

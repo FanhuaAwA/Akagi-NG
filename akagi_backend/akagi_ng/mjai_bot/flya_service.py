@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import os
+import re
+import time
 from datetime import datetime
 from decimal import Decimal, InvalidOperation
 from http import HTTPStatus
@@ -12,6 +14,7 @@ from urllib.parse import urlparse
 
 import requests
 
+from akagi_ng.mjai_bot.logger import logger
 from akagi_ng.mjai_bot.ot3_proxy import configure_ot3_session
 
 FLYA_TEST_API_PREFIX = "/beta/v1"
@@ -46,6 +49,67 @@ _SAFE_ERROR_CODES = frozenset(
 
 class FlyATestServiceError(RuntimeError):
     """A safe-to-display error that contains no request secrets."""
+
+
+def _log_flya_http_request(
+    operation: str,
+    method: str,
+    url: str,
+    attempt: int,
+    **fields: object,
+) -> float:
+    """Log safe request metadata without headers, keys, or the event body."""
+    suffix = " ".join(f"{key}={_safe_log_value(value)}" for key, value in fields.items() if value is not None)
+    logger.info(
+        f"FlyA HTTP request operation={operation} method={method} url={url} attempt={attempt}"
+        f"{f' {suffix}' if suffix else ''}"
+    )
+    return time.monotonic()
+
+
+def _log_flya_http_response(  # noqa: PLR0913
+    operation: str,
+    method: str,
+    url: str,
+    attempt: int,
+    started_at: float,
+    response: requests.Response,
+) -> None:
+    code = _safe_response_error_code(response)
+    suffix = f" error_code={code}" if code else ""
+    message = (
+        f"FlyA HTTP response operation={operation} method={method} url={url} attempt={attempt} "
+        f"status={response.status_code} elapsed_ms={(time.monotonic() - started_at) * 1000:.0f}{suffix}"
+    )
+    if HTTPStatus.OK <= response.status_code < HTTPStatus.MULTIPLE_CHOICES:
+        logger.info(message)
+    else:
+        logger.warning(message)
+
+
+def _log_flya_http_exception(  # noqa: PLR0913
+    operation: str,
+    method: str,
+    url: str,
+    attempt: int,
+    started_at: float,
+    error: requests.RequestException,
+    *secrets: str,
+) -> None:
+    detail = " ".join(str(error).split())
+    for secret in secrets:
+        if secret:
+            detail = detail.replace(secret, "<redacted>")
+    detail = re.sub(r"(?i)bearer\s+\S+", "Bearer <redacted>", detail)[:400]
+    logger.warning(
+        f"FlyA HTTP exception operation={operation} method={method} url={url} attempt={attempt} "
+        f"elapsed_ms={(time.monotonic() - started_at) * 1000:.0f} error_type={type(error).__name__} "
+        f"detail={_safe_log_value(detail)}"
+    )
+
+
+def _safe_log_value(value: object) -> str:
+    return str(value).replace("\r", " ").replace("\n", " ").replace(" ", "_")[:400]
 
 
 class FlyATestServiceClient:
@@ -148,14 +212,7 @@ class FlyATestServiceClient:
     def _request_json(self, path: str, label: str) -> dict[str, Any]:
         response: requests.Response
         try:
-            response = self.session.request(
-                "GET",
-                f"{self.base_url}{path}",
-                headers={"Authorization": f"Bearer {self._api_key}"},
-                timeout=FLYA_TEST_TIMEOUT_SECONDS,
-                verify=self._verify,
-                allow_redirects=False,
-            )
+            response = self._get(path, label, attempt=1)
         except requests.RequestException:
             raise FlyATestServiceError(f"{label} could not reach the FlyA test service") from None
 
@@ -166,14 +223,7 @@ class FlyATestServiceClient:
         ):
             self.quota()
             try:
-                response = self.session.request(
-                    "GET",
-                    f"{self.base_url}{path}",
-                    headers={"Authorization": f"Bearer {self._api_key}"},
-                    timeout=FLYA_TEST_TIMEOUT_SECONDS,
-                    verify=self._verify,
-                    allow_redirects=False,
-                )
+                response = self._get(path, label, attempt=2)
             except requests.RequestException:
                 raise FlyATestServiceError(f"{label} could not reach the FlyA test service") from None
 
@@ -188,6 +238,25 @@ class FlyATestServiceClient:
         if not isinstance(value, dict):
             raise FlyATestServiceError(f"{label} returned an invalid response")
         return value
+
+    def _get(self, path: str, label: str, *, attempt: int) -> requests.Response:
+        url = f"{self.base_url}{path}"
+        operation = label.lower().replace(" ", "-")
+        started_at = _log_flya_http_request(operation, "GET", url, attempt)
+        try:
+            response = self.session.request(
+                "GET",
+                url,
+                headers={"Authorization": f"Bearer {self._api_key}"},
+                timeout=FLYA_TEST_TIMEOUT_SECONDS,
+                verify=self._verify,
+                allow_redirects=False,
+            )
+        except requests.RequestException as error:
+            _log_flya_http_exception(operation, "GET", url, attempt, started_at, error, self._api_key)
+            raise
+        _log_flya_http_response(operation, "GET", url, attempt, started_at, response)
+        return response
 
 
 def _normalize_base_url(value: str) -> str:

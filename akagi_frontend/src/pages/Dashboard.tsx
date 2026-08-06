@@ -3,8 +3,10 @@ import { use, useCallback, useEffect, useState, useSyncExternalStore } from 'rea
 import { useTranslation } from 'react-i18next';
 import { ToastContainer } from 'react-toastify';
 
+import AutoplayPanel from '@/components/AutoplayPanel';
 import { Footer } from '@/components/layout/Footer';
 import { Header } from '@/components/layout/Header';
+import LogPanel from '@/components/LogPanel';
 import PluginPanel from '@/components/PluginPanel';
 import SettingsPanel from '@/components/SettingsPanel';
 import StreamPlayer from '@/components/StreamPlayer';
@@ -54,6 +56,8 @@ function Dashboard({ backendState, isSplashActive = false }: DashboardProps) {
     (MITM_REQUIRED_PLATFORMS.includes(settings.platform) && !settings.mitm.enabled);
 
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [autoplayOpen, setAutoplayOpen] = useState(false);
+  const [logsOpen, setLogsOpen] = useState(false);
   const [pluginsOpen, setPluginsOpen] = useState(false);
   const [showShutdownConfirm, setShowShutdownConfirm] = useState(false);
   const [isLaunching, setIsLaunching] = useState(false);
@@ -169,6 +173,8 @@ function Dashboard({ backendState, isSplashActive = false }: DashboardProps) {
           isLaunchDisabled={isLaunchDisabled}
           onLaunch={handleLaunchGame}
           onOpenSettings={handleOpenSettings}
+          onOpenAutoplay={() => setAutoplayOpen(true)}
+          onOpenLogs={() => setLogsOpen(true)}
           onOpenPlugins={() => setPluginsOpen(true)}
           locale={i18n.language}
           onLocaleChange={handleLocaleChange}
@@ -212,6 +218,8 @@ function Dashboard({ backendState, isSplashActive = false }: DashboardProps) {
       </div>
 
       <SettingsPanel open={settingsOpen} onClose={handleCloseSettings} />
+      <AutoplayPanel open={autoplayOpen} onClose={() => setAutoplayOpen(false)} />
+      <LogPanel open={logsOpen} onClose={() => setLogsOpen(false)} />
       <PluginPanel open={pluginsOpen} onClose={() => setPluginsOpen(false)} />
 
       <AlertDialog open={showShutdownConfirm} onOpenChange={setShowShutdownConfirm}>
@@ -236,6 +244,7 @@ function Dashboard({ backendState, isSplashActive = false }: DashboardProps) {
       </AlertDialog>
       <ToastContainer
         autoClose={TOAST_DURATION_DEFAULT}
+        closeOnClick
         position='top-right'
         theme={theme === 'system' ? (isSystemDark ? 'dark' : 'light') : theme}
       />

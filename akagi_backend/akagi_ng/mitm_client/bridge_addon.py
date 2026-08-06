@@ -13,6 +13,12 @@ from akagi_ng.bridge import (
     RiichiCityBridge,
     TenhouBridge,
 )
+from akagi_ng.mitm_client.certificate_rewrite import (
+    CertificateStore,
+    record_upstream_certificate,
+    rewrite_certificate_report,
+)
+from akagi_ng.mitm_client.http_capture import http_capture_store
 from akagi_ng.mitm_client.logger import logger
 from akagi_ng.plugins import PluginManager
 from akagi_ng.schema.constants import Platform
@@ -27,6 +33,8 @@ PLATFORM_URL_PATTERNS = {
     Platform.AMATSUKI: ["amatsukimj", "amatsuki"],
     Platform.RIICHI_CITY: ["mahjong-jp.city", "riichicity"],
 }
+
+certificate_store = CertificateStore()
 
 
 class BridgeAddon:
@@ -105,6 +113,35 @@ class BridgeAddon:
 
     def request(self, flow: mitmproxy.http.HTTPFlow):
         """处理 HTTP 请求"""
+        rewrite_summary = None
+        try:
+            record_upstream_certificate(flow, certificate_store)
+            rewritten = rewrite_certificate_report(flow.request.path, certificate_store)
+            if rewritten:
+                flow.request.path = rewritten.path
+                rewrite_summary = {
+                    "corrected": rewritten.corrected,
+                    "uncorrected": rewritten.uncorrected,
+                }
+                logger.info(
+                    "[MITM] Rewrote Mahjong Soul certificate telemetry: "
+                    f"corrected={rewritten.corrected} uncorrected={rewritten.uncorrected}"
+                )
+                if rewritten.uncorrected:
+                    logger.warning(
+                        "[MITM] Some certificate telemetry entries could not be corrected because "
+                        "their upstream certificates have not been observed yet."
+                    )
+        except Exception:
+            logger.exception("[MITM] Failed to inspect or rewrite certificate telemetry")
+
+        captured = http_capture_store.record_request(flow, rewrite_summary)
+        logger.info(
+            "[HTTP] Intercepted request: "
+            f"{captured['method']} {captured['url']}"
+            + (f" telemetry={captured['telemetry']}" if captured["telemetry"] else "")
+        )
+
         if self.plugin_manager:
             self.plugin_manager.request(flow)
         # 如果是已知 WebSocket 流的 HTTP 握手或后续请求
@@ -127,6 +164,8 @@ class BridgeAddon:
 
     def response(self, flow: mitmproxy.http.HTTPFlow):
         """处理 HTTP 响应"""
+        http_capture_store.record_response(flow)
+        logger.info(f"[HTTP] Intercepted response: {flow.response.status_code} {flow.request.pretty_url}")
         if flow.id in self.bridges:
             bridge = self.bridges[flow.id]
             if hasattr(bridge, "response"):
@@ -140,6 +179,11 @@ class BridgeAddon:
 
         if target_platform == Platform.AMATSUKI:
             AmatsukiBridge().response(flow)
+
+    def error(self, flow: mitmproxy.http.HTTPFlow):
+        message = str(flow.error) if flow.error else "unknown proxy error"
+        http_capture_store.record_error(flow, message)
+        logger.warning(f"[HTTP] Intercepted request failed: {flow.request.pretty_url} error={message}")
 
     def _is_target_platform(self, flow: mitmproxy.http.HTTPFlow, platform: Platform) -> bool:
         url = flow.request.url.lower()

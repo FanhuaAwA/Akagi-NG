@@ -14,6 +14,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from akagi_ng.application import AkagiApp
+from akagi_ng.bridge import MajsoulBridge
 from akagi_ng.core.context import AppContext
 from akagi_ng.schema.types import MJAIResponse, ProcessResult
 
@@ -117,11 +118,64 @@ def test_plugin_only_mitm_bridge_is_used_for_autoplay(app) -> None:
     mock_ctx.mitm_client = MagicMock()
     mock_ctx.mitm_client.addon.activated_flows = ["plugin-flow"]
     mock_ctx.mitm_client.addon.bridges = {"plugin-flow": plugin_bridge}
+    mock_ctx.mitm_client.addon.last_activity = {"plugin-flow": 1.0}
     mock_ctx.electron_client = MagicMock()
     mock_ctx.electron_client.bridge = MagicMock()
 
     with patch("akagi_ng.application.get_app_context", return_value=mock_ctx):
         assert app._get_active_bridge() is plugin_bridge
+
+
+def test_autoplay_prefers_authenticated_game_bridge_over_newer_lobby_bridge(app) -> None:
+    mock_ctx = MagicMock(spec=AppContext)
+    mock_ctx.settings.mitm.enabled = True
+    mock_ctx.plugin_manager = MagicMock()
+    mock_ctx.plugin_manager.requires_mitm.return_value = False
+
+    game_bridge = MajsoulBridge()
+    game_bridge.accountId = 24992979
+    game_bridge.mode_id = 17
+    game_bridge.latest_self_operation_list = [{"type": 2, "combination": ["4s|4s"]}]
+    game_bridge.latest_operation_step = 61
+    lobby_bridge = MajsoulBridge()
+
+    mock_ctx.mitm_client = MagicMock()
+    mock_ctx.mitm_client.addon.activated_flows = ["game-flow", "new-lobby-flow"]
+    mock_ctx.mitm_client.addon.bridges = {
+        "game-flow": game_bridge,
+        "new-lobby-flow": lobby_bridge,
+    }
+    # The lobby is newer and has more recent traffic, but it has no active game.
+    mock_ctx.mitm_client.addon.last_activity = {"game-flow": 100.0, "new-lobby-flow": 200.0}
+    mock_ctx.electron_client = MagicMock()
+
+    with patch("akagi_ng.application.get_app_context", return_value=mock_ctx):
+        assert app._get_active_bridge() is game_bridge
+        assert app._get_latest_operation_list() == [{"type": 2, "combination": ["4s|4s"]}]
+        assert app._get_latest_operation_step() == 61
+
+
+def test_autoplay_prefers_most_recent_authenticated_bridge_during_reconnect(app) -> None:
+    mock_ctx = MagicMock(spec=AppContext)
+    mock_ctx.settings.mitm.enabled = True
+    mock_ctx.plugin_manager = MagicMock()
+    mock_ctx.plugin_manager.requires_mitm.return_value = False
+
+    old_game_bridge = MajsoulBridge()
+    old_game_bridge.accountId = 1
+    old_game_bridge.mode_id = 17
+    new_game_bridge = MajsoulBridge()
+    new_game_bridge.accountId = 1
+    new_game_bridge.mode_id = 17
+
+    mock_ctx.mitm_client = MagicMock()
+    mock_ctx.mitm_client.addon.activated_flows = ["old-game", "new-game"]
+    mock_ctx.mitm_client.addon.bridges = {"old-game": old_game_bridge, "new-game": new_game_bridge}
+    mock_ctx.mitm_client.addon.last_activity = {"old-game": 100.0, "new-game": 101.0}
+    mock_ctx.electron_client = MagicMock()
+
+    with patch("akagi_ng.application.get_app_context", return_value=mock_ctx):
+        assert app._get_active_bridge() is new_game_bridge
 
 
 def test_process_event_error_handling(app) -> None:

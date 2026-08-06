@@ -426,7 +426,7 @@ def test_flya_cancellation_telemetry_ignores_late_worker_success(monkeypatch: py
         executor.close()
 
 
-def test_decider_suppresses_local_action_when_server_rejects_the_state(
+def test_decider_falls_back_and_rebuilds_session_when_server_suppresses_required_decision(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     _enable_flya(monkeypatch)
@@ -434,12 +434,23 @@ def test_decider_suppresses_local_action_when_server_rejects_the_state(
     _record_four_player_start(decider)
     client = MagicMock(circuit_open=False)
     client.react.side_effect = FlyADecisionSuppressed("decision_not_required")
+    decider.client = client
     monkeypatch.setattr(decider, "_get_client", lambda: client)
     local = {"type": "dahai", "actor": 0, "pai": "2s", "meta": {"mask_bits": 1}}
+    fallback = {"type": "dahai", "actor": 0, "pai": "3s", "meta": {"engine_type": "mortal"}}
+    monkeypatch.setattr(decider, "_replay_local_decision", lambda: fallback)
+    previous_session = decider.session_id
 
     result = decider.process(TsumoEvent(actor=0, pai="2s"), local, MagicMock(last_kawa_tile=None))
 
-    assert result == {"type": "none"}
+    assert result["type"] == "dahai"
+    assert result["pai"] == "3s"
+    assert result["meta"]["decision_source"] == "flya_fallback"
+    assert result["meta"]["fallback_used"] is True
+    assert decider.session_id != previous_session
+    assert decider.client is None
+    assert decider._client_signature is None
+    client.close.assert_called_once_with()
 
 
 def test_decider_replays_synced_history_for_exact_local_fallback(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -576,6 +587,29 @@ def test_decision_client_treats_server_state_rejection_as_non_transient() -> Non
 
     assert client._failures == 0
     assert client.circuit_open is False
+
+
+def test_decision_http_log_contains_diagnostics_without_api_key(monkeypatch: pytest.MonkeyPatch) -> None:
+    info = MagicMock()
+    warning = MagicMock()
+    monkeypatch.setattr("akagi_ng.mjai_bot.flya_service.logger.info", info)
+    monkeypatch.setattr("akagi_ng.mjai_bot.flya_service.logger.warning", warning)
+    client = FlyADecisionClient("https://server.example", "never-log-this-key")
+    client.session.request = MagicMock(
+        return_value=_response({"error": "state_replay_incomplete"}, status=422)
+    )
+
+    with pytest.raises(FlyADecisionSuppressed, match="state_replay_incomplete"):
+        client.react(_decision_payload(), BotStatusContext())
+
+    messages = [str(call.args[0]) for call in [*info.call_args_list, *warning.call_args_list]]
+    joined = "\n".join(messages)
+    assert "FlyA HTTP request operation=decision" in joined
+    assert "status=422" in joined
+    assert "error_code=state_replay_incomplete" in joined
+    assert "request_id=" in joined
+    assert "state_digest=" in joined
+    assert "never-log-this-key" not in joined
 
 
 @pytest.mark.parametrize(

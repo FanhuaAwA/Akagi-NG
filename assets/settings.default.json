@@ -1,0 +1,93 @@
+{
+  "log_level": "INFO",
+  "locale": "zh-CN",
+  "game_url": "https://game.maj-soul.com/1/",
+  "majsoul_server": "cn",
+  "platform": "majsoul",
+  "mitm": {
+    "enabled": false,
+    "host": "127.0.0.1",
+    "port": 6789,
+    "upstream": ""
+  },
+  "mihomo": {
+    "enabled": false,
+    "mixed_port": 7890,
+    "controller_port": 9090,
+    "strict_route": false
+  },
+  "desktop": {
+    "overlay_mode": "standard",
+    "advanced_host": "auto",
+    "capture_protection": true,
+    "privacy_mode": false,
+    "tray_visible": true,
+    "start_hidden": false,
+    "restore_shortcut": "CommandOrControl+Shift+A"
+  },
+  "server": {
+    "host": "127.0.0.1",
+    "port": 8765
+  },
+  "ot": {
+    "online": false,
+    "provider": "akagi_ot3",
+    "server": "https://mjapi.shinkuan.me",
+    "api_key": "",
+    "protocol": "v3",
+    "model_4p": "",
+    "model_3p": "",
+    "flya_server": "https://api.nashout.com",
+    "flya_api_key": "",
+    "flya_api_key_configured": false,
+    "flya_api_key_last4": "",
+    "flya_model_4p": "",
+    "flya_model_3p": "",
+    "proxy_enabled": false,
+    "proxy": ""
+  },
+  "model_config": {
+    "model_4p": "mortal.pth",
+    "model_3p": "mortal3p.pth",
+    "temperature": 0.3
+  },
+  "autoplay": {
+    "enabled": false,
+    "window_keyword": "",
+    "delay_mode": "human",
+    "timing": {
+      "first_discard": { "min": 2.0, "max": 5.0 },
+      "discard": { "min": 0.6, "max": 4.0 },
+      "button": { "min": 0.5, "max": 3.0 },
+      "candidate": { "min": 0.3, "max": 1.0 }
+    },
+    "advanced_timing": {
+      "first_discard": { "min": 2.5, "max": 5.0 },
+      "discard": { "min": 1.0, "max": 3.0 },
+      "tsumogiri": { "min": 0.5, "max": 1.8 },
+      "reach": { "min": 1.0, "max": 2.5 },
+      "reach_discard": { "min": 0.4, "max": 1.2 },
+      "chi": { "min": 0.6, "max": 1.8 },
+      "pon": { "min": 0.5, "max": 1.5 },
+      "daiminkan": { "min": 0.6, "max": 1.8 },
+      "ankan": { "min": 1.0, "max": 2.5 },
+      "kakan": { "min": 1.0, "max": 2.5 },
+      "ron": { "min": 0.3, "max": 1.0 },
+      "tsumo": { "min": 0.3, "max": 1.0 },
+      "ryukyoku": { "min": 0.5, "max": 1.5 },
+      "nukidora": { "min": 0.5, "max": 1.5 },
+      "skip": { "min": 0.4, "max": 1.2 },
+      "candidate": { "min": 0.3, "max": 0.8 }
+    },
+    "input": {
+      "bezier_smoothing": 0.35,
+      "bezier_steps": 18
+    },
+    "auto_join": {
+      "enabled": false,
+      "room": "gold",
+      "mode": "four_south",
+      "result_delay": 10.0
+    }
+  }
+}

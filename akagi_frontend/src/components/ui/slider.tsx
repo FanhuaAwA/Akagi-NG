@@ -9,6 +9,7 @@ export function Slider({
   markers = [],
   ...props
 }: ComponentProps<typeof SliderPrimitive.Root> & { markers?: number[] }) {
+  const thumbCount = Math.max(props.value?.length ?? props.defaultValue?.length ?? 1, 1);
   return (
     <SliderPrimitive.Root
       ref={ref}
@@ -29,10 +30,14 @@ export function Slider({
           />
         ))}
       </SliderPrimitive.Track>
-      <SliderPrimitive.Thumb
-        data-slot='slider-thumb'
-        className='border-primary ring-offset-background focus-visible:ring-ring bg-background block h-5 w-5 rounded-full border-2 transition-colors focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:outline-none disabled:pointer-events-none disabled:opacity-50'
-      />
+      {Array.from({ length: thumbCount }, (_, index) => (
+        <SliderPrimitive.Thumb
+          key={`thumb-${index}`}
+          data-slot='slider-thumb'
+          aria-label={thumbCount === 1 ? undefined : index === 0 ? 'Minimum' : 'Maximum'}
+          className='border-primary ring-offset-background focus-visible:ring-ring bg-background block h-5 w-5 rounded-full border-2 transition-colors focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:outline-none disabled:pointer-events-none disabled:opacity-50'
+        />
+      ))}
     </SliderPrimitive.Root>
   );
 }

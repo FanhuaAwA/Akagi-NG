@@ -42,6 +42,12 @@ class NotificationCode(StrEnum):
     CLIENT_CONNECTED = "client_connected"
     """游戏已连接"""
 
+    LOBBY_READY = "lobby_ready"
+    """雀魂登录成功，已确认大厅菜单就绪"""
+
+    MATCHING_STARTED = "matching_started"
+    """雀魂匹配已提交或即将进入对局"""
+
     GAME_CONNECTED = "game_connected"
     """对局已连接,AI 已就绪"""
 

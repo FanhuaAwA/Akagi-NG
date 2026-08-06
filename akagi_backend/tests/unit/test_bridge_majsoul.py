@@ -12,7 +12,9 @@
 import unittest
 
 from akagi_ng.bridge.majsoul import MajsoulBridge
+from akagi_ng.bridge.majsoul.liqi import MsgType
 from akagi_ng.bridge.majsoul.tile_mapping import MS_TILE_2_MJAI_TILE
+from akagi_ng.schema.notifications import NotificationCode
 
 
 class TestMajsoulBridge(unittest.TestCase):
@@ -21,6 +23,39 @@ class TestMajsoulBridge(unittest.TestCase):
     def setUp(self):
         """每个测试前重置 Bridge 实例"""
         self.bridge = MajsoulBridge()
+
+    def test_successful_lobby_login_emits_lobby_ready(self):
+        result = self.bridge.parse_liqi(
+            {
+                "method": ".lq.Lobby.oauth2Login",
+                "type": MsgType.Res,
+                "data": {"accountId": 12345678},
+            }
+        )
+
+        self.assertEqual(len(result), 1)
+        self.assertEqual(result[0].code, NotificationCode.LOBBY_READY)
+
+    def test_failed_lobby_login_does_not_emit_lobby_ready(self):
+        result = self.bridge.parse_liqi(
+            {
+                "method": ".lq.Lobby.login",
+                "type": MsgType.Res,
+                "data": {"error": {"code": 1001}},
+            }
+        )
+
+        self.assertEqual(result, [])
+
+    def test_match_submission_and_start_notification_cancel_lobby_clicks(self):
+        for message in (
+            {"method": ".lq.Lobby.matchGame", "type": MsgType.Res, "data": {}},
+            {"method": ".lq.NotifyMatchGameStart", "type": MsgType.Notify, "data": {}},
+        ):
+            with self.subTest(method=message["method"]):
+                result = self.bridge.parse_liqi(message)
+                self.assertEqual(len(result), 1)
+                self.assertEqual(result[0].code, NotificationCode.MATCHING_STARTED)
 
     # ========== start_game 相关测试 ==========
 

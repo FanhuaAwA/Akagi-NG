@@ -1,15 +1,16 @@
 from __future__ import annotations
 
-import random
 from collections.abc import Iterable
 from dataclasses import dataclass
 from functools import cmp_to_key
 from itertools import combinations
 
+from akagi_ng.autoplay.delay import DelayContext, delay_controller, tile_class
 from akagi_ng.bridge.majsoul.tile_mapping import MS_TILE_2_MJAI_TILE, compare_pai
 from akagi_ng.schema.constants import MahjongConstants
 from akagi_ng.schema.protocols import ActionCandidatesProtocol, PlayerStateProtocol
 from akagi_ng.settings import local_settings
+from akagi_ng.settings.settings import DelayRangeConfig
 
 LOCATION = {
     "tiles": [
@@ -36,6 +37,9 @@ LOCATION = {
         (10.875, 5.9),
         (8.6375, 5.9),
         (6.4, 5.9),
+        (10.875, 4.8),
+        (8.6375, 4.8),
+        (6.4, 4.8),
     ],
     "candidates": [
         (3.6625, 6.3),
@@ -72,8 +76,8 @@ ACTION_PRIORITY = {
     7: 2,
     8: 1,
     9: 1,
-    10: 4,
-    11: 2,
+    10: 5,
+    11: 4,
 }
 
 ACTION2TYPE = {
@@ -92,6 +96,13 @@ BUTTON_ACTIONS = set(ACTION2TYPE) | {"hora", "tsumo", "ron"}
 ANKAN_OPERATION_TYPE = ACTION2TYPE["ankan"]
 KAKAN_OPERATION_TYPE = ACTION2TYPE["kakan"]
 KAN_TILE_COUNT = 4
+CONCEALED_HAND_MODULUS = 3
+DRAWN_HAND_REMAINDER = 2
+MIN_TILE_UI_READY_SECONDS = 1.0
+MIN_BUTTON_UI_READY_SECONDS = 1.6
+MIN_INTER_CLICK_SECONDS = 0.3
+OPENING_ANIMATION_FLOOR_SECONDS = 3.0
+CLAIM_OPERATION_TYPES = {ACTION2TYPE["chi"], ACTION2TYPE["pon"], ACTION2TYPE["daiminkan"], 9}
 
 
 @dataclass(slots=True)
@@ -101,6 +112,7 @@ class PlannedClick:
     label: str
     expected_types: tuple[int, ...] = ()
     requires_operation_step: bool = False
+    verify_operation_clear: bool = True
 
 
 class ActionPlanner:
@@ -109,30 +121,99 @@ class ActionPlanner:
         self.reached = False
         self.pending_reach_discard = False
         self.latest_operation_list: list[dict] = []
+        self.player_id = 0
+        self.oya: int | None = None
+        self.junme = 0
+        self.opponent_riichi = False
 
     def observe_event(self, event: object) -> None:
         event_type = getattr(event, "type", None)
+        if event_type == "start_game":
+            self.player_id = int(getattr(event, "id", 0))
+        elif event_type == "start_kyoku":
+            self.oya = int(getattr(event, "oya", -1))
         if event_type in {"start_game", "start_kyoku", "end_kyoku", "end_game"}:
             self.is_new_round = True
             self.reached = False
             self.pending_reach_discard = False
+            self.junme = 0
+            self.opponent_riichi = False
+        elif event_type == "dahai" and getattr(event, "actor", None) == self.player_id:
+            self.junme += 1
+            self.is_new_round = False
+        elif event_type == "reach_accepted":
+            actor = getattr(event, "actor", None)
+            if actor == self.player_id:
+                self.reached = True
+            elif actor is not None:
+                self.opponent_riichi = True
 
     def update_operation_list(self, operation_list: list[dict] | None) -> None:
         self.latest_operation_list = operation_list or []
 
-    def discard_delay(self) -> float:
-        timing = local_settings.autoplay.timing
-        if self.is_new_round:
-            return timing.first_tile
-        low = min(timing.rand_min, timing.rand_max)
-        high = max(timing.rand_min, timing.rand_max)
-        return random.uniform(low, high)
+    def discard_delay(
+        self,
+        action: dict,
+        elapsed_seconds: float,
+        *,
+        first_action: bool,
+        dealer_opening: bool,
+        delay_action: str | None = None,
+    ) -> float:
+        action_name = delay_action or (
+            "first_discard" if first_action else "tsumogiri" if action.get("tsumogiri") else "discard"
+        )
+        context = self._delay_context(
+            action,
+            elapsed_seconds,
+            first_action=first_action,
+            dealer_opening=dealer_opening,
+            delay_action=action_name,
+        )
+        timing_range = self._timing_range(action_name, first_action=first_action, button=False)
+        delay = delay_controller.sleep_seconds(
+            context,
+            local_settings.autoplay.delay_mode,
+            timing_range.min,
+            timing_range.max,
+        )
+        return self._apply_ui_floor(
+            delay,
+            elapsed_seconds,
+            dealer_opening=dealer_opening,
+            button=False,
+        )
 
-    def action_delay(self) -> float:
-        return max(local_settings.autoplay.timing.candidate, 0.12) + 0.8
+    def action_delay(self, action: dict, elapsed_seconds: float, *, dealer_opening: bool) -> float:
+        action_name = self._button_delay_action(action)
+        context = self._delay_context(
+            action,
+            elapsed_seconds,
+            first_action=self.is_new_round,
+            dealer_opening=dealer_opening,
+            delay_action=action_name,
+        )
+        timing_range = self._timing_range(action_name, first_action=False, button=True)
+        delay = delay_controller.sleep_seconds(
+            context,
+            local_settings.autoplay.delay_mode,
+            timing_range.min,
+            timing_range.max,
+        )
+        return self._apply_ui_floor(
+            delay,
+            elapsed_seconds,
+            dealer_opening=dealer_opening,
+            button=True,
+        )
 
-    def candidate_delay(self) -> float:
-        return max(local_settings.autoplay.timing.candidate, 0.08)
+    def candidate_delay(self, action_name: str = "candidate") -> float:
+        timing_range = self._timing_range(action_name, first_action=False, button=True)
+        return delay_controller.interval_seconds(
+            timing_range.min,
+            timing_range.max,
+            floor=MIN_INTER_CLICK_SECONDS,
+        )
 
     def get_pai_coord(self, idx: int, tehais: list[str]) -> tuple[float, float]:
         visible_count = sum(1 for tehai in tehais if tehai != "?")
@@ -143,7 +224,7 @@ class ActionPlanner:
             return (base[0] + LOCATION["tsumo_space"], base[1])
         return LOCATION["tiles"][min(idx, last_tile_index)]
 
-    def plan(  # noqa: C901, PLR0911
+    def plan(  # noqa: C901, PLR0911, PLR0912, PLR0913
         self,
         mjai_msg: dict | None,
         tehai: list[str],
@@ -151,27 +232,38 @@ class ActionPlanner:
         *,
         player_state: PlayerStateProtocol | None = None,
         last_kawa_tile: str | None = None,
+        elapsed_seconds: float = 0.0,
+        require_live_operations: bool = False,
     ) -> list[PlannedClick]:
         if mjai_msg is None:
             return []
 
         action_type = mjai_msg.get("type")
+        dealer_opening = self.is_new_round and self.oya is not None and self.player_id == self.oya
         if action_type == "dahai" and (not self.reached or self.pending_reach_discard):
+            first_action = self.is_new_round
+            is_reach_discard = self.pending_reach_discard
             coord = self._find_discard_coord(
                 mjai_msg["pai"],
                 list(tehai),
                 tsumohai,
                 prefer_tsumo=bool(mjai_msg.get("tsumogiri")),
+                dealer_opening=dealer_opening,
             )
             if coord is None:
                 return []
-            label = "reach-discard" if self.pending_reach_discard else "discard"
+            label = "reach-discard" if is_reach_discard else "discard"
             self.pending_reach_discard = False
-            self.is_new_round = False
             return [
                 PlannedClick(
                     coord=coord,
-                    delay=self.discard_delay(),
+                    delay=self.discard_delay(
+                        mjai_msg,
+                        elapsed_seconds,
+                        first_action=first_action,
+                        dealer_opening=dealer_opening,
+                        delay_action="reach_discard" if is_reach_discard else None,
+                    ),
                     label=label,
                     expected_types=(1,),
                     requires_operation_step=False,
@@ -179,6 +271,12 @@ class ActionPlanner:
             ]
 
         if action_type not in BUTTON_ACTIONS:
+            return []
+        if action_type == "none" and not any(
+            item.get("type") in CLAIM_OPERATION_TYPES for item in self.latest_operation_list
+        ):
+            return []
+        if require_live_operations and not self.latest_operation_list:
             return []
 
         operation_list = self._sorted_operation_list(player_state, last_kawa_tile, action_type, tehai, tsumohai)
@@ -190,7 +288,7 @@ class ActionPlanner:
         plan = [
             PlannedClick(
                 coord=LOCATION["actions"][action_index],
-                delay=self.action_delay(),
+                delay=self.action_delay(mjai_msg, elapsed_seconds, dealer_opening=dealer_opening),
                 label=click_label,
                 expected_types=self._expected_types_for_action(action_type),
                 requires_operation_step=True,
@@ -198,7 +296,7 @@ class ActionPlanner:
         ]
 
         if action_type == "reach":
-            self.reached = True
+            plan[0].verify_operation_clear = False
             pai = mjai_msg.get("pai")
             if pai is None and isinstance(mjai_msg.get("reach_dahai"), dict):
                 pai = mjai_msg["reach_dahai"].get("pai")
@@ -211,29 +309,99 @@ class ActionPlanner:
                 list(tehai),
                 tsumohai,
                 prefer_tsumo=bool(mjai_msg.get("tsumogiri")),
+                dealer_opening=dealer_opening,
             )
             if discard_coord is None:
                 self.pending_reach_discard = True
                 return plan
 
-            self.is_new_round = False
             self.pending_reach_discard = False
             plan.append(
                 PlannedClick(
                     coord=discard_coord,
-                    delay=self.candidate_delay(),
+                    delay=self.candidate_delay("reach_discard"),
                     label="reach-discard",
                     expected_types=(1,),
-                    requires_operation_step=False,
+                    requires_operation_step=True,
                 )
             )
             return plan
 
-        if action_type in {"chi", "pon", "ankan", "kakan"}:
+        if action_type in {"chi", "pon", "daiminkan", "ankan", "kakan"}:
             candidate_click = self._plan_candidate_click(operation_list, mjai_msg)
             if candidate_click is not None:
+                plan[0].verify_operation_clear = False
                 plan.append(candidate_click)
         return plan
+
+    def _delay_context(
+        self,
+        action: dict,
+        elapsed_seconds: float,
+        *,
+        first_action: bool,
+        dealer_opening: bool,
+        delay_action: str | None = None,
+    ) -> DelayContext:
+        action_type = delay_action or str(action.get("type") or "none")
+        legal_types = {item.get("type") for item in self.latest_operation_list}
+        return DelayContext(
+            action=action_type,
+            tsumogiri=bool(action.get("tsumogiri")),
+            tile_class=tile_class(action.get("pai")),
+            first_action=first_action,
+            dealer_opening=dealer_opening,
+            can_riichi=ACTION2TYPE["reach"] in legal_types,
+            is_kan=action_type in {"ankan", "kakan", "daiminkan"},
+            in_riichi=self.reached,
+            opponent_riichi=self.opponent_riichi,
+            junme=self.junme,
+            legal_count=len(legal_types),
+            elapsed_seconds=elapsed_seconds,
+        )
+
+    def _button_delay_action(self, action: dict) -> str:
+        action_type = str(action.get("type") or "none")
+        if action_type == "none":
+            return "skip"
+        if action_type == "hora":
+            actor = action.get("actor")
+            target = action.get("target")
+            return "tsumo" if actor is not None and actor == target else "ron"
+        return action_type
+
+    def _timing_range(self, action_name: str, *, first_action: bool, button: bool) -> DelayRangeConfig:
+        autoplay = local_settings.autoplay
+        if autoplay.delay_mode == "advanced":
+            return getattr(autoplay.advanced_timing, action_name, autoplay.advanced_timing.candidate)
+        if first_action:
+            return autoplay.timing.first_discard
+        if action_name == "reach_discard":
+            return autoplay.timing.candidate
+        if action_name in {"discard", "tsumogiri"} and not button:
+            return autoplay.timing.discard
+        return (
+            autoplay.timing.button
+            if button and action_name not in {"candidate", "reach_discard"}
+            else autoplay.timing.candidate
+        )
+
+    def _apply_ui_floor(
+        self,
+        delay: float,
+        elapsed_seconds: float,
+        *,
+        dealer_opening: bool,
+        button: bool,
+    ) -> float:
+        target_total = MIN_BUTTON_UI_READY_SECONDS if button else MIN_TILE_UI_READY_SECONDS
+        if dealer_opening:
+            target_total = max(
+                target_total,
+                OPENING_ANIMATION_FLOOR_SECONDS,
+            )
+        remaining = max(0.12, target_total - max(elapsed_seconds, 0.0))
+        return max(delay, remaining)
 
     def _find_discard_coord(  # noqa: PLR0911
         self,
@@ -241,26 +409,29 @@ class ActionPlanner:
         tehai: list[str],
         tsumohai: str | None,
         prefer_tsumo: bool = False,
+        dealer_opening: bool = False,
     ) -> tuple[float, float] | None:
         normalized_tehai, detached_tile = self._normalize_visible_hand(tehai, tsumohai)
 
-        if self.is_new_round:
-            if prefer_tsumo and detached_tile and self._tile_matches(dahai, detached_tile):
-                return self.get_pai_coord(MahjongConstants.TEHAI_SIZE, normalized_tehai)
+        if dealer_opening:
+            opening_hand = list(normalized_tehai)
+            if detached_tile is not None:
+                opening_hand.append(detached_tile)
+            opening_hand.sort(key=cmp_to_key(compare_pai))
+            opening_index = self._find_exact_or_matching_index(opening_hand, dahai)
+            if opening_index is not None and opening_index < len(LOCATION["tiles"]):
+                return LOCATION["tiles"][opening_index]
+            return None
 
-            for idx, tile in enumerate(normalized_tehai):
-                if self._tile_matches(dahai, tile):
-                    return self.get_pai_coord(idx, normalized_tehai)
+        if prefer_tsumo and detached_tile and self._tile_matches(dahai, detached_tile):
+            return self.get_pai_coord(MahjongConstants.TEHAI_SIZE, normalized_tehai)
 
-            if detached_tile and self._tile_matches(dahai, detached_tile):
-                return self.get_pai_coord(MahjongConstants.TEHAI_SIZE, normalized_tehai)
+        hand_index = self._find_exact_or_matching_index(normalized_tehai, dahai)
+        if hand_index is not None:
+            return self.get_pai_coord(hand_index, normalized_tehai)
 
         if detached_tile and self._tile_matches(dahai, detached_tile):
             return self.get_pai_coord(MahjongConstants.TEHAI_SIZE, normalized_tehai)
-
-        for idx, tile in enumerate(normalized_tehai):
-            if self._tile_matches(dahai, tile):
-                return self.get_pai_coord(idx, normalized_tehai)
 
         if prefer_tsumo:
             return self.get_pai_coord(MahjongConstants.TEHAI_SIZE, normalized_tehai)
@@ -492,16 +663,16 @@ class ActionPlanner:
         return [MS_TILE_2_MJAI_TILE.get(tile, tile) for tile in tiles]
 
     def _full_hand(self, tehai: list[str], tsumohai: str | None) -> list[str]:
-        hand = [tile for tile in tehai if tile != "?"]
-        if tsumohai and tsumohai != "?":
-            hand.append(tsumohai)
+        hand, detached_tile = self._normalize_visible_hand(tehai, tsumohai)
+        if detached_tile is not None:
+            hand.append(detached_tile)
         return hand
 
     def _normalize_visible_hand(self, tehai: list[str], tsumohai: str | None) -> tuple[list[str], str | None]:
         sorted_tehai = sorted((tile for tile in tehai if tile != "?"), key=cmp_to_key(compare_pai))
         detached_tile = tsumohai if tsumohai and tsumohai != "?" else None
 
-        if detached_tile is not None:
+        if detached_tile is not None and len(sorted_tehai) % CONCEALED_HAND_MODULUS == DRAWN_HAND_REMAINDER:
             detached_index = self._find_exact_or_matching_index(sorted_tehai, detached_tile)
             if detached_index is not None:
                 sorted_tehai.pop(detached_index)

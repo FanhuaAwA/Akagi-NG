@@ -83,6 +83,8 @@ type EngineAdditionalMetaKey = Literal[
 # 3. 系统事件类 (用于 SystemEvent.code)
 type SystemEventCode = Literal[
     NotificationCode.CLIENT_CONNECTED,
+    NotificationCode.LOBBY_READY,
+    NotificationCode.MATCHING_STARTED,
     NotificationCode.GAME_CONNECTED,
     NotificationCode.GAME_SYNCING,
     NotificationCode.GAME_DISCONNECTED,

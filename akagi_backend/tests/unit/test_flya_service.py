@@ -296,3 +296,24 @@ def test_network_errors_are_sanitized() -> None:
     message = str(exc_info.value)
     assert "private-server.example" not in message
     assert "never-expose" not in message
+
+
+def test_management_http_log_records_transport_error_without_api_key(monkeypatch) -> None:
+    info = MagicMock()
+    warning = MagicMock()
+    monkeypatch.setattr("akagi_ng.mjai_bot.flya_service.logger.info", info)
+    monkeypatch.setattr("akagi_ng.mjai_bot.flya_service.logger.warning", warning)
+    key = "never-log-this-key"
+    client = FlyATestServiceClient("https://server.example", key)
+    client.session.request = MagicMock(side_effect=requests.ConnectTimeout(f"connect failed {key}"))
+
+    with pytest.raises(FlyATestServiceError):
+        client.models()
+
+    joined = "\n".join(
+        str(call.args[0]) for call in [*info.call_args_list, *warning.call_args_list]
+    )
+    assert "FlyA HTTP request operation=model-list" in joined
+    assert "error_type=ConnectTimeout" in joined
+    assert "<redacted>" in joined
+    assert key not in joined

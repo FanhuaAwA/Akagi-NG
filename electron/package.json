@@ -1,7 +1,7 @@
 {
   "name": "akagi-ng-desktop",
   "private": true,
-  "version": "1.2.0",
+  "version": "1.2.1",
   "description": "Akagi-NG Electron Desktop App",
   "author": "Akagi-NG Contributors",
   "license": "AGPL-3.0",

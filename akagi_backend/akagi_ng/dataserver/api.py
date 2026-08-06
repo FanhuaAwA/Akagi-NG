@@ -11,9 +11,10 @@ from urllib.parse import urlsplit
 from aiohttp import web
 
 from akagi_ng.core.context import AppContext, get_app_context
-from akagi_ng.core.logging import configure_logging
+from akagi_ng.core.logging import LOG_FILE, configure_logging
 from akagi_ng.core.paths import ensure_dir, get_models_dir, get_settings_dir
 from akagi_ng.dataserver.logger import logger
+from akagi_ng.mitm_client.http_capture import http_capture_store
 from akagi_ng.mjai_bot.engine import clear_resource_cache
 from akagi_ng.mjai_bot.flya_service import FlyATestServiceClient, FlyATestServiceError
 from akagi_ng.mjai_bot.ot3_service import OT3ServiceClient, OT3ServiceError
@@ -34,7 +35,7 @@ from akagi_ng.settings import (
 # CORS 响应头配置
 # 桌面端仅允许本机来源访问
 CORS_HEADERS = {
-    "Access-Control-Allow-Methods": "GET,POST,OPTIONS",
+    "Access-Control-Allow-Methods": "GET,POST,PUT,DELETE,OPTIONS",
     "Access-Control-Allow-Headers": "Content-Type",
 }
 
@@ -393,6 +394,31 @@ async def get_settings_handler(_request: web.Request) -> web.Response:
     return _json_response({"ok": True, "data": get_settings_dict()})
 
 
+async def get_http_captures_handler(request: web.Request) -> web.Response:
+    try:
+        limit = int(request.query.get("limit", "200"))
+    except ValueError:
+        limit = 200
+    return _json_response({"ok": True, "data": http_capture_store.list(limit)})
+
+
+async def clear_http_captures_handler(_request: web.Request) -> web.Response:
+    http_capture_store.clear()
+    return _json_response({"ok": True})
+
+
+async def get_log_tail_handler(request: web.Request) -> web.Response:
+    try:
+        limit = max(1, min(int(request.query.get("limit", "500")), 2000))
+    except ValueError:
+        limit = 500
+    if not LOG_FILE.is_file():
+        lines: list[str] = []
+    else:
+        lines = LOG_FILE.read_text(encoding="utf-8", errors="replace").splitlines()[-limit:]
+    return _json_response({"ok": True, "data": lines})
+
+
 async def save_settings_handler(request: web.Request) -> web.Response:
     try:
         payload = await request.json()
@@ -443,8 +469,12 @@ async def save_settings_handler(request: web.Request) -> web.Response:
             restart_required = True
 
         proxy_error = await _reconcile_mitm_client() if new_mitm != old_mitm else ""
-        clear_resource_cache()
-        logger.info("Resource cache cleared due to settings update.")
+        resource_settings_changed = payload.get("model_config", {}) != old_settings.get(
+            "model_config", {}
+        ) or payload.get("ot", {}) != old_settings.get("ot", {})
+        if resource_settings_changed:
+            clear_resource_cache()
+            logger.info("Resource cache cleared due to engine settings update.")
         return _json_response(
             {
                 "ok": True,
@@ -620,6 +650,9 @@ def setup_routes(app: web.Application):
     app.router.add_get("/api/settings", get_settings_handler)
     app.router.add_post("/api/settings", save_settings_handler)
     app.router.add_post("/api/settings/reset", reset_settings_handler)
+    app.router.add_get("/api/logs/tail", get_log_tail_handler)
+    app.router.add_get("/api/http-captures", get_http_captures_handler)
+    app.router.add_delete("/api/http-captures", clear_http_captures_handler)
     app.router.add_get("/api/models", get_models_handler)
     app.router.add_get("/api/plugins", get_plugins_handler)
     app.router.add_post("/api/plugins/{plugin_id}", set_plugin_enabled_handler)

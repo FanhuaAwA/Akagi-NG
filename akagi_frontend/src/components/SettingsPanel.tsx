@@ -26,7 +26,6 @@ import { ErrorBoundary } from '@/components/ui/error-boundary';
 import { Separator } from '@/components/ui/separator';
 import { useSettings } from '@/hooks/useSettings';
 
-import { AutoplaySection } from './settings/AutoplaySection';
 import { ConnectionSection } from './settings/ConnectionSection';
 import { DesktopSection } from './settings/DesktopSection';
 import { GeneralSection } from './settings/GeneralSection';
@@ -136,10 +135,6 @@ export default function SettingsPanel({ open, onClose }: SettingsPanelProps) {
                   updateSetting={updateSetting}
                   updateSettingsBatch={updateSettingsBatch}
                 />
-              </div>
-
-              <div className='col-span-2'>
-                <AutoplaySection settings={settings} updateSetting={updateSetting} />
               </div>
 
               <div className='col-span-2 flex flex-col pt-2'>

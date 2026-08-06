@@ -41,6 +41,7 @@ class AkagiApp:
         self.autoplay: AutoPlayManager | None = None
         self.frontend_url = ""
         self.flya_decider: FlyADecider | None = None
+        self._active_mitm_flow_id: str | None = None
         self.message_queue: queue.Queue[AkagiEvent] = queue.Queue(maxsize=ServerConstants.MESSAGE_QUEUE_MAXSIZE)
 
     def initialize(self):
@@ -107,16 +108,53 @@ class AkagiApp:
         self._stop_event.set()
         self.online_executor.next_generation()
 
+    @staticmethod
+    def _bridge_has_active_game(bridge: object) -> bool:
+        mode_id = getattr(bridge, "mode_id", None)
+        account_id = getattr(bridge, "accountId", None)
+        operation_step = getattr(bridge, "latest_operation_step", None)
+        return not bool(getattr(bridge, "game_ended", False)) and (
+            isinstance(operation_step, int)
+            or (isinstance(mode_id, int) and mode_id >= 0)
+            or (isinstance(account_id, int) and account_id > 0)
+        )
+
     def _get_active_bridge(self) -> object | None:
         app = get_app_context()
         mitm_required = app.settings.mitm.enabled or bool(app.plugin_manager and app.plugin_manager.requires_mitm())
         if mitm_required and app.mitm_client and app.mitm_client.addon:
             addon = app.mitm_client.addon
-            if addon.activated_flows:
-                flow_id = addon.activated_flows[-1]
-                return addon.bridges.get(flow_id)
-            if addon.bridges:
-                return list(addon.bridges.values())[-1]
+            activated_flows = list(addon.activated_flows)
+            bridges = dict(addon.bridges)
+            active_bridges = [(flow_id, bridges[flow_id]) for flow_id in activated_flows if flow_id in bridges]
+
+            # Mahjong Soul keeps lobby and game WebSockets open at the same time and can
+            # open a new lobby route between rounds.  The newest socket is therefore not
+            # necessarily the socket carrying ActionPrototype.operation.  Prefer a bridge
+            # that has completed game authentication (or already captured a decision step),
+            # then use activity time to choose the newest one during reconnects.
+            game_bridges = [
+                (flow_id, bridge) for flow_id, bridge in active_bridges if self._bridge_has_active_game(bridge)
+            ]
+
+            candidates = game_bridges or active_bridges
+            if candidates:
+                last_activity = addon.last_activity if isinstance(addon.last_activity, dict) else {}
+                activation_order = {flow_id: index for index, flow_id in enumerate(activated_flows)}
+                flow_id, bridge = max(
+                    candidates,
+                    key=lambda item: (last_activity.get(item[0], 0.0), activation_order.get(item[0], -1)),
+                )
+                if flow_id != self._active_mitm_flow_id:
+                    logger.info(
+                        "Autoplay selected MITM bridge: "
+                        f"flow={flow_id} game_session={bool(game_bridges)} "
+                        f"active_flows={len(active_bridges)}"
+                    )
+                    self._active_mitm_flow_id = flow_id
+                return bridge
+            if bridges:
+                return list(bridges.values())[-1]
         if app.electron_client:
             return getattr(app.electron_client, "bridge", None)
         return None
@@ -164,18 +202,22 @@ class AkagiApp:
                 self.stop()
                 return None, True, False
             case SystemEvent(code=code):
+                if self.autoplay:
+                    self.autoplay.observe_system_event(code)
                 return code, True, False
             case MJAIEventBase(sync=is_sync):
                 pass
             case _:
                 is_sync = False
 
+        if self.autoplay and isinstance(msg, MJAIEventBase):
+            # Start the server-visible decision clock before bot inference so
+            # humanized delay is a total think time, not inference time plus sleep.
+            self.autoplay.observe_event(msg)
         if controller:
             controller.react(msg)
         if tracker:
             tracker.react(msg)
-        if self.autoplay and isinstance(msg, MJAIEventBase):
-            self.autoplay.observe_event(msg)
         return None, False, is_sync
 
     def _process_event(

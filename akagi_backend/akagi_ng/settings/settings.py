@@ -103,11 +103,37 @@ class ModelConfig:
 
 
 @dataclass(slots=True)
+class DelayRangeConfig:
+    min: float
+    max: float
+
+
+@dataclass(slots=True)
 class AutoplayTimingConfig:
-    first_tile: float
-    rand_min: float
-    rand_max: float
-    candidate: float
+    first_discard: DelayRangeConfig
+    discard: DelayRangeConfig
+    button: DelayRangeConfig
+    candidate: DelayRangeConfig
+
+
+@dataclass(slots=True)
+class AdvancedTimingConfig:
+    first_discard: DelayRangeConfig
+    discard: DelayRangeConfig
+    tsumogiri: DelayRangeConfig
+    reach: DelayRangeConfig
+    reach_discard: DelayRangeConfig
+    chi: DelayRangeConfig
+    pon: DelayRangeConfig
+    daiminkan: DelayRangeConfig
+    ankan: DelayRangeConfig
+    kakan: DelayRangeConfig
+    ron: DelayRangeConfig
+    tsumo: DelayRangeConfig
+    ryukyoku: DelayRangeConfig
+    nukidora: DelayRangeConfig
+    skip: DelayRangeConfig
+    candidate: DelayRangeConfig
 
 
 @dataclass(slots=True)
@@ -117,27 +143,134 @@ class AutoplayInputConfig:
 
 
 @dataclass(slots=True)
+class AutoJoinConfig:
+    enabled: bool
+    room: str
+    mode: str
+    result_delay: float
+
+
+@dataclass(slots=True)
 class AutoplayConfig:
     enabled: bool
     window_keyword: str
+    delay_mode: str
     timing: AutoplayTimingConfig
+    advanced_timing: AdvancedTimingConfig
     input: AutoplayInputConfig
+    auto_join: AutoJoinConfig
 
 
 def _default_autoplay_config() -> AutoplayConfig:
     return AutoplayConfig(
         enabled=False,
         window_keyword="",
+        delay_mode="human",
         timing=AutoplayTimingConfig(
-            first_tile=5.0,
-            rand_min=1.0,
-            rand_max=3.0,
-            candidate=0.5,
+            first_discard=DelayRangeConfig(2.0, 5.0),
+            discard=DelayRangeConfig(0.6, 4.0),
+            button=DelayRangeConfig(0.5, 3.0),
+            candidate=DelayRangeConfig(0.3, 1.0),
         ),
+        advanced_timing=_default_advanced_timing(),
         input=AutoplayInputConfig(
             bezier_smoothing=0.35,
             bezier_steps=18,
         ),
+        auto_join=AutoJoinConfig(
+            enabled=False,
+            room="gold",
+            mode="four_south",
+            result_delay=10.0,
+        ),
+    )
+
+
+def _default_advanced_timing() -> AdvancedTimingConfig:
+    return AdvancedTimingConfig(
+        first_discard=DelayRangeConfig(2.5, 5.0),
+        discard=DelayRangeConfig(1.0, 3.0),
+        tsumogiri=DelayRangeConfig(0.5, 1.8),
+        reach=DelayRangeConfig(1.0, 2.5),
+        reach_discard=DelayRangeConfig(0.4, 1.2),
+        chi=DelayRangeConfig(0.6, 1.8),
+        pon=DelayRangeConfig(0.5, 1.5),
+        daiminkan=DelayRangeConfig(0.6, 1.8),
+        ankan=DelayRangeConfig(1.0, 2.5),
+        kakan=DelayRangeConfig(1.0, 2.5),
+        ron=DelayRangeConfig(0.3, 1.0),
+        tsumo=DelayRangeConfig(0.3, 1.0),
+        ryukyoku=DelayRangeConfig(0.5, 1.5),
+        nukidora=DelayRangeConfig(0.5, 1.5),
+        skip=DelayRangeConfig(0.4, 1.2),
+        candidate=DelayRangeConfig(0.3, 0.8),
+    )
+
+
+def _normalize_delay_mode(value: object) -> str:
+    # Lua and legacy configurations are migrated to the visual advanced model.
+    return "advanced" if value in {"advanced", "lua", "legacy"} else "human"
+
+
+def _number_or(value: object, fallback: float) -> float:
+    if isinstance(value, int | float) and not isinstance(value, bool):
+        return float(value)
+    return fallback
+
+
+def _delay_range_from_value(value: object, default: DelayRangeConfig) -> DelayRangeConfig:
+    if not isinstance(value, dict):
+        return DelayRangeConfig(default.min, default.max)
+    minimum = _number_or(value.get("min"), default.min)
+    maximum = _number_or(value.get("max"), default.max)
+    return DelayRangeConfig(min(minimum, maximum), max(minimum, maximum))
+
+
+def _autoplay_timing_from_dict(data: object) -> AutoplayTimingConfig:
+    if not isinstance(data, dict):
+        data = {}
+    if isinstance(data.get("first_discard"), dict):
+        return AutoplayTimingConfig(
+            first_discard=_delay_range_from_value(data.get("first_discard"), DelayRangeConfig(2.0, 5.0)),
+            discard=_delay_range_from_value(data.get("discard"), DelayRangeConfig(0.6, 4.0)),
+            button=_delay_range_from_value(data.get("button"), DelayRangeConfig(0.5, 3.0)),
+            candidate=_delay_range_from_value(data.get("candidate"), DelayRangeConfig(0.3, 1.0)),
+        )
+
+    # Preserve the effective values from pre-range configurations.
+    first_tile = _number_or(data.get("first_tile"), 5.0)
+    rand_min = _number_or(data.get("rand_min"), 1.0)
+    rand_max = _number_or(data.get("rand_max"), 3.0)
+    candidate = _number_or(data.get("candidate"), 0.5)
+    return AutoplayTimingConfig(
+        first_discard=DelayRangeConfig(first_tile, first_tile),
+        discard=DelayRangeConfig(min(rand_min, rand_max), max(rand_min, rand_max)),
+        button=DelayRangeConfig(candidate + 0.8, candidate + 0.8),
+        candidate=DelayRangeConfig(candidate, candidate),
+    )
+
+
+def _advanced_timing_from_dict(data: object) -> AdvancedTimingConfig:
+    if not isinstance(data, dict):
+        data = {}
+    defaults = _default_advanced_timing()
+    return AdvancedTimingConfig(
+        first_discard=_delay_range_from_value(data.get("first_discard"), defaults.first_discard),
+        discard=_delay_range_from_value(data.get("discard"), defaults.discard),
+        tsumogiri=_delay_range_from_value(data.get("tsumogiri"), defaults.tsumogiri),
+        reach=_delay_range_from_value(data.get("reach"), defaults.reach),
+        reach_discard=_delay_range_from_value(data.get("reach_discard"), defaults.reach_discard),
+        chi=_delay_range_from_value(data.get("chi"), defaults.chi),
+        pon=_delay_range_from_value(data.get("pon"), defaults.pon),
+        daiminkan=_delay_range_from_value(data.get("daiminkan"), defaults.daiminkan),
+        ankan=_delay_range_from_value(data.get("ankan"), defaults.ankan),
+        kakan=_delay_range_from_value(data.get("kakan"), defaults.kakan),
+        ron=_delay_range_from_value(data.get("ron"), defaults.ron),
+        tsumo=_delay_range_from_value(data.get("tsumo"), defaults.tsumo),
+        ryukyoku=_delay_range_from_value(data.get("ryukyoku"), defaults.ryukyoku),
+        nukidora=_delay_range_from_value(data.get("nukidora"), defaults.nukidora),
+        skip=_delay_range_from_value(data.get("skip"), defaults.skip),
+        candidate=_delay_range_from_value(data.get("candidate"), defaults.candidate),
     )
 
 
@@ -217,7 +350,9 @@ class Settings:
         flya_api_key = _load_flya_api_key(ot_data)
         autoplay_data = data.get("autoplay", {})
         autoplay_timing = autoplay_data.get("timing", {})
+        advanced_timing = autoplay_data.get("advanced_timing", {})
         autoplay_input = autoplay_data.get("input", {})
+        auto_join_data = autoplay_data.get("auto_join", {})
         game_url = data.get("game_url", "")
 
         platform_val = data.get("platform")
@@ -283,15 +418,20 @@ class Settings:
             autoplay=AutoplayConfig(
                 enabled=autoplay_data.get("enabled", False),
                 window_keyword=autoplay_data.get("window_keyword", ""),
-                timing=AutoplayTimingConfig(
-                    first_tile=autoplay_timing.get("first_tile", 5.0),
-                    rand_min=autoplay_timing.get("rand_min", 1.0),
-                    rand_max=autoplay_timing.get("rand_max", 3.0),
-                    candidate=autoplay_timing.get("candidate", 0.5),
-                ),
+                delay_mode=_normalize_delay_mode(autoplay_data.get("delay_mode", "human")),
+                timing=_autoplay_timing_from_dict(autoplay_timing),
+                advanced_timing=_advanced_timing_from_dict(advanced_timing),
                 input=AutoplayInputConfig(
                     bezier_smoothing=autoplay_input.get("bezier_smoothing", 0.35),
                     bezier_steps=autoplay_input.get("bezier_steps", 18),
+                ),
+                auto_join=AutoJoinConfig(
+                    # Auto join is temporarily unavailable. Ignore stale
+                    # persisted true values so no background click task starts.
+                    enabled=False,
+                    room=auto_join_data.get("room", "gold"),
+                    mode=auto_join_data.get("mode", "four_south"),
+                    result_delay=auto_join_data.get("result_delay", 10.0),
                 ),
             ),
         )
@@ -404,15 +544,40 @@ def get_default_settings_dict() -> dict:
         "autoplay": {
             "enabled": False,
             "window_keyword": "",
+            "delay_mode": "human",
             "timing": {
-                "first_tile": 5.0,
-                "rand_min": 1.0,
-                "rand_max": 3.0,
-                "candidate": 0.5,
+                "first_discard": {"min": 2.0, "max": 5.0},
+                "discard": {"min": 0.6, "max": 4.0},
+                "button": {"min": 0.5, "max": 3.0},
+                "candidate": {"min": 0.3, "max": 1.0},
+            },
+            "advanced_timing": {
+                "first_discard": {"min": 2.5, "max": 5.0},
+                "discard": {"min": 1.0, "max": 3.0},
+                "tsumogiri": {"min": 0.5, "max": 1.8},
+                "reach": {"min": 1.0, "max": 2.5},
+                "reach_discard": {"min": 0.4, "max": 1.2},
+                "chi": {"min": 0.6, "max": 1.8},
+                "pon": {"min": 0.5, "max": 1.5},
+                "daiminkan": {"min": 0.6, "max": 1.8},
+                "ankan": {"min": 1.0, "max": 2.5},
+                "kakan": {"min": 1.0, "max": 2.5},
+                "ron": {"min": 0.3, "max": 1.0},
+                "tsumo": {"min": 0.3, "max": 1.0},
+                "ryukyoku": {"min": 0.5, "max": 1.5},
+                "nukidora": {"min": 0.5, "max": 1.5},
+                "skip": {"min": 0.4, "max": 1.2},
+                "candidate": {"min": 0.3, "max": 0.8},
             },
             "input": {
                 "bezier_smoothing": 0.35,
                 "bezier_steps": 18,
+            },
+            "auto_join": {
+                "enabled": False,
+                "room": "gold",
+                "mode": "four_south",
+                "result_delay": 10.0,
             },
         },
     }
@@ -457,7 +622,24 @@ def verify_settings(data: dict) -> bool:
         logger.error("Settings validation error: mihomo requires the MITM proxy to be enabled")
         return False
 
+    if not _verify_autoplay_ranges(data.get("autoplay", {})):
+        return False
+
     return _verify_ot3_proxy(data.get("ot", {}))
+
+
+def _verify_autoplay_ranges(autoplay_data: dict) -> bool:
+    for section_name in ("timing", "advanced_timing"):
+        section = autoplay_data.get(section_name, {})
+        if not isinstance(section, dict):
+            continue
+        for action_name, value in section.items():
+            if not isinstance(value, dict) or "min" not in value or "max" not in value:
+                continue
+            if value["min"] > value["max"]:
+                logger.error(f"Settings validation error: autoplay.{section_name}.{action_name}.min cannot exceed max")
+                return False
+    return True
 
 
 def _verify_ot3_proxy(ot_data: dict) -> bool:
@@ -550,14 +732,20 @@ def _update_settings(settings: Settings, data: dict):  # noqa: PLR0915
     autoplay_data = data.get("autoplay", {})
     settings.autoplay.enabled = autoplay_data.get("enabled", False)
     settings.autoplay.window_keyword = autoplay_data.get("window_keyword", "")
+    settings.autoplay.delay_mode = _normalize_delay_mode(autoplay_data.get("delay_mode", "human"))
     autoplay_timing = autoplay_data.get("timing", {})
-    settings.autoplay.timing.first_tile = autoplay_timing.get("first_tile", 5.0)
-    settings.autoplay.timing.rand_min = autoplay_timing.get("rand_min", 1.0)
-    settings.autoplay.timing.rand_max = autoplay_timing.get("rand_max", 3.0)
-    settings.autoplay.timing.candidate = autoplay_timing.get("candidate", 0.5)
+    settings.autoplay.timing = _autoplay_timing_from_dict(autoplay_timing)
+    settings.autoplay.advanced_timing = _advanced_timing_from_dict(autoplay_data.get("advanced_timing", {}))
     autoplay_input = autoplay_data.get("input", {})
     settings.autoplay.input.bezier_smoothing = autoplay_input.get("bezier_smoothing", 0.35)
     settings.autoplay.input.bezier_steps = autoplay_input.get("bezier_steps", 18)
+    auto_join_data = autoplay_data.get("auto_join", {})
+    # Keep the runtime hard-disabled even when an older frontend/configuration
+    # submits enabled=true.
+    settings.autoplay.auto_join.enabled = False
+    settings.autoplay.auto_join.room = auto_join_data.get("room", "gold")
+    settings.autoplay.auto_join.mode = auto_join_data.get("mode", "four_south")
+    settings.autoplay.auto_join.result_delay = auto_join_data.get("result_delay", 10.0)
 
     ot_data = data.get("ot", {})
     settings.ot.online = ot_data.get("online", False)
