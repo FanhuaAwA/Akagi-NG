@@ -1,7 +1,7 @@
 {
   "name": "akagi-ng-root",
   "private": true,
-  "version": "1.2.1",
+  "version": "1.2.2",
   "description": "Akagi-NG is a next-generation rewrite inspired by Akagi and MajsoulHelper, focusing on modern architecture and UI.",
   "author": "Akagi-NG Contributors",
   "license": "AGPL-3.0",
@@ -28,7 +28,7 @@
     "test:lifecycle-regressions": "tsx scripts/test_lifecycle_regressions.ts",
     "test:logger-resilience": "tsx scripts/test_logger_resilience.ts",
     "test:packaged-electron-security": "tsx scripts/test_electron_security.ts --packaged",
-    "test:privilege-boundary": "tsx scripts/build_tun_helper.ts && tsx scripts/test_privilege_boundary.ts",
+    "test:privilege-boundary": "tsx scripts/test_privilege_boundary.ts",
     "test:resource-availability": "tsx scripts/test_resource_availability.ts",
     "build": "npm run clean && npm run sync-version && npm run build -w akagi-frontend && npm run build:backend && npm run build -w akagi-ng-desktop && npm run prepare-release && npm run package -w akagi-ng-desktop",
     "lint": "eslint .",

@@ -78,13 +78,12 @@ please check the log files first.
 ## Notes | 说明
 
 - 默认模式不会安装系统级组件或修改系统网络配置
-- 仅启用内置 TUN 时请求 UAC，并在 ProgramData 的受保护目录运行经哈希校验的 mihomo
-- 关闭 TUN 或退出软件时会终止提权进程并清理会话配置
+- Windows 版主程序以管理员权限启动，并由主进程直接管理内置 mihomo TUN
+- 关闭 TUN 或退出软件时会终止由主进程管理的 mihomo
 
 Default mode does not install system-wide components or modify system networking.
-Only bundled TUN requests UAC and runs a hash-verified mihomo from a protected
-ProgramData directory. The elevated process and session config are removed when
-TUN stops or Akagi-NG exits.
+The Windows desktop runs as administrator and manages bundled mihomo TUN directly.
+The managed mihomo process is terminated when TUN stops or Akagi-NG exits.
 
 ---
 

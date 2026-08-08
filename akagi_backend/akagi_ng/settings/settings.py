@@ -618,10 +618,6 @@ def verify_settings(data: dict) -> bool:
                 )
                 return False
 
-    if mihomo_data.get("enabled") and not data.get("mitm", {}).get("enabled"):
-        logger.error("Settings validation error: mihomo requires the MITM proxy to be enabled")
-        return False
-
     if not _verify_autoplay_ranges(data.get("autoplay", {})):
         return False
 

@@ -15,13 +15,17 @@ from akagi_ng.bridge.tenhou.utils.judrdy import isrh
 from akagi_ng.bridge.tenhou.utils.state import State
 from akagi_ng.schema.constants import MahjongConstants
 from akagi_ng.schema.notifications import NotificationCode
-from akagi_ng.schema.types import AkagiEvent, MJAIEvent, RyukyokuEvent
+from akagi_ng.schema.types import AkagiEvent, HoraEvent, MJAIEvent, RyukyokuEvent
 
 
 class TenhouBridge(BaseBridge):
     def __init__(self):
         super().__init__()
         self.state = State()
+        self.game_ended = False
+        self._pending_hora_end = False
+        self._pending_draw_actors: set[int] = set()
+        self._pending_draw_tiles: dict[int, int] = {}
         self.handlers = {
             "HELO": self._convert_helo,
             "REJOIN": self._convert_rejoin,
@@ -37,6 +41,10 @@ class TenhouBridge(BaseBridge):
 
     def reset(self):
         self.state = State()
+        self.game_ended = False
+        self._pending_hora_end = False
+        self._pending_draw_actors.clear()
+        self._pending_draw_tiles.clear()
 
     def parse(self, content: bytes) -> list[AkagiEvent]:
         """解析内容并返回 MJAI 指令。
@@ -75,13 +83,24 @@ class TenhouBridge(BaseBridge):
             raise
 
     def _dispatch_message(self, message: dict) -> list[MJAIEvent]:
-        if "owari" in message:
-            return self._convert_end_game()
-
         tag = message.get("tag")
+        if "owari" in message:
+            events = self.handlers[tag](message) if tag in {"AGARI", "RYUUKYOKU"} else []
+            if self._pending_hora_end:
+                events.append(self.make_end_kyoku())
+                self._pending_hora_end = False
+            events.extend(self._convert_end_game())
+            return events
         if not tag:
             return []
 
+        if tag == "INIT" and self._pending_hora_end:
+            self._pending_hora_end = False
+            return [self.make_end_kyoku(), *self._convert_start_kyoku(message)]
+
+        return self._dispatch_tag_message(tag, message)
+
+    def _dispatch_tag_message(self, tag: str, message: dict) -> list[MJAIEvent]:
         if handler := self.handlers.get(tag):
             return handler(message)
 
@@ -128,6 +147,7 @@ class TenhouBridge(BaseBridge):
 
     def _convert_start_game(self, message: dict) -> list[MJAIEvent]:
         self.state.game_active = True
+        self.game_ended = False
         # TAIKYOKU 的 oya 是庄家绝对座位号。
         # 兼容旧逻辑：通过 (4 - oya) % 4 将庄家映射到 actor 0。
         self.state.seat = (MahjongConstants.SEATS_4P - int(message["oya"])) % MahjongConstants.SEATS_4P
@@ -147,6 +167,8 @@ class TenhouBridge(BaseBridge):
         self.state.last_kawa_tile = "?"
         self.state.is_tsumo = False
         self.state.is_new_round = True
+        self._pending_draw_actors.clear()
+        self._pending_draw_tiles.clear()
 
         bakaze_names = ["E", "S", "W", "N"]
         oya = self.rel_to_abs(int(message["oya"]))
@@ -192,19 +214,21 @@ class TenhouBridge(BaseBridge):
         actor = self.rel_to_abs(rel_seat)
         mjai_messages: list[MJAIEvent] = [self.make_tsumo(actor, "?")]
 
+        index_str = tag[1:]
+        raw_index = int(index_str) if index_str else int(message["p"]) if "p" in message else None
+        self._pending_draw_actors.add(actor)
+        if raw_index is not None:
+            self._pending_draw_tiles[actor] = raw_index
+        else:
+            self._pending_draw_tiles.pop(actor, None)
+
         if actor == self.state.seat:
-            # 牌索引可能在 tag（非 JSON 协议）或 p 字段中
-            index_str = tag[1:]
-            if index_str:
-                index = int(index_str)
-            elif "p" in message:
-                index = int(message["p"])
-            else:
+            if raw_index is None:
                 logger.warning(f"[Tenhou] Self tsumo tag '{tag}' missing index")
                 return mjai_messages
 
-            mjai_messages[0] = replace(mjai_messages[0], pai=tenhou_to_mjai_one(index))
-            self.state.hand.append(index)
+            mjai_messages[0] = replace(mjai_messages[0], pai=tenhou_to_mjai_one(raw_index))
+            self.state.hand.append(raw_index)
             self.state.is_tsumo = True
             return mjai_messages
         return mjai_messages
@@ -224,18 +248,20 @@ class TenhouBridge(BaseBridge):
 
         pai = tenhou_to_mjai_one(index) if index != -1 else "?"
 
-        # Tenhou JSON 中，首字母大小写用于区分出牌语义；
-        # 这里保持旧逻辑，统一使用 isupper 判断。
-        tsumogiri = (
-            str.isupper(tag[0])
-            if actor != self.state.seat
-            else (index == self.state.hand[-1] if self.state.hand else True)
-        )
+        had_pending_draw = actor in self._pending_draw_actors
+        if actor == self.state.seat:
+            tsumogiri = had_pending_draw and self._pending_draw_tiles.get(actor) == index
+        else:
+            # Uppercase is Tenhou's live hint for an opponent tsumogiri, but it
+            # is only legal when that actor actually drew immediately before.
+            # A discard after chi/pon can never be tsumogiri.
+            tsumogiri = had_pending_draw and str.isupper(tag[0])
         self.state.last_kawa_tile = pai
 
         mjai_messages: list[MJAIEvent] = [self.make_dahai(actor, pai, tsumogiri)]
 
         self.state.is_tsumo = False
+        self._clear_pending_draw(actor)
         if actor == self.state.seat and index != -1:
             if index in self.state.hand:
                 self.state.hand.remove(index)
@@ -246,6 +272,7 @@ class TenhouBridge(BaseBridge):
 
     def _convert_meld(self, message: dict) -> list[MJAIEvent]:
         actor = self.rel_to_abs(int(message["who"]))
+        self._clear_pending_draw(actor)
         m = int(message["m"])
         if (m & TenhouConstants.BIT_MASK_M) == TenhouConstants.BIT_NUKIDORA:
             return self._handle_nukidora(actor)
@@ -277,6 +304,10 @@ class TenhouBridge(BaseBridge):
             self.state.melds.append(meld)
 
         return mjai_messages
+
+    def _clear_pending_draw(self, actor: int) -> None:
+        self._pending_draw_actors.discard(actor)
+        self._pending_draw_tiles.pop(actor, None)
 
     def _handle_nukidora(self, actor: int) -> list[MJAIEvent]:
         mjai_messages: list[MJAIEvent] = [self.make_nukidora(actor)]
@@ -326,12 +357,21 @@ class TenhouBridge(BaseBridge):
 
     def _convert_hora(self, message: dict) -> list[MJAIEvent]:
         self.state.is_new_round = False
-        # 按相对座位旋转分数
-        raw_scores = parse_sc_tag(message)
+        actor = self.rel_to_abs(int(message["who"]))
+        target = self.rel_to_abs(int(message["fromWho"]))
+        pai = tenhou_to_mjai_one(int(message["machi"]))
+
+        raw_sc = [int(value) for value in message["sc"].split(",")]
+        raw_scores = [(score + delta) * 100 for score, delta in zip(raw_sc[0::2], raw_sc[1::2], strict=False)]
+        raw_deltas = [delta * 100 for delta in raw_sc[1::2]]
         scores = [0] * 4
+        deltas = [0] * 4
         for i in range(min(len(raw_scores), 4)):
             scores[self.rel_to_abs(i)] = raw_scores[i]
-        return [self.make_end_kyoku()]
+            deltas[self.rel_to_abs(i)] = raw_deltas[i]
+
+        self._pending_hora_end = True
+        return [HoraEvent(actor=actor, target=target, pai=pai, scores=scores, deltas=deltas)]
 
     def _convert_ryukyoku(self, message: dict) -> list[MJAIEvent]:
         raw_scores = parse_sc_tag(message)
@@ -343,6 +383,7 @@ class TenhouBridge(BaseBridge):
 
     def _convert_end_game(self) -> list[MJAIEvent]:
         self.state.game_active = False
+        self.game_ended = True
         return [self.make_end_game()]
 
     def rel_to_abs(self, rel: int) -> int:

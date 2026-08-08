@@ -32,7 +32,14 @@ from akagi_ng.mjai_bot.ot3 import is_local_decision
 from akagi_ng.mjai_bot.ot3_proxy import configure_ot3_session
 from akagi_ng.mjai_bot.status import BotStatusContext
 from akagi_ng.schema.notifications import NotificationCode
-from akagi_ng.schema.types import EndGameEvent, MJAIEvent, MJAIEventBase, MJAIResponse, StartGameEvent
+from akagi_ng.schema.types import (
+    EndGameEvent,
+    MJAIEvent,
+    MJAIEventBase,
+    MJAIResponse,
+    StartGameEvent,
+    StartKyokuEvent,
+)
 from akagi_ng.settings import local_settings
 
 FLYA_DECISION_PATH = "/decision"
@@ -308,9 +315,7 @@ class FlyADecisionClient:
                     allow_redirects=False,
                 )
             except requests.RequestException as error:
-                _log_flya_http_exception(
-                    "decision", "POST", url, attempt_number, started_at, error, self._key
-                )
+                _log_flya_http_exception("decision", "POST", url, attempt_number, started_at, error, self._key)
                 if attempt == 0:
                     continue
                 raise
@@ -396,6 +401,12 @@ class FlyADecider:
         self._owns_online_executor = online_executor is None
         self.online_executor = online_executor or OnlineInferenceExecutor()
 
+    def observe_system_event(self, code: str) -> None:
+        """Invalidate an observed replay as soon as its game transport loses data."""
+        if code != NotificationCode.GAME_DISCONNECTED or self.player_id is None:
+            return
+        self._disable_remote_for_game("game_disconnected")
+
     def process(  # noqa: C901, PLR0911, PLR0912
         self, event: MJAIEvent, response: MJAIResponse | None, tracker: object
     ) -> MJAIResponse | None:
@@ -457,9 +468,12 @@ class FlyADecider:
             logger.warning(
                 f"FlyA suppression at required decision code={error.code} "
                 f"events={len(self.events)} session_id={self.session_id or 'none'}; "
-                "using local Mortal and rebuilding the FlyA session."
+                "using local Mortal and applying safe recovery."
             )
-            self._rebuild_remote_state(error.code)
+            if error.code in {"state_replay_invalid", "state_replay_incomplete"}:
+                self._disable_remote_for_game(error.code)
+            else:
+                self._rebuild_remote_state(error.code)
             return self._fallback(response)
         except OnlineInferenceCancelled:
             logger.info("FlyA inference cancelled; skipping local replay during lifecycle transition")
@@ -504,18 +518,71 @@ class FlyADecider:
             self._client_signature = None
         if not isinstance(event, MJAIEventBase):
             return
+
+        # A reconnect can only provide a suffix of the current hand.  Never send
+        # that suffix to FlyA as though it were complete.  A later start_kyoku is
+        # a trustworthy boundary because it contains scores, dealer, dora and all
+        # of the local player's tiles, so it can safely form a new observed replay.
+        if not self.history_complete:
+            if isinstance(event, StartKyokuEvent) and self.player_id is not None:
+                self._rebase_at_start_kyoku(event)
+                return
+            self.mjai_events.append(event)
+            if isinstance(event, EndGameEvent):
+                self.online_executor.next_generation()
+                self.player_id = None
+                self.session_id = None
+            return
+
         self.mjai_events.append(event)
         try:
             self.events.append(canonical_event(event, THREE_PLAYER_SEATS if self.is_3p else FOUR_PLAYER_SEATS))
-        except (TypeError, ValueError):
-            self.history_complete = False
+        except (TypeError, ValueError) as error:
+            logger.warning(f"FlyA could not canonicalize event type={event.type}: {error}")
+            self._disable_remote_for_game("canonical_event_invalid")
         if isinstance(event, EndGameEvent):
             self.online_executor.next_generation()
+            self.history_complete = False
+            self.player_id = None
             self.session_id = None
             if self.client:
                 self.client.close()
             self.client = None
             self._client_signature = None
+
+    def _rebase_at_start_kyoku(self, event: StartKyokuEvent) -> None:
+        """Resume FlyA from the first complete hand boundary after a replay gap."""
+        if self.player_id is None:
+            return
+        previous_event_count = len(self.events)
+        previous_session = self.session_id
+        start_game = StartGameEvent(id=self.player_id, is_3p=self.is_3p, sync=True)
+        seat_count = THREE_PLAYER_SEATS if self.is_3p else FOUR_PLAYER_SEATS
+
+        self.online_executor.next_generation()
+        if self.client:
+            self.client.close()
+        self.client = None
+        self._client_signature = None
+        self.mjai_events = [start_game, event]
+        try:
+            self.events = [canonical_event(start_game, seat_count), canonical_event(event, seat_count)]
+        except (TypeError, ValueError) as error:
+            self.events = []
+            self.history_complete = False
+            self.session_id = None
+            logger.warning(f"FlyA failed to rebuild at start_kyoku: {error}")
+            return
+
+        self.history_complete = True
+        self.session_id = str(uuid4())
+        self.status.set_metadata(NotificationCode.RECONNECTING, False)
+        self.status.set_metadata(NotificationCode.FALLBACK_USED, False)
+        logger.info(
+            "FlyA replay resumed at fresh start_kyoku "
+            f"previous_events={previous_event_count} previous_session={previous_session or 'none'} "
+            f"new_session={self.session_id}."
+        )
 
     def _enabled(self) -> bool:
         ot = local_settings.ot
@@ -552,6 +619,36 @@ class FlyADecider:
             f"FlyA remote state rebuilt reason={reason} events={len(self.events)} "
             f"previous_session={previous_session or 'none'} new_session={self.session_id or 'none'}."
         )
+
+    def _disable_remote_for_game(self, reason: str) -> None:
+        """Stop replaying an invalid prefix until the next complete hand boundary."""
+        diagnostic_fields = {
+            "type",
+            "actor",
+            "target",
+            "pai",
+            "consumed",
+            "tsumogiri",
+            "dora_marker",
+            "scores",
+            "deltas",
+        }
+        tail_events = [
+            {key: value for key, value in event.items() if key in diagnostic_fields} for event in self.events[-12:]
+        ]
+        logger.warning(
+            f"FlyA disabled for current game reason={reason} events={len(self.events)} "
+            f"tail_events={tail_events}; local Mortal remains active."
+        )
+        self.history_complete = False
+        self.session_id = None
+        self.status.set_metadata(NotificationCode.RECONNECTING, False)
+        self.status.set_metadata(NotificationCode.FALLBACK_USED, True)
+        self.online_executor.next_generation()
+        if self.client:
+            self.client.close()
+        self.client = None
+        self._client_signature = None
 
     def close(self) -> None:
         self._disable_client()

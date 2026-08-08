@@ -16,7 +16,8 @@ import pytest
 from akagi_ng.application import AkagiApp
 from akagi_ng.bridge import MajsoulBridge
 from akagi_ng.core.context import AppContext
-from akagi_ng.schema.types import MJAIResponse, ProcessResult
+from akagi_ng.schema.notifications import NotificationCode
+from akagi_ng.schema.types import MJAIResponse, ProcessResult, SystemEvent
 
 
 @pytest.fixture
@@ -193,6 +194,22 @@ def test_process_event_error_handling(app) -> None:
     assert result.response is None
     assert result.notifications == []
     assert result.is_sync is False
+
+
+def test_system_disconnect_invalidates_flya_replay(app) -> None:
+    app.autoplay = MagicMock()
+    app.flya_decider = MagicMock()
+    controller = MagicMock()
+    tracker = MagicMock()
+    event = SystemEvent(code=NotificationCode.GAME_DISCONNECTED)
+
+    result = app._process_event(event, tracker, controller)
+
+    app.autoplay.observe_system_event.assert_called_once_with(NotificationCode.GAME_DISCONNECTED)
+    app.flya_decider.observe_system_event.assert_called_once_with(NotificationCode.GAME_DISCONNECTED)
+    controller.react.assert_not_called()
+    tracker.react.assert_not_called()
+    assert result.notifications == [{"code": NotificationCode.GAME_DISCONNECTED}]
 
 
 def test_emit_outputs_standard(app) -> None:

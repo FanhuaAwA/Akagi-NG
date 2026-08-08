@@ -316,10 +316,10 @@ class TestSettingsLifecycle(unittest.TestCase):
         settings["ot"]["online"] = True
         self.assertTrue(verify_settings(settings))
 
-    def test_mihomo_requires_mitm_and_unique_ports(self):
+    def test_mihomo_preference_can_survive_browser_mode_and_ports_stay_unique(self):
         invalid = get_default_settings_dict()
         invalid["mihomo"]["enabled"] = True
-        self.assertFalse(verify_settings(invalid))
+        self.assertTrue(verify_settings(invalid))
 
         invalid["mitm"]["enabled"] = True
         invalid["mihomo"]["mixed_port"] = invalid["mitm"]["port"]

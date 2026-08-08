@@ -86,7 +86,7 @@ app.whenReady().then(async () => {
   // critical-resource availability check does not enumerate or hash the bundle.
   const backendStartPromise = backendManager.start();
 
-  // 2. Render the dashboard before backend imports or optional UAC can delay it.
+  // 2. Render the dashboard while backend imports continue.
   await windowManager.reconcileDesktopSettings(checkForUpdatesIfActive);
   if (shutdownStarted) return;
   void windowManager.createDashboardWindow().then(() => {
@@ -96,7 +96,7 @@ app.whenReady().then(async () => {
   const backendStarted = await backendStartPromise;
   if (shutdownStarted) return;
 
-  // 3. Start optional TUN asynchronously. UAC denial must not block the app/backend.
+  // 3. Start the optional TUN asynchronously from the already-elevated desktop process.
   if (backendStarted) {
     void mihomoManager.startIfEnabled().then((mihomoStatus) => {
       if (shutdownStarted) return;

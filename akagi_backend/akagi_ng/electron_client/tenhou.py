@@ -42,21 +42,25 @@ class TenhouElectronClient(BaseElectronClient):
         # 仅跟踪天凤相关 WebSocket
         if "tenhou.net" in url or "nodocchi" in url:
             with self._lock:
-                self._active_connections += 1
-                if self._active_connections == 1:
+                if message.request_id in self._tracked_connection_ids:
+                    return
+                first_connection = not self._tracked_connection_ids
+                self._tracked_connection_ids.add(message.request_id)
+                self._active_connections = len(self._tracked_connection_ids)
+                if first_connection:
+                    if self.bridge:
+                        self.bridge.reset()
                     self._enqueue_event(SystemEvent(code=NotificationCode.CLIENT_CONNECTED))
                     logger.info(f"[Electron] Tenhou client connected (first connection): {url}")
 
-            if self.bridge:
-                self.bridge.reset()
-
-    def _handle_websocket_closed(self, _message: WebSocketClosedMessage):
+    def _handle_websocket_closed(self, message: WebSocketClosedMessage):
         with self._lock:
-            if self._active_connections <= 0:
-                logger.warning("[Electron] Unexpected Tenhou websocket close event with no active connections")
+            if message.request_id not in self._tracked_connection_ids:
+                logger.debug(f"[Electron] Ignoring untracked Tenhou websocket close: {message.request_id}")
                 return
 
-            self._active_connections -= 1
+            self._tracked_connection_ids.remove(message.request_id)
+            self._active_connections = len(self._tracked_connection_ids)
             if self._active_connections == 0:
                 # 根据游戏状态决定是否发送 GAME_DISCONNECTED
                 game_ended = getattr(self.bridge, "game_ended", False) if self.bridge else False
@@ -111,5 +115,21 @@ class TenhouElectronClient(BaseElectronClient):
                         logger.info("[Electron] Detected end_game message in Tenhou, sending RETURN_LOBBY")
                         self._enqueue_event(SystemEvent(code=NotificationCode.RETURN_LOBBY))
 
+            self._adopt_validated_connection(message.request_id)
+
         except Exception as e:
             logger.exception(f"Error decoding Tenhou websocket frame: {e}")
+
+    def _adopt_validated_connection(self, request_id: str) -> None:
+        # Some Tenhou endpoints use an IP or relay hostname that cannot be
+        # classified from webSocketCreated. Adopt the request only after a
+        # frame has successfully produced a Tenhou event.
+        with self._lock:
+            if request_id in self._tracked_connection_ids:
+                return
+            first_connection = not self._tracked_connection_ids
+            self._tracked_connection_ids.add(request_id)
+            self._active_connections = len(self._tracked_connection_ids)
+            if first_connection:
+                self._enqueue_event(SystemEvent(code=NotificationCode.CLIENT_CONNECTED))
+                logger.info(f"[Electron] Adopted Tenhou websocket from a validated game frame: {request_id}")

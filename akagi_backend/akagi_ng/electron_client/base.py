@@ -19,12 +19,14 @@ class BaseElectronClient:
         self.message_queue: queue.Queue[AkagiEvent] = shared_queue
         self.running = False
         self._active_connections = 0
+        self._tracked_connection_ids: set[str] = set()
         self._lock = threading.Lock()
 
     def start(self):
         with self._lock:
             self.running = True
             self._active_connections = 0
+            self._tracked_connection_ids.clear()
             if self.bridge:
                 self.bridge.reset()
             logger.info(f"{self.__class__.__name__} started.")
@@ -33,6 +35,7 @@ class BaseElectronClient:
         with self._lock:
             self.running = False
             self._active_connections = 0
+            self._tracked_connection_ids.clear()
             logger.info(f"{self.__class__.__name__} stopped.")
 
     def _enqueue_event(self, event: AkagiEvent):
@@ -64,6 +67,7 @@ class BaseElectronClient:
                     f"(Active: {self._active_connections})"
                 )
                 self._active_connections = 0
+                self._tracked_connection_ids.clear()
 
                 # 若桥接器已判定结束，则通常已发送 RETURN_LOBBY，这里抑制 GAME_DISCONNECTED。
                 game_ended = False

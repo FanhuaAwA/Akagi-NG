@@ -1,4 +1,4 @@
-import { spawn } from 'node:child_process';
+import { type ChildProcess, spawn } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { mkdir, writeFile } from 'node:fs/promises';
@@ -10,11 +10,10 @@ import type { BackendManager } from './backend-manager.js';
 import { createLogger } from './logger.js';
 import { buildMihomoConfig } from './mihomo-config.js';
 import { getAssetPath } from './utils.js';
-import { launchWindowsTunHelper, type WindowsTunSession } from './windows-tun-helper.js';
-
 const logger = createLogger('MihomoManager');
 const STARTUP_TIMEOUT_MS = 8_000;
 const STARTUP_CHECK_INTERVAL_MS = 200;
+const STOP_TIMEOUT_MS = 2_000;
 
 class MihomoStartupCancelledError extends Error {
   public constructor() {
@@ -38,6 +37,120 @@ function waitForStartupDelay(ms: number, signal: AbortSignal): Promise<void> {
   });
 }
 
+interface MihomoSession {
+  isRunning(): boolean;
+  stop(): Promise<void>;
+}
+
+interface DirectMihomoLaunchOptions {
+  binaryPath: string;
+  workDir: string;
+  configPath: string;
+  signal: AbortSignal;
+  onStdout: (line: string) => void;
+  onStderr: (line: string) => void;
+  onUnexpectedExit: (code: number | null, message?: string) => void;
+}
+
+class DirectMihomoSession implements MihomoSession {
+  private stopping = false;
+  private running = true;
+  private exitReported = false;
+  private readonly closed: Promise<void>;
+
+  public constructor(
+    private readonly child: ChildProcess,
+    private readonly options: DirectMihomoLaunchOptions,
+  ) {
+    child.stdout?.setEncoding('utf8');
+    child.stderr?.setEncoding('utf8');
+    child.stdout?.on('data', (chunk: string) => this.forwardLines(chunk, options.onStdout));
+    child.stderr?.on('data', (chunk: string) => this.forwardLines(chunk, options.onStderr));
+    child.once('error', (error) => this.reportUnexpectedExit(null, error.message));
+    this.closed = new Promise((resolve) => {
+      child.once('close', (code, signal) => {
+        this.running = false;
+        if (!this.stopping) {
+          const message = signal ? `进程被信号 ${signal} 终止。` : undefined;
+          this.reportUnexpectedExit(code, message);
+        }
+        resolve();
+      });
+    });
+  }
+
+  public isRunning(): boolean {
+    return this.running && this.child.exitCode === null && this.child.signalCode === null;
+  }
+
+  public async stop(): Promise<void> {
+    if (!this.isRunning()) {
+      await this.closed;
+      return;
+    }
+    this.stopping = true;
+    this.child.kill('SIGKILL');
+    await Promise.race([
+      this.closed,
+      new Promise<void>((resolve) => {
+        const timeout = setTimeout(resolve, STOP_TIMEOUT_MS);
+        timeout.unref();
+      }),
+    ]);
+    this.running = false;
+  }
+
+  private forwardLines(chunk: string, receiver: (line: string) => void): void {
+    for (const line of chunk.split(/\r?\n/u)) {
+      const trimmed = line.trim();
+      if (trimmed) receiver(trimmed);
+    }
+  }
+
+  private reportUnexpectedExit(code: number | null, message?: string): void {
+    if (this.stopping || this.exitReported) return;
+    this.exitReported = true;
+    this.running = false;
+    this.options.onUnexpectedExit(code, message);
+  }
+}
+
+async function launchMihomoDirectly(options: DirectMihomoLaunchOptions): Promise<MihomoSession> {
+  if (options.signal.aborted) throw new MihomoStartupCancelledError();
+  const child = spawn(options.binaryPath, ['-d', options.workDir, '-f', options.configPath], {
+    cwd: options.workDir,
+    windowsHide: true,
+  });
+  const session = new DirectMihomoSession(child, options);
+
+  await new Promise<void>((resolve, reject) => {
+    const cleanup = () => {
+      child.removeListener('spawn', onSpawn);
+      child.removeListener('error', onError);
+      options.signal.removeEventListener('abort', onAbort);
+    };
+    const onSpawn = () => {
+      cleanup();
+      resolve();
+    };
+    const onError = (error: Error) => {
+      cleanup();
+      reject(error);
+    };
+    const onAbort = () => {
+      cleanup();
+      child.kill('SIGKILL');
+      reject(new MihomoStartupCancelledError());
+    };
+    child.once('spawn', onSpawn);
+    child.once('error', onError);
+    options.signal.addEventListener('abort', onAbort, { once: true });
+    if (options.signal.aborted) onAbort();
+  });
+
+  return session;
+}
+
 export interface MihomoStatus {
   enabled: boolean;
   running: boolean;
@@ -45,7 +158,7 @@ export interface MihomoStatus {
 }
 
 export class MihomoManager {
-  private session: WindowsTunSession | null = null;
+  private session: MihomoSession | null = null;
   private controllerUrl = '';
   private controllerSecret = '';
   private lastError: string | undefined;
@@ -95,7 +208,7 @@ export class MihomoManager {
     if (this.isClosing) return this.shutdownStatus();
     const config = await this.backendManager.getProxyConfig();
     if (this.isClosing) return this.shutdownStatus();
-    if (!config.mihomo.enabled) return this.getStatus();
+    if (!config.mihomo.enabled || !config.mitm.enabled) return this.getStatus();
     return this.doStart();
   }
 
@@ -109,7 +222,7 @@ export class MihomoManager {
     if (this.isClosing) return this.shutdownStatus();
     const config = await this.backendManager.getProxyConfig();
     if (this.isClosing) return this.shutdownStatus();
-    if (!config.mihomo.enabled) {
+    if (!config.mihomo.enabled || !config.mitm.enabled) {
       this.lastError = undefined;
       return this.getStatus();
     }
@@ -129,7 +242,7 @@ export class MihomoManager {
     const config = await this.backendManager.getProxyConfig();
     if (this.isClosing) return this.shutdownStatus();
     if (!config.mihomo.enabled) {
-      return this.fail('未启用内置 mihomo TUN，已拒绝提权请求。');
+      return this.fail('未启用内置 mihomo TUN，已拒绝启动请求。');
     }
 
     if (process.platform !== 'win32') {
@@ -173,18 +286,11 @@ export class MihomoManager {
     }
     if (this.isClosing) return this.shutdownStatus();
 
-    const helperPath = app.isPackaged
-      ? getAssetPath('assets', 'privileged', 'AkagiNg.TunHelper.exe')
-      : getAssetPath('build', 'privileged', 'AkagiNg.TunHelper.exe');
-    if (!existsSync(helperPath)) {
-      return this.fail(`找不到 TUN 权限助手：${helperPath}`);
-    }
-
-    logger.info('Requesting elevation for the isolated mihomo TUN helper.');
+    logger.info('Starting bundled mihomo TUN directly from the desktop process.');
     try {
       this.assertStartupAllowed();
-      const launchedSession = await launchWindowsTunHelper({
-        helperPath,
+      const launchedSession = await launchMihomoDirectly({
+        binaryPath,
         workDir,
         configPath,
         signal: this.shutdownController.signal,
@@ -194,7 +300,7 @@ export class MihomoManager {
           this.session = null;
           if (!this.isStopping) {
             this.lastError = message
-              ? `mihomo 权限助手异常退出：${message}`
+              ? `mihomo 异常退出：${message}`
               : `mihomo 异常退出（代码 ${String(code)}）。`;
             logger.error(this.lastError);
           }
@@ -249,7 +355,7 @@ export class MihomoManager {
     await this.stopSession(currentSession);
   }
 
-  private async stopSession(currentSession: WindowsTunSession): Promise<void> {
+  private async stopSession(currentSession: MihomoSession): Promise<void> {
     if (this.sessionStopPromise) {
       await this.sessionStopPromise;
       return;

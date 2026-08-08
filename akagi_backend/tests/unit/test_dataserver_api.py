@@ -307,9 +307,12 @@ async def test_ingest_mjai_success(cli):
     mock_app.electron_client = MagicMock()
 
     with patch("akagi_ng.dataserver.api.get_app_context", return_value=mock_app):
-        resp = await cli.post("/api/ingest", json={"type": "websocket_closed"})
+        resp = await cli.post(
+            "/api/ingest",
+            json={"type": "websocket_closed", "requestId": "tenhou-game"},
+        )
         assert resp.status == 200
-        mock_app.electron_client.push_message.assert_called_once_with(WebSocketClosedMessage())
+        mock_app.electron_client.push_message.assert_called_once_with(WebSocketClosedMessage(request_id="tenhou-game"))
 
 
 async def test_ingest_mjai_no_client(cli):
@@ -317,7 +320,10 @@ async def test_ingest_mjai_no_client(cli):
     mock_app.electron_client = None
 
     with patch("akagi_ng.dataserver.api.get_app_context", return_value=mock_app):
-        resp = await cli.post("/api/ingest", json={"type": "websocket_closed"})
+        resp = await cli.post(
+            "/api/ingest",
+            json={"type": "websocket_closed", "requestId": "tenhou-game"},
+        )
         assert resp.status == 503
 
 

@@ -578,12 +578,17 @@ async def ingest_mjai_handler(request: web.Request) -> web.Response:
     msg = None
     try:
         match payload:
-            case {"type": "websocket_created", "url": url}:
-                msg = WebSocketCreatedMessage(url=url)
-            case {"type": "websocket_closed"}:
-                msg = WebSocketClosedMessage()
-            case {"type": "websocket", "direction": direction, "data": data}:
-                msg = WebSocketFrameMessage(direction=direction, data=data, opcode=payload.get("opcode"))
+            case {"type": "websocket_created", "requestId": request_id, "url": url}:
+                msg = WebSocketCreatedMessage(request_id=request_id, url=url)
+            case {"type": "websocket_closed", "requestId": request_id}:
+                msg = WebSocketClosedMessage(request_id=request_id)
+            case {"type": "websocket", "requestId": request_id, "direction": direction, "data": data}:
+                msg = WebSocketFrameMessage(
+                    request_id=request_id,
+                    direction=direction,
+                    data=data,
+                    opcode=payload.get("opcode"),
+                )
             case {"type": "debugger_detached"}:
                 msg = DebuggerDetachedMessage()
             case _:

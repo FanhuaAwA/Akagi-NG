@@ -23,8 +23,6 @@ function runNode(
 }
 
 async function main(): Promise<void> {
-  const tsxCli = resolveModule('tsx/cli');
-  runNode([tsxCli, resolve(rootDir, 'scripts', 'build_tun_helper.ts')]);
   runNode(
     [resolveModule('electron-builder/out/cli/cli.js'), '--publish', 'never'],
     process.env,

@@ -14,7 +14,6 @@ const backendSource = source('electron/src/backend-manager.ts');
 const electronConstants = source('electron/src/constants.ts');
 const ipcSource = source('electron/src/ipc-handlers.ts');
 const mihomoSource = source('electron/src/mihomo-manager.ts');
-const tunHelperSource = source('electron/src/windows-tun-helper.ts');
 const windowSource = source('electron/src/window-manager.ts');
 const utilsSource = source('electron/src/utils.ts');
 const loggerSource = source('electron/src/logger.ts');
@@ -132,7 +131,7 @@ assert.match(backendSource, /if \(timeoutId\) clearTimeout\(timeoutId\)/);
 assert.match(electronConstants, /BACKEND_STARTUP_CHECK_INTERVAL_MS = 100/);
 assert.match(electronConstants, /BACKEND_STARTUP_CHECK_MAX_INTERVAL_MS = 500/);
 assert.match(electronConstants, /BACKEND_SHUTDOWN_TIMEOUT_MS = 2000/);
-assert.match(tunHelperSource, /STOP_TIMEOUT_MS = 2_000/);
+assert.match(mihomoSource, /STOP_TIMEOUT_MS = 2_000/);
 
 assert.match(mainSource, /let shutdownPromise: Promise<void> \| null = null/);
 const shutdownFunction = mainSource.slice(
@@ -179,27 +178,24 @@ assert.equal(
   'Every update check must pass through the shutdown guard.',
 );
 
+const mihomoStartIndex = mihomoSource.indexOf('private async doStart()');
 const mihomoStart = mihomoSource.slice(
-  mihomoSource.indexOf('private async doStart()'),
-  mihomoSource.indexOf('public async stop()'),
+  mihomoStartIndex,
+  mihomoSource.indexOf('public async stop()', mihomoStartIndex),
 );
 assert.match(
   mihomoSource,
   /public beginShutdown\(\): void[\s\S]*this\.shutdownController\.abort\(\)/,
 );
 assert.match(mihomoStart, /validateConfig\([\s\S]*this\.shutdownController\.signal/);
-assert.match(
-  mihomoStart,
-  /launchWindowsTunHelper\([\s\S]*signal: this\.shutdownController\.signal/,
-);
+assert.match(mihomoStart, /launchMihomoDirectly\([\s\S]*signal: this\.shutdownController\.signal/);
 assert.match(
   mihomoStart,
   /this\.session = launchedSession;[\s\S]*if \(this\.isClosing\)[\s\S]*stopSession\(launchedSession\)/,
 );
 assert.match(mihomoSource, /while \(Date\.now\(\) < deadline\) \{[\s\S]*assertStartupAllowed\(\)/);
-assert.match(tunHelperSource, /signal\?: AbortSignal/);
-assert.match(tunHelperSource, /waitForConnection\(server, options\.signal\)/);
-assert.match(tunHelperSource, /channel\?\.destroy\(\)[\s\S]*launcher\.kill\(\)/);
+assert.doesNotMatch(mihomoSource, /launchWindowsTunHelper|UAC approval|权限助手/);
+assert.match(mihomoSource, /child\.kill\('SIGKILL'\)/);
 
 assert.doesNotMatch(appSource, /APP_SPLASH_SHOW_MS/);
 assert.match(appSource, /duration-300/);
@@ -327,6 +323,43 @@ async function testMihomoShutdownCancellation(): Promise<void> {
   assert.equal(pendingManager.isRunning(), false);
 }
 
+async function testMihomoSuspendsInBrowserModeAndRestoresInProxyMode(): Promise<void> {
+  const config = {
+    mitm: { enabled: false, host: '127.0.0.1', port: 6789 },
+    mihomo: {
+      enabled: true,
+      mixedPort: 7890,
+      controllerPort: 9090,
+      strictRoute: false,
+    },
+  };
+  const manager = new MihomoManager({ getProxyConfig: async () => config } as never);
+  let running = true;
+  let stopCalls = 0;
+  let startCalls = 0;
+  Object.assign(manager, {
+    session: {
+      isRunning: () => running,
+      stop: async () => {
+        stopCalls += 1;
+        running = false;
+      },
+    },
+    doStart: async () => {
+      startCalls += 1;
+      return { enabled: true, running: true };
+    },
+  });
+
+  assert.deepEqual(await manager.reconcile(), { enabled: true, running: false });
+  assert.equal(stopCalls, 1, 'Switching to the built-in browser must stop the active TUN.');
+  assert.equal(startCalls, 0, 'Browser mode must not restart the remembered TUN preference.');
+
+  config.mitm.enabled = true;
+  assert.deepEqual(await manager.reconcile(), { enabled: true, running: true });
+  assert.equal(startCalls, 1, 'Switching back to external proxy mode must restore TUN.');
+}
+
 async function testResourceAvailabilitySingleFlight(): Promise<void> {
   const manager = Object.create(BackendManager.prototype) as BackendManager;
   let checkCalls = 0;
@@ -379,7 +412,11 @@ async function testResourceAvailabilitySingleFlight(): Promise<void> {
   assert.equal(retryCalls, 2, 'A failed resource check must clear the in-flight cache for retry.');
 }
 
-Promise.all([testMihomoShutdownCancellation(), testResourceAvailabilitySingleFlight()]).then(
+Promise.all([
+  testMihomoShutdownCancellation(),
+  testMihomoSuspendsInBrowserModeAndRestoresInProxyMode(),
+  testResourceAvailabilitySingleFlight(),
+]).then(
   () => console.log('Lifecycle and proxy regression tests passed.'),
   (error) => {
     console.error(error);

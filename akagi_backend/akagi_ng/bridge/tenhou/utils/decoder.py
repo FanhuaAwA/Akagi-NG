@@ -70,14 +70,18 @@ class Meld:
 
     @classmethod
     def parse_pon(cls, m: int) -> Self:
-        unused = (m >> 5) & 0x3
+        unused_index = (m >> 5) & 0x3
         t = m >> 9
-        r = t % 3
+        called_index = t % 3
         t = t // 3 * 4
         h = [t, t + 1, t + 2, t + 3]
-        unused = h.pop(unused)
-        h[0], h[r] = h[r], h[0]
-        return cls(m & 3, MeldType.PON, h, unused=unused)
+        # Tenhou first swaps the unused fourth copy to the end, then indexes
+        # the called tile inside the remaining three-tile combination.
+        h[3], h[unused_index] = h[unused_index], h[3]
+        combination = h[:3]
+        called = combination[called_index]
+        consumed = [tile for i, tile in enumerate(combination) if i != called_index]
+        return cls(m & 3, MeldType.PON, [called, *consumed], unused=h[3])
 
     @classmethod
     def parse_kakan(cls, m: int) -> Self:

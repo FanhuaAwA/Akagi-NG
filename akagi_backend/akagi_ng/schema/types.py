@@ -418,17 +418,20 @@ type AkagiEvent = MJAIEvent | SystemEvent | SystemShutdownEvent
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class WebSocketCreatedMessage:
+    request_id: str
     url: str
     type: str = "websocket_created"
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class WebSocketClosedMessage:
+    request_id: str
     type: str = "websocket_closed"
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class WebSocketFrameMessage:
+    request_id: str
     direction: Literal["inbound", "outbound"]
     data: str
     opcode: int | None = None

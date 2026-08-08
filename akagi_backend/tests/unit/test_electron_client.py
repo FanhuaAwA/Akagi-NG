@@ -65,12 +65,12 @@ def ms_client():
 
 def test_majsoul_lifecycle(ms_client):
     # Created
-    ms_client.push_message(WebSocketCreatedMessage(url="wss://majsoul.com/game"))
+    ms_client.push_message(WebSocketCreatedMessage(request_id="majsoul-game", url="wss://majsoul.com/game"))
     assert ms_client._active_connections == 1
     assert ms_client.message_queue.get(timeout=2.0).code == "client_connected"
 
     # Closed
-    ms_client.push_message(WebSocketClosedMessage())
+    ms_client.push_message(WebSocketClosedMessage(request_id="majsoul-game"))
     assert ms_client._active_connections == 0
     assert ms_client.message_queue.get(timeout=2.0).code == "game_disconnected"
 
@@ -84,7 +84,13 @@ def test_majsoul_debugger_events(ms_client):
 
 def test_majsoul_frames(ms_client):
     ms_client.bridge.parse.return_value = [TsumoEvent(actor=0, pai="1m"), EndGameEvent()]
-    ms_client.push_message(WebSocketFrameMessage(direction="inbound", data=base64.b64encode(b"raw").decode()))
+    ms_client.push_message(
+        WebSocketFrameMessage(
+            request_id="majsoul-game",
+            direction="inbound",
+            data=base64.b64encode(b"raw").decode(),
+        )
+    )
 
     assert ms_client.message_queue.get(timeout=2.0).type == "tsumo"
     assert ms_client.message_queue.get(timeout=2.0).type == "end_game"
@@ -108,38 +114,46 @@ def th_client():
 
 
 def test_tenhou_lifecycle(th_client):
-    th_client.push_message(WebSocketCreatedMessage(url="https://tenhou.net/3/"))
+    th_client.push_message(WebSocketCreatedMessage(request_id="tenhou-game", url="https://tenhou.net/3/"))
     assert th_client._active_connections == 1
     assert th_client.message_queue.get(timeout=2.0).code == "client_connected"
 
-    th_client.push_message(WebSocketClosedMessage())
+    th_client.push_message(WebSocketClosedMessage(request_id="tenhou-game"))
     assert th_client._active_connections == 0
     assert th_client.message_queue.get(timeout=2.0).code == "game_disconnected"
 
 
 def test_tenhou_non_target_url_ignored(th_client):
-    th_client.push_message(WebSocketCreatedMessage(url="wss://google.com/socket"))
+    th_client.push_message(WebSocketCreatedMessage(request_id="other", url="wss://google.com/socket"))
     assert th_client._active_connections == 0
     assert th_client.message_queue.empty()
 
 
 def test_tenhou_frames(th_client):
+    th_client.push_message(WebSocketCreatedMessage(request_id="tenhou-game", url="wss://tenhou.net/game"))
+    assert th_client.message_queue.get(timeout=2.0).code == "client_connected"
+
     # Text frame
     th_client.bridge.parse.return_value = [TsumoEvent(actor=0, pai="1m")]
-    th_client.push_message(WebSocketFrameMessage(direction="inbound", data="HELO"))
+    th_client.push_message(WebSocketFrameMessage(request_id="tenhou-game", direction="inbound", data="HELO"))
 
     msg = th_client.message_queue.get(timeout=2.0)
     assert msg.type == "tsumo"
 
     # Binary frame
     th_client.push_message(
-        WebSocketFrameMessage(direction="inbound", opcode=2, data=base64.b64encode(b"binary").decode())
+        WebSocketFrameMessage(
+            request_id="tenhou-game",
+            direction="inbound",
+            opcode=2,
+            data=base64.b64encode(b"binary").decode(),
+        )
     )
     th_client.bridge.parse.assert_called_with(b"binary")
 
     # Exception handle
     th_client.bridge.parse.side_effect = Exception("crash")
-    th_client.push_message(WebSocketFrameMessage(direction="inbound", data="FAIL"))
+    th_client.push_message(WebSocketFrameMessage(request_id="tenhou-game", direction="inbound", data="FAIL"))
 
     # Process remaining binary message if any
     with contextlib.suppress(queue.Empty):
@@ -149,7 +163,7 @@ def test_tenhou_frames(th_client):
 
 
 def test_tenhou_outbound_frame_ignored(th_client):
-    th_client.push_message(WebSocketFrameMessage(direction="outbound", data="ignore"))
+    th_client.push_message(WebSocketFrameMessage(request_id="tenhou-game", direction="outbound", data="ignore"))
     th_client.bridge.parse.assert_not_called()
     assert th_client.message_queue.empty()
 
@@ -162,7 +176,7 @@ def test_majsoul_queue_full_drops_event():
         client = MajsoulElectronClient(shared_queue=q)
     client.start()
 
-    client.push_message(WebSocketCreatedMessage(url="wss://majsoul.com/game"))
+    client.push_message(WebSocketCreatedMessage(request_id="majsoul-game", url="wss://majsoul.com/game"))
 
     assert client._active_connections == 1
     assert q.qsize() == 1
@@ -178,6 +192,35 @@ def test_tenhou_queue_full_drops_event():
         client = TenhouElectronClient(shared_queue=q)
     client.start()
 
-    client.push_message(WebSocketFrameMessage(direction="inbound", data="HELO"))
+    client.push_message(WebSocketFrameMessage(request_id="tenhou-game", direction="inbound", data="HELO"))
 
     assert q.qsize() == 1
+
+
+def test_tenhou_ignores_unrelated_close_and_duplicate_create(th_client):
+    th_client.bridge.reset.reset_mock()
+    th_client.push_message(WebSocketCreatedMessage(request_id="tenhou-game", url="wss://tenhou.net/game"))
+    assert th_client.message_queue.get(timeout=2.0).code == "client_connected"
+    th_client.bridge.reset.assert_called_once_with()
+
+    th_client.push_message(WebSocketCreatedMessage(request_id="tenhou-game", url="wss://tenhou.net/game"))
+    th_client.push_message(WebSocketCreatedMessage(request_id="other", url="wss://example.com/telemetry"))
+    th_client.push_message(WebSocketClosedMessage(request_id="other"))
+
+    assert th_client._active_connections == 1
+    assert th_client._tracked_connection_ids == {"tenhou-game"}
+    assert th_client.message_queue.empty()
+    th_client.bridge.reset.assert_called_once_with()
+
+
+def test_tenhou_adopts_validated_frame_from_unclassified_endpoint(th_client):
+    th_client.bridge.parse.return_value = [TsumoEvent(actor=0, pai="1m")]
+
+    th_client.push_message(WebSocketFrameMessage(request_id="relay-game", direction="inbound", data="HELO"))
+
+    assert th_client.message_queue.get(timeout=2.0).type == "tsumo"
+    assert th_client.message_queue.get(timeout=2.0).code == "client_connected"
+    assert th_client._tracked_connection_ids == {"relay-game"}
+
+    th_client.push_message(WebSocketClosedMessage(request_id="relay-game"))
+    assert th_client.message_queue.get(timeout=2.0).code == "game_disconnected"

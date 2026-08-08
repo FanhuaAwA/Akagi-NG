@@ -39,21 +39,24 @@ class MajsoulElectronClient(BaseElectronClient):
         # 跟踪雀魂相关 WebSocket（含不同域名变体）
         if any(keyword in url for keyword in ["maj-soul", "mahjongsoul", "majsoul"]):
             with self._lock:
-                self._active_connections += 1
+                if message.request_id in self._tracked_connection_ids:
+                    return
+                self._tracked_connection_ids.add(message.request_id)
+                self._active_connections = len(self._tracked_connection_ids)
                 if self._active_connections == 1:
                     self._enqueue_event(SystemEvent(code=NotificationCode.CLIENT_CONNECTED))
                     logger.info(f"[Electron] Majsoul client connected (first connection): {url}")
         else:
             logger.debug(f"[Electron] Ignoring non-Majsoul WebSocket: {url}")
 
-    def _handle_websocket_closed(self, _message: WebSocketClosedMessage):
-        # CDP 的关闭事件通常不带 URL，这里通过连接计数跟踪
+    def _handle_websocket_closed(self, message: WebSocketClosedMessage):
         with self._lock:
-            if self._active_connections <= 0:
-                logger.warning("[Electron] Unexpected websocket close event with no active connections")
+            if message.request_id not in self._tracked_connection_ids:
+                logger.debug(f"[Electron] Ignoring untracked Majsoul websocket close: {message.request_id}")
                 return
 
-            self._active_connections -= 1
+            self._tracked_connection_ids.remove(message.request_id)
+            self._active_connections = len(self._tracked_connection_ids)
             if self._active_connections == 0:
                 # 根据游戏状态决定是否发送 GAME_DISCONNECTED
                 game_ended = getattr(self.bridge, "game_ended", False) if self.bridge else False

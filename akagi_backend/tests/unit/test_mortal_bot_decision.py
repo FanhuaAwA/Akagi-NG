@@ -18,7 +18,7 @@ from akagi_ng.mjai_bot.bot import MortalBot
 from akagi_ng.mjai_bot.status import BotStatusContext
 from akagi_ng.mjai_bot.utils import mask_unicode_3p
 from akagi_ng.schema.notifications import NotificationCode
-from akagi_ng.schema.types import DahaiEvent, StartGameEvent, TsumoEvent
+from akagi_ng.schema.types import DahaiEvent, ReachAcceptedEvent, StartGameEvent, TsumoEvent
 
 # 自动应用 mock_lib_loader_module fixture（定义在 unit/conftest.py 中）
 pytestmark = pytest.mark.usefixtures("mock_lib_loader_module")
@@ -87,6 +87,47 @@ def test_sync_event_uses_can_act_false(mock_engine_setup) -> None:
     args, kwargs = mock_bot_instance.react.call_args
     assert isinstance(args[0], str)
     assert kwargs == {"can_act": False}
+
+
+def test_self_riichi_tsumo_is_auto_discarded_without_inference_or_online_request(mock_engine_setup) -> None:
+    _, mock_bot_instance, _ = mock_engine_setup
+    status = BotStatusContext()
+    bot = MortalBot(status, is_3p=False)
+    bot.react(StartGameEvent(id=0, is_3p=False))
+    bot.react(ReachAcceptedEvent(actor=0))
+    mock_bot_instance.react.reset_mock()
+
+    with patch.object(bot, "_try_ot3") as online:
+        response = bot.react(TsumoEvent(actor=0, pai="7s"))
+
+    assert response == {
+        "type": "dahai",
+        "actor": 0,
+        "pai": "7s",
+        "tsumogiri": True,
+        "meta": {
+            "engine_type": "mortal",
+            "decision_source": "local",
+            "fallback_used": False,
+            "online_service_reconnecting": False,
+        },
+    }
+    mock_bot_instance.react.assert_called_once()
+    assert mock_bot_instance.react.call_args.kwargs == {"can_act": False}
+    online.assert_not_called()
+
+
+def test_opponent_riichi_does_not_enable_self_auto_discard(mock_engine_setup) -> None:
+    _, mock_bot_instance, _ = mock_engine_setup
+    bot = MortalBot(BotStatusContext(), is_3p=False)
+    bot.react(StartGameEvent(id=0, is_3p=False))
+    bot.react(ReachAcceptedEvent(actor=1))
+    mock_bot_instance.react.reset_mock()
+
+    response = bot.react(TsumoEvent(actor=0, pai="7s"))
+
+    assert response["type"] == "dahai"
+    assert mock_bot_instance.react.call_args.kwargs == {}
 
 
 def test_meta_data_format_3p(mock_engine_setup) -> None:

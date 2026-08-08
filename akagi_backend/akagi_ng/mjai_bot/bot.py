@@ -24,9 +24,11 @@ from akagi_ng.schema.types import (
     MJAIEventBase,
     MJAIMetadata,
     MJAIResponse,
+    ReachAcceptedEvent,
     ReachEvent,
     StartGameEvent,
     StartKyokuEvent,
+    TsumoEvent,
 )
 from akagi_ng.settings import local_settings
 
@@ -53,6 +55,7 @@ class MortalBot:
         self.history: list[MJAIEvent] = []
         self.bot: MJAIBotProtocol | None = None
         self.game_start_event: StartGameEvent | None = None
+        self.self_riichi_accepted = False
         self.ot3_client: OT3Client | None = None
         self._ot3_signature: tuple[str, str, str, str] | None = None
         self._owns_online_executor = online_executor is None
@@ -67,10 +70,14 @@ class MortalBot:
             self._pre_react(event)
 
             # 2. 决策：调用模型/引擎
-            response: MJAIResponse | None = self._think(event)
+            is_riichi_auto_discard = self._is_riichi_auto_discard(event)
+            response: MJAIResponse | None = (
+                self._sync_riichi_auto_discard(event) if is_riichi_auto_discard else self._think(event)
+            )
             if not response:
                 return None
-            response = self._try_ot3(event, response)
+            if not is_riichi_auto_discard:
+                response = self._try_ot3(event, response)
 
             # 3. 增强：注入元数据与执行前瞻逻辑
             meta: MJAIMetadata | None = response.get("meta")
@@ -94,14 +101,48 @@ class MortalBot:
         """维护历史、处理生命周期事件。"""
         match event:
             case StartGameEvent():
+                self.self_riichi_accepted = False
                 self._handle_start_game(event)
             case StartKyokuEvent():
+                self.self_riichi_accepted = False
                 self.history = []
+            case ReachAcceptedEvent(actor=actor) if actor == self.player_id:
+                self.self_riichi_accepted = True
             case EndGameEvent():
+                self.self_riichi_accepted = False
                 self._handle_end_game()
 
         # 维护历史
         self.history.append(event)
+
+    def _is_riichi_auto_discard(self, event: MJAIEvent) -> bool:
+        return bool(
+            self.self_riichi_accepted
+            and isinstance(event, TsumoEvent)
+            and event.actor == self.player_id
+            and not event.sync
+        )
+
+    def _sync_riichi_auto_discard(self, event: MJAIEvent) -> MJAIResponse | None:
+        """Advance libriichi without inference, then return the forced riichi tsumogiri."""
+        if not self.bot or not isinstance(event, TsumoEvent) or self.player_id is None:
+            return None
+
+        self.bot.react(serialize_mjai_event(event), can_act=False)
+        engine_type = self.status.metadata.get(NotificationCode.ENGINE_TYPE, "mortal")
+        self.logger.debug(f"Riichi auto-discard: actor={self.player_id} pai={event.pai}; inference skipped.")
+        return {
+            "type": "dahai",
+            "actor": self.player_id,
+            "pai": event.pai,
+            "tsumogiri": True,
+            "meta": {
+                "engine_type": engine_type,
+                "decision_source": "local",
+                "fallback_used": False,
+                "online_service_reconnecting": False,
+            },
+        }
 
     def _think(self, event: MJAIEvent) -> MJAIResponse | None:
         """调用引擎/模型获取决策动作"""

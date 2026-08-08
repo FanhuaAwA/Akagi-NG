@@ -204,6 +204,8 @@ class AkagiApp:
             case SystemEvent(code=code):
                 if self.autoplay:
                     self.autoplay.observe_system_event(code)
+                if self.flya_decider:
+                    self.flya_decider.observe_system_event(code)
                 return code, True, False
             case MJAIEventBase(sync=is_sync):
                 pass

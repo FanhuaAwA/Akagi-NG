@@ -4,6 +4,42 @@ All notable changes to Akagi-NG are documented in this file.
 
 ## [Unreleased]
 
+## [1.2.2] - 2026-08-08
+
+### Fixed
+
+- Fixed Tenhou wins being emitted as `end_kyoku` without the required `hora`
+  event. FlyAPI can now replay state across round boundaries, including
+  multi-ron hands and game-ending wins.
+- Fixed Tenhou discards immediately after `chi`/`pon` being marked as
+  `tsumogiri`, even though the caller did not draw a tile. Draw state is now
+  tracked per actor so FlyAPI can replay called hands legally.
+- Fixed Tenhou pon decoding applying the called-tile index before the unused
+  physical-copy swap. This could remove the wrong tile from the local hand,
+  especially around red fives, and corrupt later replay state.
+- Fixed unrelated or duplicate Chromium WebSocket lifecycle events being
+  counted as Tenhou/Mahjong Soul disconnects by tracking CDP `requestId`
+  values end to end. Tenhou relay/IP endpoints are adopted only after a frame
+  is successfully parsed as a game event.
+- Fixed permanent FlyAPI replay errors being retried with the same invalid
+  history under new session IDs. Transport disconnects now invalidate the
+  observed replay immediately; Akagi uses local fallback for the incomplete
+  hand and resumes FlyAPI from the next complete `start_kyoku` baseline.
+- Fixed self-riichi draws unnecessarily invoking FlyA, OT3, or the local model.
+  Once riichi is accepted, Akagi advances protocol state without inference and
+  directly returns the mandatory tsumogiri action.
+- Fixed settings saves failing when switching from external proxy mode to the
+  built-in game window while mihomo TUN was enabled. The TUN runtime now stops
+  in built-in-window mode while retaining the user's preference, then starts
+  automatically when external proxy mode is restored.
+
+### Changed
+
+- Removed the isolated elevated TUN helper and its UAC/named-pipe startup path.
+  The Windows desktop now requests administrator rights at process startup and
+  launches the bundled mihomo process directly, so helper connection failures
+  can no longer be misreported as UAC approval timeouts.
+
 ## [1.2.1] - 2026-08-07
 
 ### Added

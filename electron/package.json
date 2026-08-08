@@ -1,7 +1,7 @@
 {
   "name": "akagi-ng-desktop",
   "private": true,
-  "version": "1.2.1",
+  "version": "1.2.2",
   "description": "Akagi-NG Electron Desktop App",
   "author": "Akagi-NG Contributors",
   "license": "AGPL-3.0",
@@ -10,7 +10,6 @@
     "dev": "wait-on http://localhost:5173 && tsc -p tsconfig.json && electron .",
     "dev:mock": "wait-on http://localhost:5173 && tsc -p tsconfig.json && electron . --mock",
     "build": "tsc -p tsconfig.json",
-    "build:tun-helper": "tsx ../scripts/build_tun_helper.ts",
     "package": "tsx ../scripts/package_desktop.ts"
   },
   "devDependencies": {
@@ -43,7 +42,11 @@
     "files": [
       {
         "from": "../dist/main",
-        "to": "dist/main"
+        "to": "dist/main",
+        "filter": [
+          "**/*",
+          "!windows-tun-helper.js"
+        ]
       },
       {
         "from": "../dist/renderer",
@@ -67,14 +70,6 @@
       {
         "from": "../dist/backend/akagi-ng",
         "to": "bin"
-      },
-      {
-        "from": "../build/privileged",
-        "to": "assets/privileged",
-        "filter": [
-          "AkagiNg.TunHelper.exe",
-          "AkagiNg.TunHelper.manifest"
-        ]
       }
     ],
     "extraResources": [
@@ -91,7 +86,7 @@
     "win": {
       "target": "zip",
       "icon": "../assets/torii.ico",
-      "requestedExecutionLevel": "asInvoker",
+      "requestedExecutionLevel": "requireAdministrator",
       "signExts": [
         "!mihomo.exe"
       ]

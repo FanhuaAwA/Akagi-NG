@@ -301,6 +301,30 @@ def test_decider_replaces_local_action_and_marks_flya_source(monkeypatch: pytest
     assert "match_context" not in request
 
 
+def test_decider_does_not_call_flya_for_riichi_auto_discard(monkeypatch: pytest.MonkeyPatch) -> None:
+    _enable_flya(monkeypatch)
+    decider = FlyADecider(BotStatusContext())
+    _record_four_player_start(decider)
+    get_client = MagicMock()
+    monkeypatch.setattr(decider, "_get_client", get_client)
+    automatic = {
+        "type": "dahai",
+        "actor": 0,
+        "pai": "7s",
+        "tsumogiri": True,
+        "meta": {
+            "engine_type": "flya",
+            "decision_source": "local",
+            "fallback_used": False,
+        },
+    }
+
+    result = decider.process(TsumoEvent(actor=0, pai="7s"), automatic, MagicMock(last_kawa_tile=None))
+
+    assert result is automatic
+    get_client.assert_not_called()
+
+
 def test_decider_reuses_session_id_until_game_boundary() -> None:
     decider = FlyADecider(BotStatusContext())
 
@@ -453,6 +477,103 @@ def test_decider_falls_back_and_rebuilds_session_when_server_suppresses_required
     client.close.assert_called_once_with()
 
 
+def test_decider_disables_remote_for_game_after_invalid_state_replay(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _enable_flya(monkeypatch)
+    decider = FlyADecider(BotStatusContext())
+    _record_four_player_start(decider)
+    client = MagicMock(circuit_open=False)
+    client.react.side_effect = FlyADecisionSuppressed("state_replay_invalid")
+    decider.client = client
+    monkeypatch.setattr(decider, "_get_client", lambda: client)
+    fallback = {"type": "dahai", "actor": 0, "pai": "3s", "meta": {"engine_type": "mortal"}}
+    monkeypatch.setattr(decider, "_replay_local_decision", lambda: fallback.copy())
+    local = {"type": "dahai", "actor": 0, "pai": "2s", "meta": {"mask_bits": 1}}
+
+    first = decider.process(TsumoEvent(actor=0, pai="2s"), local, MagicMock(last_kawa_tile=None))
+    second = decider.process(TsumoEvent(actor=0, pai="3s"), local, MagicMock(last_kawa_tile=None))
+
+    assert first["meta"]["decision_source"] == "flya_fallback"
+    assert second["meta"]["decision_source"] == "flya_fallback"
+    assert decider.history_complete is False
+    assert decider.session_id is None
+    assert decider.client is None
+    client.react.assert_called_once()
+    client.close.assert_called_once_with()
+
+
+def test_decider_stops_remote_requests_immediately_after_game_disconnect(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _enable_flya(monkeypatch)
+    decider = FlyADecider(BotStatusContext())
+    _record_four_player_start(decider)
+    client = MagicMock(circuit_open=False)
+    decider.client = client
+    decider._client_signature = ("https://server.example", "secret", "")
+    remote_client = MagicMock()
+    monkeypatch.setattr(decider, "_get_client", remote_client)
+    fallback = {"type": "dahai", "actor": 0, "pai": "3s", "meta": {"engine_type": "mortal"}}
+    monkeypatch.setattr(decider, "_replay_local_decision", lambda: fallback.copy())
+    local = {"type": "dahai", "actor": 0, "pai": "2s", "meta": {"mask_bits": 1}}
+
+    decider.observe_system_event(NotificationCode.GAME_DISCONNECTED)
+    result = decider.process(TsumoEvent(actor=0, pai="2s"), local, MagicMock(last_kawa_tile=None))
+
+    assert result["meta"]["decision_source"] == "flya_fallback"
+    assert decider.history_complete is False
+    assert decider.session_id is None
+    assert decider.client is None
+    remote_client.assert_not_called()
+    client.close.assert_called_once_with()
+
+
+def test_decider_resumes_from_next_complete_start_kyoku_after_disconnect(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _enable_flya(monkeypatch)
+    decider = FlyADecider(BotStatusContext())
+    _record_four_player_start(decider)
+    previous_session = decider.session_id
+    decider.observe_system_event(NotificationCode.GAME_DISCONNECTED)
+    decider.process(TsumoEvent(actor=2, pai="?"), None, object())
+    next_kyoku = StartKyokuEvent(
+        bakaze="E",
+        dora_marker="4p",
+        kyoku=2,
+        honba=1,
+        kyotaku=0,
+        oya=1,
+        scores=[24000, 26000, 25000, 25000],
+        tehais=[["1m"] * 13, ["?"] * 13, ["?"] * 13, ["?"] * 13],
+    )
+
+    decider.process(next_kyoku, None, object())
+
+    assert decider.history_complete is True
+    assert decider.session_id is not None
+    assert decider.session_id != previous_session
+    assert [event["type"] for event in decider.events] == ["start_game", "start_kyoku"]
+    assert decider.events[1]["kyoku"] == 2
+    assert [event.type for event in decider.mjai_events] == ["start_game", "start_kyoku"]
+
+    selected = {"type": "dahai", "pai": "1m", "tsumogiri": True}
+    client = MagicMock(circuit_open=False)
+    client.react.return_value = selected, [{"action": selected, "prob": 1.0}], "flya-heyman-2.1"
+    monkeypatch.setattr(decider, "_get_client", lambda: client)
+    local = {"type": "dahai", "actor": 0, "pai": "1m", "meta": {"mask_bits": 1}}
+
+    result = decider.process(TsumoEvent(actor=0, pai="1m"), local, MagicMock(last_kawa_tile=None))
+
+    assert result["meta"]["decision_source"] == "flya"
+    assert client.react.call_count == 1
+    request = client.react.call_args.args[0]
+    assert request["session_id"] == decider.session_id
+    assert request["state"]["from_seq"] == 0
+    assert request["state"]["to_seq"] == 3
+
+
 def test_decider_replays_synced_history_for_exact_local_fallback(monkeypatch: pytest.MonkeyPatch) -> None:
     decider = FlyADecider(BotStatusContext())
     decider.mjai_events = [StartGameEvent(id=0, is_3p=False), TsumoEvent(actor=0, pai="2s")]
@@ -595,9 +716,7 @@ def test_decision_http_log_contains_diagnostics_without_api_key(monkeypatch: pyt
     monkeypatch.setattr("akagi_ng.mjai_bot.flya_service.logger.info", info)
     monkeypatch.setattr("akagi_ng.mjai_bot.flya_service.logger.warning", warning)
     client = FlyADecisionClient("https://server.example", "never-log-this-key")
-    client.session.request = MagicMock(
-        return_value=_response({"error": "state_replay_incomplete"}, status=422)
-    )
+    client.session.request = MagicMock(return_value=_response({"error": "state_replay_incomplete"}, status=422))
 
     with pytest.raises(FlyADecisionSuppressed, match="state_replay_incomplete"):
         client.react(_decision_payload(), BotStatusContext())
