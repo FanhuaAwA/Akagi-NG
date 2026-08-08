@@ -142,9 +142,9 @@ jobs:
         uses: softprops/action-gh-release@v3
         with:
           files: release-assets/*
-          body_path: docs/RELEASE_NOTES_v1.2.0.md
+          overwrite_files: true
+          body_path: docs/RELEASE_NOTES_v1.2.2.md
           draft: false
           prerelease: ${{ contains(github.ref_name, 'alpha') || contains(github.ref_name, 'beta') || contains(github.ref_name, 'rc') }}
-          name: ${{ github.ref_name }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

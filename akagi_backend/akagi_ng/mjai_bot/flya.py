@@ -315,11 +315,26 @@ class FlyADecisionClient:
                     allow_redirects=False,
                 )
             except requests.RequestException as error:
-                _log_flya_http_exception("decision", "POST", url, attempt_number, started_at, error, self._key)
+                _log_flya_http_exception(
+                    "decision",
+                    "POST",
+                    url,
+                    attempt_number,
+                    started_at=started_at,
+                    error=error,
+                    secrets=(self._key,),
+                )
                 if attempt == 0:
                     continue
                 raise
-            _log_flya_http_response("decision", "POST", url, attempt_number, started_at, response)
+            _log_flya_http_response(
+                "decision",
+                "POST",
+                url,
+                attempt_number,
+                started_at=started_at,
+                response=response,
+            )
             if not HTTPStatus.INTERNAL_SERVER_ERROR <= response.status_code < HTTP_SERVER_ERROR_LIMIT or attempt == 1:
                 return response
         raise AssertionError("retry loop must return or raise")
@@ -340,9 +355,24 @@ class FlyADecisionClient:
                 allow_redirects=False,
             )
         except requests.RequestException as error:
-            _log_flya_http_exception("key-activation", "GET", url, 1, started_at, error, self._key)
+            _log_flya_http_exception(
+                "key-activation",
+                "GET",
+                url,
+                1,
+                started_at=started_at,
+                error=error,
+                secrets=(self._key,),
+            )
             raise FlyADecisionError("FlyA key activation could not reach the service") from None
-        _log_flya_http_response("key-activation", "GET", url, 1, started_at, response)
+        _log_flya_http_response(
+            "key-activation",
+            "GET",
+            url,
+            1,
+            started_at=started_at,
+            response=response,
+        )
         if response.status_code != HTTPStatus.OK:
             code = _safe_response_error_code(response)
             detail = f", {code}" if code else ""

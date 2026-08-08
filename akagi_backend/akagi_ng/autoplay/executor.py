@@ -284,9 +284,7 @@ class WindowsInputExecutor:
         return max(candidates) if candidates else None
 
     @staticmethod
-    def _connected_components(
-        mask: bytearray, width: int, height: int
-    ) -> list[tuple[int, int, int, int, int]]:
+    def _connected_components(mask: bytearray, width: int, height: int) -> list[tuple[int, int, int, int, int]]:
         components: list[tuple[int, int, int, int, int]] = []
         for start in range(len(mask)):
             if mask[start] != 1:

@@ -72,6 +72,7 @@ def _log_flya_http_response(  # noqa: PLR0913
     method: str,
     url: str,
     attempt: int,
+    *,
     started_at: float,
     response: requests.Response,
 ) -> None:
@@ -92,9 +93,10 @@ def _log_flya_http_exception(  # noqa: PLR0913
     method: str,
     url: str,
     attempt: int,
+    *,
     started_at: float,
     error: requests.RequestException,
-    *secrets: str,
+    secrets: tuple[str, ...] = (),
 ) -> None:
     detail = " ".join(str(error).split())
     for secret in secrets:
@@ -253,9 +255,24 @@ class FlyATestServiceClient:
                 allow_redirects=False,
             )
         except requests.RequestException as error:
-            _log_flya_http_exception(operation, "GET", url, attempt, started_at, error, self._api_key)
+            _log_flya_http_exception(
+                operation,
+                "GET",
+                url,
+                attempt,
+                started_at=started_at,
+                error=error,
+                secrets=(self._api_key,),
+            )
             raise
-        _log_flya_http_response(operation, "GET", url, attempt, started_at, response)
+        _log_flya_http_response(
+            operation,
+            "GET",
+            url,
+            attempt,
+            started_at=started_at,
+            response=response,
+        )
         return response
 
 

@@ -56,7 +56,12 @@ class TestSettingsDataclasses(unittest.TestCase):
     def test_bundled_startup_defaults_match_backend_defaults(self):
         bundled = json.loads((SCHEMA_PATH.parent / "settings.default.json").read_text(encoding="utf-8"))
 
-        self.assertEqual(bundled, get_default_settings_dict())
+        # The desktop bundle intentionally starts in Chinese, while a missing
+        # standalone backend configuration follows the host system locale.
+        # Pin locale detection here so this structural comparison is stable on
+        # Windows, Linux, and macOS runners.
+        with patch("akagi_ng.settings.settings.detect_system_locale", return_value=bundled["locale"]):
+            self.assertEqual(bundled, get_default_settings_dict())
 
     def test_mitm_config_creation(self):
         config = MITMConfig(enabled=True, host="127.0.0.1", port=6789, upstream="")

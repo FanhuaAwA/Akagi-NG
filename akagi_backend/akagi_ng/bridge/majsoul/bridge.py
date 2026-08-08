@@ -515,9 +515,7 @@ class MajsoulBridge(BaseBridge):
             return self._parse_auth_game_res(liqi_message)
         return []
 
-    def _parse_lobby_lifecycle(
-        self, method: str, msg_type: MsgType, data: dict
-    ) -> list[AkagiEvent] | None:
+    def _parse_lobby_lifecycle(self, method: str, msg_type: MsgType, data: dict) -> list[AkagiEvent] | None:
         # A socket exists before the menu is usable. Only an authenticated
         # lobby response may authorize initial auto-join navigation.
         if method in {".lq.Lobby.login", ".lq.Lobby.oauth2Login"} and msg_type == MsgType.Res:

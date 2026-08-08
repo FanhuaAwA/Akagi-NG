@@ -188,9 +188,7 @@ class AutoJoinManager:
         self._executor.left_click()
         return True
 
-    def _wait_for_result_button_clear(
-        self, runtime: object, timeout: float, stop_event: threading.Event
-    ) -> bool:
+    def _wait_for_result_button_clear(self, runtime: object, timeout: float, stop_event: threading.Event) -> bool:
         platform = getattr(runtime, "platform", Platform.MAJSOUL)
         window_keyword = getattr(runtime, "window_keyword", "")
         deadline = time.monotonic() + max(0.0, timeout)
@@ -302,8 +300,4 @@ class AutoJoinManager:
 
     @staticmethod
     def _cancel_requested(stop_event: threading.Event) -> bool:
-        return (
-            not AUTO_JOIN_AVAILABLE
-            or stop_event.is_set()
-            or not local_settings.autoplay.auto_join.enabled
-        )
+        return not AUTO_JOIN_AVAILABLE or stop_event.is_set() or not local_settings.autoplay.auto_join.enabled
