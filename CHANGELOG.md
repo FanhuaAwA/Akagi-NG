@@ -2,7 +2,7 @@
 
 All notable changes to Akagi-NG are documented in this file.
 
-## [Unreleased]
+## [1.2.3] - 2026-08-10
 
 ### Added
 
@@ -26,6 +26,9 @@ All notable changes to Akagi-NG are documented in this file.
 
 - Removed stale setuptools build trees before packaging so files deleted from
   the source tree cannot leak back into release archives from an older build.
+- Fixed recognized Riichi City WebSocket endpoints being forced through the
+  previously selected Tenhou bridge, which caused binary frames to be decoded
+  as UTF-32 and reported as game parsing failures.
 
 ## [1.2.2] - 2026-08-08
 

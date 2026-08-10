@@ -77,6 +77,19 @@ def test_bridge_addon_riichi_city(addon):
         assert isinstance(addon.bridges.get("test_flow_id"), RiichiCityBridge)
 
 
+def test_bridge_addon_detected_riichi_city_overrides_stale_tenhou_setting(addon):
+    mock_flow = MagicMock()
+    mock_flow.id = "riichi-city-real-endpoint"
+    mock_flow.request.url = "wss://aga-alb.mahjong-jp.net/connector/ws"
+
+    with patch("akagi_ng.mitm_client.bridge_addon.local_settings") as mock_settings:
+        mock_settings.platform = "tenhou"
+        addon.websocket_start(mock_flow)
+
+    assert mock_flow.id in addon.activated_flows
+    assert isinstance(addon.bridges.get(mock_flow.id), RiichiCityBridge)
+
+
 def test_bridge_addon_filtering(addon):
     mock_flow = MagicMock()
     mock_flow.id = "test_flow_id"

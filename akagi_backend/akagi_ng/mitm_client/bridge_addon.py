@@ -91,7 +91,19 @@ class BridgeAddon:
         configured_platform = local_settings.platform
         detected_platform = self._get_platform_for_flow(flow)
 
-        target_platform = configured_platform if configured_platform != Platform.AUTO else detected_platform
+        # A positively identified WebSocket endpoint is stronger evidence than
+        # the UI's last selected platform. This matters when a plugin launches
+        # another game while the saved setting still points at Tenhou/Majsoul.
+        # Manual selection remains the fallback for unknown/custom endpoints.
+        target_platform = detected_platform
+        if target_platform is None and configured_platform != Platform.AUTO:
+            target_platform = configured_platform
+
+        if detected_platform is not None and configured_platform not in {Platform.AUTO, detected_platform}:
+            logger.info(
+                "[MITM] Using platform detected from WebSocket URL "
+                f"({detected_platform}) instead of saved platform ({configured_platform})"
+            )
 
         if not target_platform:
             return
