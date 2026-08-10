@@ -125,6 +125,19 @@ def download_and_extract_python(dist_dir: Path) -> None:
     temp_path.unlink(missing_ok=True)
 
 
+def cleanup_project_build_artifacts(backend_root: Path) -> None:
+    """Prevent setuptools from reusing files deleted since the previous build."""
+    stale_build = backend_root / "build"
+    if stale_build.exists():
+        print(f"   Removing stale Python build tree: {stale_build}")
+        shutil.rmtree(stale_build)
+
+    for metadata_dir in backend_root.glob("*.egg-info"):
+        if metadata_dir.is_dir():
+            print(f"   Removing stale package metadata: {metadata_dir}")
+            shutil.rmtree(metadata_dir)
+
+
 def install_dependencies_and_compile(backend_root: Path, packages_dest: Path) -> None:
     print(f"   Exporting project and dependencies to {packages_dest}...")
     cmd = [
@@ -220,6 +233,7 @@ def main():
 
     download_and_extract_python(dist_dir)
     cleanup_python_dist(dist_dir / "python")
+    cleanup_project_build_artifacts(backend_root)
     install_dependencies_and_compile(backend_root, packages_dest)
     cleanup_app_packages(packages_dest)
 

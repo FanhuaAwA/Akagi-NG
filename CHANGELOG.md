@@ -22,6 +22,11 @@ All notable changes to Akagi-NG are documented in this file.
   Riichi City Local Unlock cannot be enabled at the same time, including when
   restoring manually edited persisted state.
 
+### Fixed
+
+- Removed stale setuptools build trees before packaging so files deleted from
+  the source tree cannot leak back into release archives from an older build.
+
 ## [1.2.2] - 2026-08-08
 
 ### Fixed
