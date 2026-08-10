@@ -20,6 +20,7 @@ class PluginMetadata:
     requires_mitm: bool
     capabilities: tuple[str, ...]
     risk_notice: str = ""
+    conflicts: tuple[str, ...] = ()
 
 
 class AkagiPlugin:
@@ -42,6 +43,15 @@ class AkagiPlugin:
 
     def request(self, flow: mitmproxy.http.HTTPFlow) -> None:
         """在平台 Bridge 处理前观察或改写 HTTP 请求。"""
+
+    def response(self, flow: mitmproxy.http.HTTPFlow) -> None:
+        """Observe or rewrite an HTTP response before the platform bridge consumes it."""
+
+    def websocket_start(self, flow: mitmproxy.http.HTTPFlow, bridge: BaseBridge) -> None:
+        """Observe a WebSocket after Akagi-NG has selected its platform bridge."""
+
+    def websocket_end(self, flow: mitmproxy.http.HTTPFlow, bridge: BaseBridge) -> None:
+        """Release per-flow plugin state before Akagi-NG removes the platform bridge."""
 
     def to_public_dict(self, *, mitm_running: bool) -> dict[str, Any]:
         if self.last_error:

@@ -1,40 +1,78 @@
 # Akagi-NG 插件系统
 
-插件系统用于把可选的本地扩展接入 Akagi-NG，而不让扩展逻辑侵入核心 Bridge。当前首个内置插件是“雀魂 MAX”。
+Akagi-NG 只保留稳定的插件 API、安装器和流量钩子。具体插件独立存放在 [Akagi-NG-Plugins](https://github.com/FanhuaAwA/Akagi-NG-Plugins)，插件发布不再依赖 Akagi-NG 桌面程序发版。
 
-## 用户入口
+## 用户入口与目录
 
-Dashboard 顶栏的拼图按钮会打开“扩展工具”面板。插件启用状态保存在操作系统用户数据目录的 `config/plugins.json`，插件自己的配置保存在同一目录下的 `config/plugins/<plugin-id>/`。升级时会从旧版便携程序根目录迁移现有配置。
+Dashboard 顶栏的“扩展工具”面板支持两种安装方式：
 
-需要 MITM 的插件启用后，后端会自动启动 Akagi-NG 自带的 MITM；从 Dashboard 启动的游戏窗口也会自动使用该代理。外部雀魂客户端仍需启用正确的证书信任和流量分流，必要时可使用 NG 已有的 mihomo TUN 功能。
+- 从官方仓库的 `index.json` 安装或更新；
+- 从本地导入 `.zip` / `.akagi-plugin.zip`。
 
-## 扩展接口
+目录约定：
 
-插件继承 `akagi_ng.plugins.base.AkagiPlugin` 并声明 `PluginMetadata`。当前生命周期和流量钩子为：
+- 插件代码：`<userData>/plugins/<plugin-id>/`
+- 插件配置：`<userData>/config/plugins/<plugin-id>/`
+- 启用状态：`<userData>/config/plugins.json`
 
-- `on_enable()`：启用时初始化资源；抛出异常会回滚启用状态。
-- `on_disable()`：禁用时释放插件自己的资源。
-- `websocket_message(flow, bridge)`：平台 Bridge 解析前观察、丢弃、注入或改写 WebSocket 帧。
-- `request(flow)`：平台 Bridge 处理前观察或改写 HTTP 请求。
+代码与配置分离，更新插件包不会覆盖用户设置。同一插件 ID 只能对应一个安装目录；本地重复导入会返回冲突，远程更新会在插件禁用时原子替换旧版本。
 
-在 `PluginManager` 的默认内置插件列表注册新实例后，插件会自动出现在 `/api/plugins` 和前端扩展工具面板中。插件异常由管理器捕获并记录到运行状态，不会让主 Bridge 或代理线程退出。
+## 安全边界
 
-## 单代理流量顺序
+插件是本机 Python 代码，只应安装可信来源。安装器会执行以下验证：
 
-需要查看或改写游戏流量的插件与 AI 共用 Akagi-NG 的一个 mitmproxy 监听器，不应为插件再启动第二个代理进程。WebSocket 帧在同一条连接中的固定处理顺序是：
+- 插件 ID、版本、入口文件和清单 schema；
+- ZIP 路径穿越、绝对路径、符号链接、加密 ZIP、文件数和解压大小限制；
+- 远程包 SHA-256；
+- 清单与运行时 `PluginMetadata` 的 ID、版本、互斥声明一致性；
+- 重复 ID 检测和单目录原子安装。
 
-```text
-游戏 -> Akagi-NG MITM -> 已启用插件（如雀魂 MAX）-> 平台 Bridge / AI -> 游戏服务器
+## 包清单
+
+ZIP 根目录必须包含 `akagi-plugin.json`：
+
+```json
+{
+  "schema_version": 1,
+  "id": "example-plugin",
+  "version": "v1.0.0",
+  "entrypoint": "plugin.py:ExamplePlugin",
+  "conflicts": []
+}
 ```
 
-服务端返回的帧进入 Akagi-NG 后也先经过插件，再交给平台 Bridge / AI 解析。这样插件重写后的登录、角色和牌谱消息仍由 AI 在同一条连接、同一个请求 ID 上消费，避免两个串联代理在入站和出站方向顺序相反，也避免重复 TLS 解密、证书和端口冲突。
+入口必须是可调用对象，并返回 `akagi_ng.plugins.base.AkagiPlugin` 实例。
 
-启用或禁用插件时，只有“是否需要 MITM”的总状态发生 `0 -> 1` 或 `1 -> 0` 变化才会启动或停止代理。总状态保持为 `1` 时只热切换插件，不重启 MITM，也不会主动断开现有游戏 WebSocket。修改 MITM 主机、端口或上游代理设置仍会强制重载监听器。
+## 生命周期和流量钩子
 
-若总状态确实发生 `0 <-> 1`，已打开的 Electron 游戏窗口仍绑定旧代理路径。Dashboard 会关闭该窗口并提示重新启动游戏；新窗口随后使用正确路径。外部客户端需要由使用者同步调整分流。
+插件可实现：
 
-## 雀魂 MAX 适配
+- `on_enable()` / `on_disable()`
+- `request(flow)` / `response(flow)`
+- `websocket_start(flow, bridge)`
+- `websocket_message(flow, bridge)`
+- `websocket_end(flow, bridge)`
 
-适配层复用 `MajsoulMax-main` 的消息改写逻辑和 `max_data.yaml`，但不再启动第二个 mitmproxy 进程。它通过兼容层使用 NG 当前的动态 `liqi.json` 描述池，避免旧项目生成式 `liqi_pb2.py` 与新版 protobuf 的 API 冲突。
+所有插件与 AI 共用 Akagi-NG 的单个 mitmproxy，不应启动第二个代理。处理顺序为：
 
-第三方源码与数据的原许可证位于 `assets/plugins/majsoul-max/LICENSE`。该插件只改变本机看到的内容，可能违反游戏服务条款并带来账号处罚风险。
+```text
+游戏 -> Akagi-NG MITM -> 已启用插件 -> 平台 Bridge / AI -> 游戏服务端
+```
+
+插件异常会被管理器捕获并显示为运行错误，不会让主 Bridge 线程退出。
+
+## 互斥规则
+
+插件通过 `PluginMetadata.conflicts` 和包清单 `conflicts` 声明冲突。后端会双向检查冲突，而不是依赖前端状态。
+
+官方的 `majsoul-max` 与 `riichicity-local-unlock` 同时只能启用一个。即使手工修改 `plugins.json`，启动恢复阶段也只会启用第一个合法插件，并拒绝冲突项。
+
+## HTTP API
+
+- `GET /api/plugins`：已安装插件及运行状态
+- `GET /api/plugins/catalog`：远程仓库插件列表
+- `POST /api/plugins/install/remote`：按插件 ID 安装/更新远程包
+- `POST /api/plugins/install/local`：上传并导入本地包
+- `POST /api/plugins/{plugin-id}`：启用或禁用插件
+
+默认目录地址可通过 `AKAGI_PLUGIN_CATALOG_URL` 环境变量覆盖，但必须是无内嵌凭据的 HTTPS URL。

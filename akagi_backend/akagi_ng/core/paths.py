@@ -44,6 +44,11 @@ def get_logs_dir() -> Path:
     return get_user_data_root() / "logs"
 
 
+def get_plugins_dir() -> Path:
+    """Return the writable root that contains independently installed plugins."""
+    return get_user_data_root() / "plugins"
+
+
 @cache
 def get_user_data_root() -> Path:
     configured = os.environ.get("AKAGI_USER_DATA_DIR", "").strip()

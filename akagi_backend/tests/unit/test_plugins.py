@@ -1,18 +1,17 @@
 import json
+import zipfile
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import pytest
-from aiohttp import web
+from aiohttp import FormData, web
 from aiohttp.test_utils import TestClient, TestServer
 
-from akagi_ng.bridge.majsoul import MajsoulBridge
 from akagi_ng.dataserver.api import cors_middleware, setup_routes
 from akagi_ng.plugins.base import AkagiPlugin, PluginMetadata
-from akagi_ng.plugins.builtin.majsoul_max.vendor import basic_pb2, liqi_pb2
-from akagi_ng.plugins.builtin.majsoul_max.vendor.mod import MajsoulMaxMod
-from akagi_ng.plugins.manager import PluginManager
+from akagi_ng.plugins.manager import PluginConflictError, PluginManager
+from akagi_ng.plugins.packages import DuplicatePluginError, PluginPackageError
 
 
 class DummyPlugin(AkagiPlugin):
@@ -28,17 +27,52 @@ class DummyPlugin(AkagiPlugin):
     )
 
 
-class Frame:
-    def __init__(self, content: bytes, *, from_client: bool):
-        self.content = content
-        self.from_client = from_client
-        self.injected = False
+class ConflictingPlugin(AkagiPlugin):
+    metadata = PluginMetadata(
+        id="conflicting",
+        name="Conflicting",
+        version="1.0.0",
+        description="Conflicts with dummy",
+        author="Tests",
+        homepage="https://example.com",
+        requires_mitm=True,
+        capabilities=("test",),
+        conflicts=("dummy",),
+    )
 
 
-def _envelope(method: str, data: bytes) -> bytes:
-    encoded = basic_pb2.BaseMessage(method_name=method, data=data).SerializeToString()
-    # Liqi sends the empty bytes field explicitly; proto3's serializer omits it.
-    return encoded if data else encoded + b"\x12\x00"
+def _write_plugin_archive(
+    path: Path,
+    *,
+    plugin_id: str = "external-test",
+    version: str = "v1.0.0",
+) -> Path:
+    manifest = {
+        "schema_version": 1,
+        "id": plugin_id,
+        "version": version,
+        "entrypoint": "plugin.py:ExternalPlugin",
+        "conflicts": [],
+    }
+    source = f"""\
+from akagi_ng.plugins.base import AkagiPlugin, PluginMetadata
+
+class ExternalPlugin(AkagiPlugin):
+    metadata = PluginMetadata(
+        id={plugin_id!r},
+        name="External Test",
+        version={version!r},
+        description="package test",
+        author="Tests",
+        homepage="https://example.com",
+        requires_mitm=False,
+        capabilities=("test",),
+    )
+"""
+    with zipfile.ZipFile(path, "w") as archive:
+        archive.writestr("akagi-plugin.json", json.dumps(manifest))
+        archive.writestr("plugin.py", source)
+    return path
 
 
 def test_plugin_manager_persists_enabled_state(tmp_path: Path):
@@ -106,55 +140,74 @@ async def test_plugin_api_reconciles_only_effective_mitm_transitions(
         await client.close()
 
 
-def test_majsoul_max_unlocks_character_response(tmp_path: Path):
-    bridge = MajsoulBridge()
-    protocol = bridge.liqi_proto
-    method = ".lq.Lobby.fetchCharacterInfo"
-    method_info = protocol.jsonProto["nested"]["lq"]["nested"]["Lobby"]["methods"]["fetchCharacterInfo"]
-    request_class = protocol.get_message_class(method_info["requestType"])
-    response_class = protocol.get_message_class(method_info["responseType"])
-    assert request_class is not None
-    assert response_class is not None
-
-    modifier = MajsoulMaxMod(
-        "test",
-        settings_path=tmp_path / "settings.yaml",
-        data_path=Path(__file__).parents[3] / "assets" / "plugins" / "majsoul-max" / "max_data.yaml",
+def test_conflicting_plugins_cannot_be_enabled_together(tmp_path: Path):
+    manager = PluginManager(
+        state_path=tmp_path / "plugins.json",
+        plugins=(DummyPlugin(), ConflictingPlugin()),
     )
-    message_id = 31
-    request = Frame(
-        b"\x02" + message_id.to_bytes(2, "little") + _envelope(method, request_class().SerializeToString()),
-        from_client=True,
-    )
+    manager.set_enabled("dummy", True)
 
-    liqi_pb2.set_lqi_proto(protocol)
+    with pytest.raises(PluginConflictError, match="dummy"):
+        manager.set_enabled("conflicting", True)
+
+    assert manager.get("dummy").enabled is True
+    assert manager.get("conflicting").enabled is False
+
+
+def test_external_plugin_install_blocks_duplicate_and_zip_traversal(tmp_path: Path):
+    manager = PluginManager(
+        state_path=tmp_path / "config" / "plugins.json",
+        plugins_root=tmp_path / "plugins",
+    )
+    archive = _write_plugin_archive(tmp_path / "external.zip")
+    plugin = manager.install_archive(archive)
+    assert plugin.metadata.id == "external-test"
+    assert (tmp_path / "plugins" / "external-test" / "plugin.py").is_file()
+
+    with pytest.raises(DuplicatePluginError):
+        manager.install_archive(archive)
+
+    update = _write_plugin_archive(tmp_path / "update.zip", version="v1.0.1")
+    updated = manager.install_archive(update, replace=True)
+    assert updated.metadata.version == "v1.0.1"
+    assert [path.name for path in (tmp_path / "plugins").iterdir()] == ["external-test"]
+
+    unsafe = tmp_path / "unsafe.zip"
+    with zipfile.ZipFile(unsafe, "w") as package:
+        package.writestr("../escape.py", "bad")
+        package.writestr("akagi-plugin.json", "{}")
+    with pytest.raises(PluginPackageError, match="Unsafe archive path"):
+        manager.install_archive(unsafe)
+
+
+async def test_local_plugin_import_api(tmp_path: Path):
+    manager = PluginManager(
+        state_path=tmp_path / "config" / "plugins.json",
+        plugins_root=tmp_path / "plugins",
+    )
+    archive = _write_plugin_archive(tmp_path / "external.zip")
+    context = SimpleNamespace(plugin_manager=manager, mitm_client=None)
+    app = web.Application(middlewares=[cors_middleware])
+    setup_routes(app)
+    client = TestClient(TestServer(app))
+    await client.start_server()
     try:
-        modified, *_ = modifier.main(request, protocol)
+        with patch("akagi_ng.dataserver.api.get_app_context", return_value=context):
+            form = FormData()
+            form.add_field(
+                "file",
+                archive.read_bytes(),
+                filename="external.akagi-plugin.zip",
+                content_type="application/zip",
+            )
+            response = await client.post("/api/plugins/install/local", data=form)
+            payload = await response.json()
+            assert response.status == 200
+            assert payload["data"]["id"] == "external-test"
+
+            form = FormData()
+            form.add_field("file", archive.read_bytes(), filename="duplicate.zip")
+            response = await client.post("/api/plugins/install/local", data=form)
+            assert response.status == 409
     finally:
-        liqi_pb2.clear_lqi_proto()
-    assert modified is False
-    assert protocol.parse(request.content)["method"] == method
-
-    response = Frame(
-        b"\x03" + message_id.to_bytes(2, "little") + _envelope("", response_class().SerializeToString()),
-        from_client=False,
-    )
-    liqi_pb2.set_lqi_proto(protocol)
-    try:
-        modified, dropped, output, *_ = modifier.main(response, protocol)
-    finally:
-        liqi_pb2.clear_lqi_proto()
-
-    assert modified is True
-    assert dropped is False
-    parsed = protocol.parse(output)
-    assert parsed["method"] == method
-    assert len(parsed["data"]["characters"]) >= 100
-    assert len(parsed["data"]["skins"]) >= 400
-    assert parsed["data"]["mainCharacterId"] == 200001
-
-    envelope = basic_pb2.BaseMessage.FromString(output[3:])
-    unlocked = response_class.FromString(envelope.data)
-    assert len(unlocked.characters) >= 100
-    assert len(unlocked.skins) >= 400
-    assert unlocked.main_character_id == 200001
+        await client.close()

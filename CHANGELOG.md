@@ -4,6 +4,24 @@ All notable changes to Akagi-NG are documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- Added an independent plugin repository with remote catalog installation,
+  SHA-256 verified downloads, atomic updates, and local ZIP imports.
+- Added package validation for duplicate plugin IDs, manifest/runtime metadata,
+  archive traversal, symlinks, encrypted entries, and expansion limits.
+- Added Riichi City Local Unlock as an external plugin alongside Mahjong Soul
+  MAX, including HTTP response and WebSocket lifecycle hooks.
+
+### Changed
+
+- Moved Mahjong Soul MAX out of the Akagi-NG release and into the independent
+  plugin repository so cosmetic unlock updates no longer require a desktop
+  application release.
+- Enforced symmetric plugin conflicts in the backend. Mahjong Soul MAX and
+  Riichi City Local Unlock cannot be enabled at the same time, including when
+  restoring manually edited persisted state.
+
 ## [1.2.2] - 2026-08-08
 
 ### Fixed

@@ -80,6 +80,11 @@ Core Philosophy of Akagi-NG:
   - Mortal (Mortal 4p / Mortal 3p)
   - AkagiOT (AkagiOT 4p / AkagiOT 3p)
 
+- **Independent Plugin System**
+  - Install and update plugins from the [Akagi-NG Plugins repository](https://github.com/FanhuaAwA/Akagi-NG-Plugins)
+  - Import local `.zip` or `.akagi-plugin.zip` packages with duplicate and conflict checks
+  - Mahjong Soul MAX and Riichi City Local Unlock are distributed independently of Akagi-NG releases
+
 > [!NOTE]
 > **Riichi Lookahead** is a core feature in Akagi-NG, designed to solve the question: "When AI suggests Riichi, which tile should I discard?"
 >

@@ -18,6 +18,11 @@ from akagi_ng.mitm_client.http_capture import http_capture_store
 from akagi_ng.mjai_bot.engine import clear_resource_cache
 from akagi_ng.mjai_bot.flya_service import FlyATestServiceClient, FlyATestServiceError
 from akagi_ng.mjai_bot.ot3_service import OT3ServiceClient, OT3ServiceError
+from akagi_ng.plugins.packages import (
+    MAX_ARCHIVE_BYTES,
+    DuplicatePluginError,
+    PluginPackageError,
+)
 from akagi_ng.schema.types import (
     DebuggerDetachedMessage,
     SystemShutdownEvent,
@@ -236,6 +241,90 @@ def _plugin_snapshot() -> list[dict[str, Any]]:
 
 async def get_plugins_handler(_request: web.Request) -> web.Response:
     return _json_response({"ok": True, "data": _plugin_snapshot()})
+
+
+async def get_plugin_catalog_handler(_request: web.Request) -> web.Response:
+    app = get_app_context()
+    if app.plugin_manager is None:
+        return _json_response({"ok": False, "error": "Plugin manager is unavailable"}, status=503)
+    try:
+        entries = await asyncio.to_thread(app.plugin_manager.catalog)
+        return _json_response({"ok": True, "data": entries})
+    except PluginPackageError as exc:
+        return _json_response({"ok": False, "error": str(exc)}, status=502)
+    except Exception:
+        logger.exception("Failed to fetch plugin catalog")
+        return _json_response({"ok": False, "error": "Plugin catalog request failed"}, status=500)
+
+
+async def install_remote_plugin_handler(request: web.Request) -> web.Response:
+    try:
+        payload = await _request_object(request)
+        plugin_id = payload.get("id")
+        replace = payload.get("replace", False)
+        if not isinstance(plugin_id, str) or not plugin_id:
+            raise ValueError("id must be a non-empty string")
+        if not isinstance(replace, bool):
+            raise ValueError("replace must be a boolean")
+        app = get_app_context()
+        if app.plugin_manager is None:
+            return _json_response({"ok": False, "error": "Plugin manager is unavailable"}, status=503)
+        plugin = await asyncio.to_thread(app.plugin_manager.install_remote, plugin_id, replace=replace)
+        mitm_running = bool(app.mitm_client and app.mitm_client.running)
+        return _json_response({"ok": True, "data": plugin.to_public_dict(mitm_running=mitm_running)})
+    except DuplicatePluginError as exc:
+        return _json_response({"ok": False, "error": str(exc)}, status=409)
+    except KeyError:
+        return _json_response({"ok": False, "error": "Plugin not found in catalog"}, status=404)
+    except (PluginPackageError, ValueError) as exc:
+        return _json_response({"ok": False, "error": str(exc)}, status=400)
+    except Exception:
+        logger.exception("Failed to install remote plugin")
+        return _json_response({"ok": False, "error": "Plugin installation failed"}, status=500)
+
+
+async def install_local_plugin_handler(request: web.Request) -> web.Response:
+    app = get_app_context()
+    if app.plugin_manager is None:
+        return _json_response({"ok": False, "error": "Plugin manager is unavailable"}, status=503)
+
+    temporary_path: Path | None = None
+    try:
+        reader = await request.multipart()
+        field = await reader.next()
+        if field is None or field.name != "file" or not field.filename:
+            raise ValueError("A plugin archive must be uploaded in the file field")
+        replace_raw = request.query.get("replace", "false").lower()
+        if replace_raw not in {"true", "false"}:
+            raise ValueError("replace must be true or false")
+        replace = replace_raw == "true"
+
+        fd, temporary_name = tempfile.mkstemp(
+            dir=app.plugin_manager.plugins_root,
+            prefix=".local-upload-",
+            suffix=".zip",
+        )
+        temporary_path = Path(temporary_name)
+        total = 0
+        with os.fdopen(fd, "wb") as output:
+            while chunk := await field.read_chunk(size=1024 * 1024):
+                total += len(chunk)
+                if total > MAX_ARCHIVE_BYTES:
+                    raise PluginPackageError("Uploaded plugin exceeds the size limit")
+                output.write(chunk)
+        plugin = await asyncio.to_thread(app.plugin_manager.install_archive, temporary_path, replace=replace)
+        mitm_running = bool(app.mitm_client and app.mitm_client.running)
+        return _json_response({"ok": True, "data": plugin.to_public_dict(mitm_running=mitm_running)})
+    except DuplicatePluginError as exc:
+        return _json_response({"ok": False, "error": str(exc)}, status=409)
+    except (PluginPackageError, ValueError, web.HTTPBadRequest) as exc:
+        return _json_response({"ok": False, "error": str(exc)}, status=400)
+    except Exception:
+        logger.exception("Failed to import local plugin")
+        return _json_response({"ok": False, "error": "Plugin import failed"}, status=500)
+    finally:
+        if temporary_path is not None:
+            temporary_path.unlink(missing_ok=True)
 
 
 async def set_plugin_enabled_handler(request: web.Request) -> web.Response:
@@ -660,6 +749,9 @@ def setup_routes(app: web.Application):
     app.router.add_delete("/api/http-captures", clear_http_captures_handler)
     app.router.add_get("/api/models", get_models_handler)
     app.router.add_get("/api/plugins", get_plugins_handler)
+    app.router.add_get("/api/plugins/catalog", get_plugin_catalog_handler)
+    app.router.add_post("/api/plugins/install/remote", install_remote_plugin_handler)
+    app.router.add_post("/api/plugins/install/local", install_local_plugin_handler)
     app.router.add_post("/api/plugins/{plugin_id}", set_plugin_enabled_handler)
     app.router.add_post("/api/ot3/health", ot3_health_handler)
     app.router.add_post("/api/ot3/key-status", ot3_key_status_handler)

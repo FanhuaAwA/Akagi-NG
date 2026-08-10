@@ -31,7 +31,15 @@ PLATFORM_URL_PATTERNS = {
     Platform.MAJSOUL: ["majsoul", "maj-soul"],
     Platform.TENHOU: ["tenhou.net", "nodocchi"],
     Platform.AMATSUKI: ["amatsukimj", "amatsuki"],
-    Platform.RIICHI_CITY: ["mahjong-jp.city", "riichicity"],
+    Platform.RIICHI_CITY: [
+        "mahjong-jp.city",
+        "mahjong-jp.net",
+        "riichicity",
+        "riichimj.com",
+        "sanbeiman.com",
+        "13.112.183.79",
+        "47.116.185.93",
+    ],
 }
 
 certificate_store = CertificateStore()
@@ -111,6 +119,9 @@ class BridgeAddon:
             # 更新连接计数并发送通知
             self._on_connection_established()
 
+        if self.plugin_manager:
+            self.plugin_manager.websocket_start(flow, self.bridges[flow.id])
+
     def request(self, flow: mitmproxy.http.HTTPFlow):
         """处理 HTTP 请求"""
         rewrite_summary = None
@@ -164,6 +175,8 @@ class BridgeAddon:
 
     def response(self, flow: mitmproxy.http.HTTPFlow):
         """处理 HTTP 响应"""
+        if self.plugin_manager:
+            self.plugin_manager.response(flow)
         http_capture_store.record_response(flow)
         logger.info(f"[HTTP] Intercepted response: {flow.response.status_code} {flow.request.pretty_url}")
         if flow.id in self.bridges:
@@ -235,6 +248,8 @@ class BridgeAddon:
             with self.bridge_lock:
                 if flow.id in self.bridges:
                     bridge = self.bridges[flow.id]
+                    if self.plugin_manager:
+                        self.plugin_manager.websocket_end(flow, bridge)
                     game_ended = getattr(bridge, "game_ended", False)
                     del self.bridges[flow.id]
                     self.last_activity.pop(flow.id, None)

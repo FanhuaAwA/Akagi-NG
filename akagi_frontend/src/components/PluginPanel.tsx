@@ -1,13 +1,15 @@
 import {
   AlertTriangle,
   CheckCircle2,
+  Download,
   ExternalLink,
+  FolderUp,
   Loader2,
   PlugZap,
   RefreshCw,
   ShieldAlert,
 } from 'lucide-react';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'react-toastify';
 
@@ -22,8 +24,14 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
-import { fetchPluginsApi, setPluginEnabledApi } from '@/lib/plugins-api';
-import type { PluginInfo } from '@/types';
+import {
+  fetchPluginCatalogApi,
+  fetchPluginsApi,
+  importLocalPluginApi,
+  installRemotePluginApi,
+  setPluginEnabledApi,
+} from '@/lib/plugins-api';
+import type { PluginCatalogEntry, PluginInfo } from '@/types';
 
 interface PluginPanelProps {
   open: boolean;
@@ -40,20 +48,37 @@ const statusIcons = {
 export default function PluginPanel({ open, onClose }: PluginPanelProps) {
   const { t } = useTranslation();
   const [plugins, setPlugins] = useState<PluginInfo[]>([]);
+  const [catalog, setCatalog] = useState<PluginCatalogEntry[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [catalogError, setCatalogError] = useState('');
   const [updatingId, setUpdatingId] = useState('');
+  const [installingId, setInstallingId] = useState('');
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const refresh = useCallback(async () => {
     setLoading(true);
     setError('');
-    try {
-      setPlugins(await fetchPluginsApi());
-    } catch (reason) {
-      setError(reason instanceof Error ? reason.message : String(reason));
-    } finally {
-      setLoading(false);
-    }
+    setCatalogError('');
+    const [installedResult, catalogResult] = await Promise.allSettled([
+      fetchPluginsApi(),
+      fetchPluginCatalogApi(),
+    ]);
+    if (installedResult.status === 'fulfilled') setPlugins(installedResult.value);
+    else
+      setError(
+        installedResult.reason instanceof Error
+          ? installedResult.reason.message
+          : String(installedResult.reason),
+      );
+    if (catalogResult.status === 'fulfilled') setCatalog(catalogResult.value);
+    else
+      setCatalogError(
+        catalogResult.reason instanceof Error
+          ? catalogResult.reason.message
+          : String(catalogResult.reason),
+      );
+    setLoading(false);
   }, []);
 
   useEffect(() => {
@@ -87,6 +112,37 @@ export default function PluginPanel({ open, onClose }: PluginPanelProps) {
     }
   };
 
+  const installRemote = async (entry: PluginCatalogEntry) => {
+    setInstallingId(entry.id);
+    try {
+      await installRemotePluginApi(entry.id, entry.update_available);
+      toast.success(
+        t(entry.update_available ? 'plugins.updated_success' : 'plugins.installed_success'),
+      );
+      await refresh();
+    } catch (reason) {
+      toast.error(reason instanceof Error ? reason.message : String(reason));
+    } finally {
+      setInstallingId('');
+    }
+  };
+
+  const importLocal = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const archive = event.target.files?.[0];
+    event.target.value = '';
+    if (!archive) return;
+    setInstallingId('local');
+    try {
+      await importLocalPluginApi(archive);
+      toast.success(t('plugins.imported_success'));
+      await refresh();
+    } catch (reason) {
+      toast.error(reason instanceof Error ? reason.message : String(reason));
+    } finally {
+      setInstallingId('');
+    }
+  };
+
   return (
     <Dialog open={open} onOpenChange={(nextOpen) => !nextOpen && onClose()}>
       <DialogContent className='flex max-h-[85vh] flex-col gap-0 p-0 sm:max-w-3xl'>
@@ -99,6 +155,88 @@ export default function PluginPanel({ open, onClose }: PluginPanelProps) {
         </DialogHeader>
 
         <div className='flex-1 space-y-4 overflow-y-auto p-6'>
+          <div className='flex flex-wrap items-center justify-between gap-3'>
+            <div>
+              <h3 className='font-semibold'>{t('plugins.repository_title')}</h3>
+              <p className='text-muted-foreground text-xs'>{t('plugins.repository_desc')}</p>
+            </div>
+            <div className='flex gap-2'>
+              <input
+                ref={fileInputRef}
+                type='file'
+                accept='.zip,.akagi-plugin'
+                className='hidden'
+                onChange={(event) => void importLocal(event)}
+              />
+              <Button
+                variant='outline'
+                size='sm'
+                disabled={installingId === 'local'}
+                onClick={() => fileInputRef.current?.click()}
+              >
+                {installingId === 'local' ? (
+                  <Loader2 className='mr-2 h-4 w-4 animate-spin' />
+                ) : (
+                  <FolderUp className='mr-2 h-4 w-4' />
+                )}
+                {t('plugins.import_local')}
+              </Button>
+              <Button variant='outline' size='sm' onClick={() => void refresh()}>
+                <RefreshCw className='mr-2 h-4 w-4' />
+                {t('plugins.refresh_repository')}
+              </Button>
+            </div>
+          </div>
+
+          {catalogError && (
+            <Alert variant='warning'>
+              <AlertTriangle className='h-4 w-4' />
+              <AlertDescription>{catalogError}</AlertDescription>
+            </Alert>
+          )}
+
+          {catalog.map((entry) => {
+            const installing = installingId === entry.id;
+            return (
+              <section
+                key={`catalog-${entry.id}`}
+                className='border-border bg-muted/30 rounded-xl border p-4'
+              >
+                <div className='flex items-start justify-between gap-4'>
+                  <div className='min-w-0 space-y-1'>
+                    <div className='flex flex-wrap items-center gap-2'>
+                      <span className='font-medium'>{entry.name}</span>
+                      <Badge variant='secondary'>{entry.version}</Badge>
+                      {entry.installed && <Badge variant='outline'>{t('plugins.installed')}</Badge>}
+                    </div>
+                    <p className='text-muted-foreground text-sm'>{entry.description}</p>
+                    {entry.conflicts.length > 0 && (
+                      <p className='text-xs text-amber-600'>
+                        {t('plugins.conflicts')}: {entry.conflicts.join(', ')}
+                      </p>
+                    )}
+                  </div>
+                  <Button
+                    size='sm'
+                    disabled={installing || (entry.installed && !entry.update_available)}
+                    onClick={() => void installRemote(entry)}
+                  >
+                    {installing ? (
+                      <Loader2 className='mr-2 h-4 w-4 animate-spin' />
+                    ) : (
+                      <Download className='mr-2 h-4 w-4' />
+                    )}
+                    {entry.update_available
+                      ? t('plugins.update')
+                      : entry.installed
+                        ? t('plugins.installed')
+                        : t('plugins.install')}
+                  </Button>
+                </div>
+              </section>
+            );
+          })}
+
           {loading && plugins.length === 0 && (
             <div className='text-muted-foreground flex items-center justify-center gap-2 py-12 text-sm'>
               <Loader2 className='h-4 w-4 animate-spin' />

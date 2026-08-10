@@ -80,6 +80,11 @@ Akagi-NG 的核心理念：
   - Mortal (Mortal 4p / Mortal 3p)
   - AkagiOT (AkagiOT 4p / AkagiOT 3p)
 
+- **独立插件系统**
+  - 可从 [Akagi-NG 插件仓库](https://github.com/FanhuaAwA/Akagi-NG-Plugins) 安装和更新插件
+  - 支持导入本地 `.zip` 或 `.akagi-plugin.zip`，并执行重复与冲突检查
+  - 雀魂 MAX 和一番街本地解锁可独立于 Akagi-NG 主程序发布更新
+
 > [!NOTE]
 > **Riichi Lookahead（立直前瞻）** 是 Akagi-NG 的一项核心功能，旨在解决“当 AI 建议立直时，我应该切哪张牌？”的问题。
 >

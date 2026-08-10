@@ -71,10 +71,30 @@ export interface PluginInfo {
   requires_mitm: boolean;
   capabilities: string[];
   risk_notice: string;
+  conflicts: string[];
+  source: 'external' | 'runtime';
   enabled: boolean;
   runtime_status: PluginRuntimeStatus;
   error: string;
 }
+
+export interface PluginCatalogEntry {
+  id: string;
+  name: string;
+  version: string;
+  description: string;
+  author: string;
+  homepage: string;
+  download_url: string;
+  sha256: string;
+  requires_mitm: boolean;
+  conflicts: string[];
+  installed: boolean;
+  installed_version: string;
+  update_available: boolean;
+}
+
+export type PluginInstallResponse = ApiResponse<PluginInfo>;
 
 export interface PluginUpdateResponse extends ApiResponse<PluginInfo> {
   proxyError?: string;
