@@ -40,19 +40,27 @@ class AutoPlayManager:
         self._decision_started_at = time.monotonic()
         self._auto_join = AutoJoinManager(runtime_provider, self._executor)
         self._game_active = False
+        self._matching_active = False
         self._lobby_ready_seen = False
+        self._completed_games = 0
 
     def observe_event(self, event: object) -> None:
         self._decision_started_at = time.monotonic()
         self._planner.observe_event(event)
         event_type = getattr(event, "type", None)
         if event_type == "end_game":
+            was_game_active = self._game_active
             self._game_active = False
+            self._matching_active = False
             self._lobby_ready_seen = False
             self._stop_action_task()
-            self._auto_join.schedule()
+            if was_game_active:
+                self._schedule_after_completed_game()
+            else:
+                logger.debug("Ignored duplicate end-game event for auto-join counting.")
         elif event_type in {"start_game", "start_kyoku"}:
             self._game_active = True
+            self._matching_active = False
             self._lobby_ready_seen = False
             self.stop()
         elif event_type == "end_kyoku":
@@ -63,26 +71,85 @@ class AutoPlayManager:
     def observe_system_event(self, code: NotificationCode | str) -> None:
         if code == NotificationCode.CLIENT_CONNECTED:
             # WebSocket creation can happen on the unlock/title screen.
+            self._matching_active = False
             self._lobby_ready_seen = False
             self._auto_join.stop()
         elif code == NotificationCode.LOBBY_READY:
             if self._game_active:
                 logger.info("Ignored lobby-ready event while a game is active.")
                 return
+            if self._matching_active:
+                logger.info("Ignored lobby-ready event while matchmaking is active.")
+                return
             if self._lobby_ready_seen:
                 logger.debug("Ignored duplicate lobby-ready event.")
                 return
             self._lobby_ready_seen = True
-            self._auto_join.schedule(initial_lobby=True)
+            if self._auto_join_limit_reached():
+                logger.info("Auto join remains stopped because the completed-game limit was already reached.")
+            else:
+                self._auto_join.schedule(initial_lobby=True)
         elif code == NotificationCode.MATCHING_STARTED:
+            self._matching_active = True
             self._lobby_ready_seen = False
-            self._auto_join.stop()
+            self._auto_join.notify_matching_started()
         elif code == NotificationCode.GAME_DISCONNECTED:
             self._game_active = False
+            self._matching_active = False
             self._lobby_ready_seen = False
             self._auto_join.stop()
         elif code == NotificationCode.RETURN_LOBBY:
             self._game_active = False
+            self._matching_active = False
+            self._lobby_ready_seen = False
+
+    def on_auto_join_settings_changed(self, *, was_enabled: bool, previous_game_limit: int = 0) -> None:
+        """Apply live enable/disable changes and reset one enable-session limit."""
+        enabled = bool(local_settings.autoplay.auto_join.enabled)
+        if not enabled:
+            self._auto_join.stop()
+            return
+        if not was_enabled:
+            self._completed_games = 0
+            logger.info("Auto join enabled; completed-game progress reset for a new session.")
+            if self._lobby_ready_seen and not self._game_active and not self._matching_active:
+                self._auto_join.schedule(initial_lobby=True)
+            return
+
+        previous_limit = max(0, int(previous_game_limit))
+        previous_reached = bool(previous_limit and self._completed_games >= previous_limit)
+        if self._auto_join_limit_reached():
+            self._auto_join.stop()
+        elif previous_reached and self._lobby_ready_seen and not self._game_active and not self._matching_active:
+            self._auto_join.schedule(initial_lobby=True)
+
+    def _schedule_after_completed_game(self) -> None:
+        """Count one completed Mahjong Soul game and enforce the configured limit."""
+        config = local_settings.autoplay.auto_join
+        if not config.enabled:
+            return
+
+        runtime = self._runtime_provider()
+        if runtime.platform != Platform.MAJSOUL:
+            return
+
+        self._completed_games += 1
+        game_limit = max(0, int(config.game_limit))
+        limit_label = str(game_limit) if game_limit else "unlimited"
+        logger.info(f"Auto join completed-game progress: {self._completed_games}/{limit_label}.")
+
+        if game_limit and self._completed_games >= game_limit:
+            self._auto_join.stop()
+            logger.info(
+                f"Auto join stopped after reaching the completed-game limit ({self._completed_games}/{game_limit})."
+            )
+            return
+
+        self._auto_join.schedule()
+
+    def _auto_join_limit_reached(self) -> bool:
+        game_limit = max(0, int(local_settings.autoplay.auto_join.game_limit))
+        return bool(game_limit and self._completed_games >= game_limit)
 
     def execute(self, response: dict | None, tracker: StateTrackerProtocol | None) -> bool:
         if not local_settings.autoplay.enabled or response is None or tracker is None:

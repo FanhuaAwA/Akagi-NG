@@ -87,7 +87,8 @@
       "enabled": false,
       "room": "gold",
       "mode": "four_south",
-      "result_delay": 10.0
+      "result_delay": 10.0,
+      "game_limit": 0
     }
   }
 }

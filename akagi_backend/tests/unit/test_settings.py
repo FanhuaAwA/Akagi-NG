@@ -227,6 +227,26 @@ class TestSettingsLifecycle(unittest.TestCase):
         self.assertFalse(settings.autoplay.enabled)
         self.assertEqual(settings.autoplay.timing.first_discard.max, 5.0)
 
+    def test_old_auto_join_settings_without_game_limit_are_migrated_in_memory(self):
+        legacy = get_default_settings_dict()
+        legacy["autoplay"]["auto_join"].pop("game_limit")
+
+        self.assertTrue(verify_settings(legacy))
+        settings = Settings.from_dict(legacy)
+
+        self.assertEqual(settings.autoplay.auto_join.game_limit, 0)
+
+    def test_auto_join_game_limit_schema_bounds(self):
+        settings = get_default_settings_dict()
+        settings["autoplay"]["auto_join"]["game_limit"] = 9999
+        self.assertTrue(verify_settings(settings))
+
+        settings["autoplay"]["auto_join"]["game_limit"] = -1
+        self.assertFalse(verify_settings(settings))
+
+        settings["autoplay"]["auto_join"]["game_limit"] = 1.5
+        self.assertFalse(verify_settings(settings))
+
     def test_old_lua_timing_is_migrated_to_visual_advanced_mode(self):
         legacy = get_default_settings_dict()
         legacy["autoplay"]["delay_mode"] = "lua"

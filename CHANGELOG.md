@@ -2,6 +2,53 @@
 
 All notable changes to Akagi-NG are documented in this file.
 
+## [1.2.4] - 2026-08-11
+
+### Added
+
+- Re-enabled Mahjong Soul automatic joining with protocol and visual lobby
+  guards, stable-window checks, targeted result-button detection,
+  protocol-confirmed matchmaking, and an optional completed-game limit.
+- Added privacy-filtered FlyA replay diagnostics under the application log
+  directory to make `state_replay_invalid` failures reproducible without
+  storing API credentials or HTTP headers.
+
+### Changed
+
+- Enabled libriichi quick evaluation for forced legal actions so mandatory
+  discards no longer spend an unnecessary local or online inference request;
+  Riichi Lookahead now represents a forced discard as a 100% candidate.
+- Kept the Mahjong Soul UI-readiness floor for three-player North extraction
+  and expanded window-title matching for localized client titles.
+- Documented the independent plugin release lifecycle. Riichi City Local
+  Unlock now uses Akagi-NG's bundled `ruamel.yaml` and does not require a
+  user-installed PyYAML package.
+
+### Fixed
+
+- Fixed stateful FlyA sessions being reused after the recommended local action
+  was not executed or was replaced by a different UI/manual action. The client
+  now reconciles discard, North extraction and two-stage riichi events, rotates
+  uncertain or divergent sessions, and stops remote replay when an expected
+  action is missing from the observed stream.
+- Fixed Mahjong Soul dealer starting hands sorting all 14 tiles and therefore
+  losing the real drawn-tile identity, which could corrupt `tsumogiri`
+  semantics and lead to FlyA `state_replay_invalid` responses.
+- Fixed direct-IP Mahjong Soul `/gateway` WebSocket connections falling back to
+  a stale platform bridge selection.
+- Fixed proxy loops when Clash Verge is configured as the upstream proxy for
+  Akagi-NG's mihomo TUN by routing `verge-mihomo.exe` directly before game
+  domain interception rules.
+
+### Testing
+
+- Added regressions for FlyA action reconciliation and diagnostic artifacts,
+  dealer opening-hand identity, auto-join lifecycle and limits, forced-action
+  quick evaluation, Mahjong Soul direct-IP routing, and mihomo proxy bypasses.
+- Expanded GitHub Actions quality gates with logger resilience, mihomo
+  configuration, privilege-boundary, and packaged Electron trust-boundary
+  checks.
+
 ## [1.2.3] - 2026-08-10
 
 ### Added
@@ -339,4 +386,7 @@ All notable changes to Akagi-NG are documented in this file.
 [1.1.2]: https://github.com/FanhuaAwA/Akagi-NG/releases/tag/v1.1.2
 [1.2.0]: https://github.com/FanhuaAwA/Akagi-NG/compare/v1.1.2...v1.2.0
 [1.2.1]: https://github.com/FanhuaAwA/Akagi-NG/compare/v1.2.0...v1.2.1
-[Unreleased]: https://github.com/FanhuaAwA/Akagi-NG/compare/v1.2.1...HEAD
+[1.2.2]: https://github.com/FanhuaAwA/Akagi-NG/compare/v1.2.1...v1.2.2
+[1.2.3]: https://github.com/FanhuaAwA/Akagi-NG/compare/v1.2.2...v1.2.3
+[1.2.4]: https://github.com/FanhuaAwA/Akagi-NG/compare/v1.2.3...v1.2.4
+[Unreleased]: https://github.com/FanhuaAwA/Akagi-NG/compare/v1.2.4...HEAD

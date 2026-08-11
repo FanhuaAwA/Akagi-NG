@@ -360,6 +360,40 @@ def test_action_button_floor_is_total_time_not_extra_sleep():
     assert delay == pytest.approx(1.1)
 
 
+@pytest.mark.parametrize(("dealer_opening", "expected"), [(False, 1.6), (True, 3.0)])
+def test_advanced_nukidora_keeps_ui_readiness_floor(dealer_opening, expected):
+    planner = ActionPlanner()
+
+    with (
+        patch.object(local_settings.autoplay, "delay_mode", "advanced"),
+        patch.object(local_settings.autoplay.advanced_timing.nukidora, "min", 0.4),
+        patch.object(local_settings.autoplay.advanced_timing.nukidora, "max", 0.4),
+    ):
+        delay = planner.action_delay(
+            {"type": "nukidora"},
+            0.0,
+            dealer_opening=dealer_opening,
+        )
+
+    assert delay == pytest.approx(expected)
+
+
+def test_non_nukidora_button_keeps_opening_animation_floor():
+    planner = ActionPlanner()
+
+    with (
+        patch.object(local_settings.autoplay, "delay_mode", "human"),
+        patch.object(delay_controller, "sleep_seconds", return_value=0.12),
+    ):
+        delay = planner.action_delay(
+            {"type": "pon"},
+            0.5,
+            dealer_opening=True,
+        )
+
+    assert delay == pytest.approx(2.5)
+
+
 def test_daiminkan_multiple_candidates_gets_second_selection_click():
     planner = ActionPlanner()
     planner.update_operation_list([{"type": 5, "combination": ["5m|5m|5mr", "5m|5mr|5mr"]}])

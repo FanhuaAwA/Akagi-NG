@@ -16,7 +16,7 @@ import pytest
 
 from akagi_ng.mjai_bot.bot import MortalBot
 from akagi_ng.mjai_bot.status import BotStatusContext
-from akagi_ng.mjai_bot.utils import mask_unicode_3p
+from akagi_ng.mjai_bot.utils import mask_unicode_3p, mask_unicode_4p
 from akagi_ng.schema.notifications import NotificationCode
 from akagi_ng.schema.types import DahaiEvent, ReachAcceptedEvent, StartGameEvent, TsumoEvent
 
@@ -89,15 +89,22 @@ def test_sync_event_uses_can_act_false(mock_engine_setup) -> None:
     assert kwargs == {"can_act": False}
 
 
-def test_self_riichi_tsumo_is_auto_discarded_without_inference_or_online_request(mock_engine_setup) -> None:
+def test_libriichi_unique_action_is_returned_without_online_request(mock_engine_setup) -> None:
     _, mock_bot_instance, _ = mock_engine_setup
     status = BotStatusContext()
     bot = MortalBot(status, is_3p=False)
     bot.react(StartGameEvent(id=0, is_3p=False))
     bot.react(ReachAcceptedEvent(actor=0))
     mock_bot_instance.react.reset_mock()
+    mock_bot_instance.react.return_value = json.dumps(
+        {"type": "dahai", "actor": 0, "pai": "7s", "tsumogiri": True}
+    )
 
-    with patch.object(bot, "_try_ot3") as online:
+    ot3_client = MagicMock()
+    with (
+        patch.object(bot, "_refresh_ot3_session", return_value=(ot3_client, "ot3-4p")),
+        patch.object(bot, "_run_ot3") as online_request,
+    ):
         response = bot.react(TsumoEvent(actor=0, pai="7s"))
 
     assert response == {
@@ -105,16 +112,48 @@ def test_self_riichi_tsumo_is_auto_discarded_without_inference_or_online_request
         "actor": 0,
         "pai": "7s",
         "tsumogiri": True,
-        "meta": {
-            "engine_type": "mortal",
-            "decision_source": "local",
-            "fallback_used": False,
-            "online_service_reconnecting": False,
-        },
     }
     mock_bot_instance.react.assert_called_once()
-    assert mock_bot_instance.react.call_args.kwargs == {"can_act": False}
-    online.assert_not_called()
+    assert mock_bot_instance.react.call_args.kwargs == {}
+    online_request.assert_not_called()
+
+
+def test_self_riichi_tsumo_with_hora_uses_normal_mask_decision_path(mock_engine_setup) -> None:
+    _, mock_bot_instance, _ = mock_engine_setup
+    bot = MortalBot(BotStatusContext(), is_3p=False)
+    bot.react(StartGameEvent(id=0, is_3p=False))
+    bot.react(ReachAcceptedEvent(actor=0))
+    mock_bot_instance.react.reset_mock()
+    mock_bot_instance.react.return_value = json.dumps(
+        {
+            "type": "hora",
+            "actor": 0,
+            "target": 0,
+            "pai": "1s",
+            "meta": {
+                "q_values": [0.0] * 46,
+                "mask_bits": (1 << mask_unicode_4p.index("1s"))
+                | (1 << mask_unicode_4p.index("hora")),
+            },
+        }
+    )
+
+    ot3_client = MagicMock(circuit_open=False)
+    ot3_result = {
+        "reaction": {"type": "hora", "actor": 0, "target": 0, "pai": "1s"},
+        "candidates": [{"action": "hora", "prob": 1.0}],
+        "model": "ot3-4p",
+    }
+    with (
+        patch.object(bot, "_refresh_ot3_session", return_value=(ot3_client, "ot3-4p")),
+        patch.object(bot, "_run_ot3", return_value=ot3_result) as online_request,
+    ):
+        response = bot.react(TsumoEvent(actor=0, pai="1s"))
+
+    assert response["type"] == "hora"
+    assert response["meta"]["mask_bits"].bit_count() == 2
+    assert mock_bot_instance.react.call_args.kwargs == {}
+    online_request.assert_called_once()
 
 
 def test_opponent_riichi_does_not_enable_self_auto_discard(mock_engine_setup) -> None:

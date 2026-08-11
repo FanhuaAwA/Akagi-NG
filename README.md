@@ -73,17 +73,22 @@ Core Philosophy of Akagi-NG:
   - Capture Protection - Best-effort system capture exclusion for the visible Dashboard and standard HUD
   - HUD Click-through - Click content behind the protected HUD while its control buttons remain accessible
   - Optional Tray Icon - Hide the tray icon without hiding the dashboard or taskbar entry
+  - Windows Autoplay - Execute recommended discards, riichi, calls, wins, kans, North extraction, and skip actions with configurable humanized timing
+  - Mahjong Soul Auto Join - Leave result screens and enter a configured ranked match, with an optional completed-game limit
   - Modern Glassmorphism Style - Smooth and transparent visual experience
   - Multi-language support - Simplified Chinese / Traditional Chinese / Japanese / English
 
 - 🤖 **AI Models**
-  - Mortal (Mortal 4p / Mortal 3p)
-  - AkagiOT (AkagiOT 4p / AkagiOT 3p)
+  - Local Mortal (Mortal 4p / Mortal 3p)
+  - Online Akagi OT3, AkagiOT Legacy, and FlyA-test-api
+  - Automatic fallback to the local Mortal model when online inference is unavailable
 
 - **Independent Plugin System**
   - Install and update plugins from the [Akagi-NG Plugins repository](https://github.com/FanhuaAwA/Akagi-NG-Plugins)
   - Import local `.zip` or `.akagi-plugin.zip` packages with duplicate and conflict checks
   - Mahjong Soul MAX and Riichi City Local Unlock are distributed independently of Akagi-NG releases
+  - Plugin versions are independent from the desktop version; an update does not overwrite per-plugin configuration
+  - Riichi City Local Unlock uses the bundled `ruamel.yaml` runtime and does not require a separate PyYAML installation
 
 > [!NOTE]
 > **Riichi Lookahead** is a core feature in Akagi-NG, designed to solve the question: "When AI suggests Riichi, which tile should I discard?"
@@ -121,6 +126,8 @@ Core Philosophy of Akagi-NG:
 https://github.com/user-attachments/assets/b15d1f76-3009-448d-9648-0d2ffd4f3b7e
 
 ## Screenshots
+
+> Screenshots are illustrative and may lag behind the current release. The current Dashboard also includes Automation, Extensions, and Logs pages.
 
 ### Main Interface
 
@@ -174,6 +181,23 @@ Akagi-NG/
   └── ...          # Other runtime files (.dll, .pak, etc.)
 ```
 
+Mutable runtime data is stored outside the extracted application directory in
+Electron's operating-system user-data directory. The Windows packaged build
+normally uses `%APPDATA%\akagi-ng-desktop`:
+
+```plain
+<userData>/
+  ├── config/settings.json             # Main settings
+  ├── config/plugins.json              # Enabled plugin state
+  ├── config/plugins/<plugin-id>/       # Per-plugin configuration
+  ├── logs/                             # Backend and replay diagnostics
+  └── plugins/<plugin-id>/              # Independently installed plugin code
+```
+
+Replacing an extracted application directory therefore does not remove normal
+settings, logs, or installed plugins. Older portable-root settings are migrated
+on first launch.
+
 ### 3. Start and Exit
 
 After double-clicking `Akagi-NG`, the program will show the integrated Dashboard main panel. You can directly click "Launch Game" in the Dashboard to launch the game browser window.
@@ -202,7 +226,7 @@ The dashboard always opens normally and remains available from the Windows taskb
 
 ### 4. Configuration
 
-Akagi-NG stores mutable configuration in the operating system's Electron user-data directory at `config/settings.json`; existing portable-root configuration is migrated on first launch. You can enter the configuration panel by clicking the gear icon in the top right corner of the Dashboard to adjust program behavior.
+Akagi-NG stores mutable configuration in the operating system's Electron user-data directory at `<userData>/config/settings.json`; existing portable-root configuration is migrated on first launch. You can enter the configuration panel by clicking the gear icon in the top right corner of the Dashboard to adjust program behavior.
 
 ### 5. Built-in Browser Mode
 
@@ -375,7 +399,13 @@ To coexist with Clash/Clash Verge:
 
 #### Q: Is there an autoplay feature?
 
-**A:** Currently, Akagi-NG does not support autoplay.
+**A:** Yes. On Windows, open the **Automation** page to enable input-based autoplay and configure its humanized delays and target-window keywords. It can execute the model's discard and operation recommendations. Mahjong Soul also supports joining the next ranked match automatically and stopping after a configured number of completed games. Because this controls the game through simulated mouse input, verify the target window and supervise initial use after a game UI or display-scaling change.
+
+#### Q: Why does Riichi City Local Unlock report that PyYAML is missing?
+
+**A:** Update the plugin from **Extensions** and restart Akagi-NG. Current Riichi City Local Unlock releases use Akagi-NG's bundled `ruamel.yaml`; do not run `pip install` inside the packaged application. The desktop intentionally does not provide a generic top-level `yaml` module, so third-party plugins that import `yaml` must migrate to an explicit bundled or vendored YAML implementation.
+
+Plugin releases use their own versions and can be updated without changing the Akagi-NG desktop version or overwriting plugin configuration. Plugin authors are still responsible for keeping their code compatible with the current plugin API.
 
 ---
 
@@ -435,7 +465,7 @@ cp lib/libriichi3p-3.12-x86_64-unknown-linux-gnu.so lib/libriichi3p.so
 In the project root, run install:
 
 ```bash
-npm install
+npm ci
 ```
 
 ### 2. Run in Development

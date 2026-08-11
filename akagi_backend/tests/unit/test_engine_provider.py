@@ -51,6 +51,9 @@ class TestEngineProvider(unittest.TestCase):
         self.dummy_obs = np.zeros((1, 100))
         self.dummy_masks = np.ones((1, 46), dtype=bool)
 
+    def test_libriichi_quick_eval_uses_legal_action_mask(self):
+        self.assertTrue(self.provider.enable_quick_eval)
+
     def test_online_failure_fallback(self):
         """Test automatic fallback to local engine when online engine fails."""
         # Simulate online engine raising an exception (Circuit Trigger)

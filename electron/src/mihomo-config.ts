@@ -41,6 +41,10 @@ export function buildMihomoConfig(options: MihomoConfigOptions): Record<string, 
     ],
     rules: [
       'PROCESS-NAME,mihomo.exe,DIRECT',
+      // An external Clash Verge upstream may be used by mitmproxy.  Its core
+      // must bypass this TUN before domain rules, otherwise Majsoul telemetry
+      // loops from the upstream back into Akagi-Mitm until the client aborts.
+      'PROCESS-NAME,verge-mihomo.exe,DIRECT',
       'PROCESS-NAME,Akagi-NG.exe,DIRECT',
       'PROCESS-NAME,akagi-ng.exe,DIRECT',
       'PROCESS-NAME,electron.exe,DIRECT',

@@ -12,6 +12,7 @@
 import unittest
 
 from akagi_ng.bridge.majsoul import MajsoulBridge
+from akagi_ng.mjai_bot.flya import canonical_event
 
 
 class TestMajsoulBridgeHandTracking(unittest.TestCase):
@@ -453,18 +454,15 @@ class TestMajsoulBridgeKitaDebug(unittest.TestCase):
         }
         self.bridge.parse_liqi(liqi_message_new_round)
 
-        # 预期初始状态（使用新逻辑：全排序并分割）：
-        # 所有牌排序: 'E' x12, 'S', 'N'。
-        # my_tehais (前 13): 'E' x12 + 'S'。
-        # my_tsumohai (最后 1): 'N'。
+        # 前 13 张单独排序：'E' x12 + 'N'；真实第 14 张 'S' 保持为摸牌。
 
-        self.assertEqual(self.bridge.my_tsumohai, "N")
-        self.assertIn("S", self.bridge.my_tehais)
+        self.assertEqual(self.bridge.my_tsumohai, "S")
+        self.assertIn("N", self.bridge.my_tehais)
         self.assertEqual(len(self.bridge.my_tehais), 13)
 
         # 模拟拔北 (ActionBaBei)
         # 我们需要模拟拔 'N'。
-        # 'N' 当前在 my_tsumohai。
+        # 'N' 当前在 my_tehais。
 
         liqi_message_kita = {
             "method": ".lq.ActionPrototype",
@@ -477,8 +475,7 @@ class TestMajsoulBridgeKitaDebug(unittest.TestCase):
         self.bridge.parse_liqi(liqi_message_kita)
 
         # 预期:
-        # 'N' (tsumohai) 被消耗。
-        # my_tehais 保持 'E' x12 + 'S'。
+        # 手牌中的 'N' 被消耗，原摸牌 'S' 移入手牌。
         # my_tsumohai 变为 None。
 
         self.assertNotIn("N", self.bridge.my_tehais)
@@ -488,14 +485,10 @@ class TestMajsoulBridgeKitaDebug(unittest.TestCase):
 
     def test_dealer_hidden_kita_bug(self):
         """
-        复现Bug：如果第14张牌比前13张中的某些牌小，Bot 收到的手牌会丢失最大的牌。
-        示例: tiles = ["N", "1p", ... "1p"] (13 '1p's)。
-        tiles[0] = "N" (内部手牌)
-        tiles[13] = "1p" (自摸牌)
-        全排序 = ["1p"x14, "N"].
-        Bot Tehais (最小的13张) = ["1p"x13].
-        Bot Tsumo = "1p".
-        Bot 看到的总手牌 = 14张 "1p"。 "N" 丢失了。
+        复现 Bug：如果真实第 14 张比前 13 张中的牌小，全部排序会篡改摸牌身份。
+
+        此处真实手牌是 N + 12 张 1p，真实摸牌是 1p；旧逻辑却会伪造为
+        13 张 1p 手牌 + 摸 N，使后续 tsumogiri 标记可能与 FlyA 重放状态冲突。
         """
         tiles = ["4z"] + ["1p"] * 13
         # tiles[0] = N (4z)
@@ -529,8 +522,65 @@ class TestMajsoulBridgeKitaDebug(unittest.TestCase):
         bot_tehais = start_kyoku.tehais[0]
         bot_tsumo = tsumo.pai
 
-        # 预期: Bot 应该能看到 "N"。
-        # 目前 (Buggy): Bot 看到手牌 13 张 "1p" + 自摸 1 张 "1p"。没有 N。
+        # 第 14 张比手牌小时，仍必须保持雀魂给出的真实摸牌身份。
+        self.assertEqual(bot_tsumo, "1p")
+        self.assertIn("N", bot_tehais, "前 13 张中的 'N' 不应被伪报为摸牌")
 
-        all_bot_tiles = [*bot_tehais, bot_tsumo]
-        self.assertIn("N", all_bot_tiles, "Bot 的视野中应该包含 'N' 牌")
+    def test_dealer_opening_events_preserve_draw_identity_for_flya(self):
+        """FlyA 事件必须保持第 14 张，避免伪造“摸 F 却手切 F”。"""
+        tiles = [
+            "9p",
+            "9p",
+            "3s",
+            "3s",
+            "3s",
+            "5s",
+            "6s",
+            "6s",
+            "8s",
+            "1z",
+            "2z",
+            "4z",
+            "6z",
+            "1p",
+        ]
+        new_round = {
+            "method": ".lq.ActionPrototype",
+            "type": 1,
+            "data": {
+                "name": "ActionNewRound",
+                "data": {
+                    "chang": 0,
+                    "ju": 0,
+                    "ben": 0,
+                    "liqibang": 0,
+                    "doras": ["1p"],
+                    "scores": [35000, 35000, 35000],
+                    "tiles": tiles,
+                },
+            },
+        }
+
+        opening_events = self.bridge.parse_liqi(new_round)
+        start_kyoku, tsumo = opening_events
+        canonical_opening = [canonical_event(event, 3) for event in opening_events]
+
+        self.assertIn("F", start_kyoku.tehais[0])
+        self.assertEqual(tsumo.pai, "1p")
+        self.assertEqual(canonical_opening[1], {"type": "tsumo", "actor": 0, "pai": "1p"})
+
+        discard = self.bridge.parse_liqi(
+            {
+                "method": ".lq.ActionPrototype",
+                "type": 1,
+                "data": {
+                    "name": "ActionDiscardTile",
+                    "data": {"seat": 0, "tile": "6z", "isLiqi": False, "moqie": False},
+                },
+            }
+        )[0]
+
+        self.assertEqual(
+            canonical_event(discard, 3),
+            {"type": "dahai", "actor": 0, "pai": "F", "tsumogiri": False},
+        )

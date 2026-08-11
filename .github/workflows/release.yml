@@ -99,6 +99,10 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Verify packaged Electron trust boundary
+        if: matrix.os == 'windows-latest'
+        run: npm run test:packaged-electron-security
+
       - name: Stage release artifacts
         uses: actions/upload-artifact@v7
         with:
@@ -143,7 +147,7 @@ jobs:
         with:
           files: release-assets/*
           overwrite_files: true
-          body_path: docs/RELEASE_NOTES_v1.2.2.md
+          body_path: docs/RELEASE_NOTES_${{ github.ref_name }}.md
           draft: false
           prerelease: ${{ contains(github.ref_name, 'alpha') || contains(github.ref_name, 'beta') || contains(github.ref_name, 'rc') }}
         env:

@@ -64,6 +64,21 @@ def _atomic_write_text(path: Path, content: str) -> None:
         raise
 
 
+def _notify_auto_join_settings_changed(*, was_enabled: bool, previous_game_limit: int = 0) -> None:
+    """Notify the live automation manager when the application is initialized."""
+    try:
+        app = get_app_context()
+    except RuntimeError:
+        # Isolated API tests and early startup do not have an application
+        # context yet; the manager will read the persisted settings at startup.
+        return
+    if app.autoplay:
+        app.autoplay.on_auto_join_settings_changed(
+            was_enabled=was_enabled,
+            previous_game_limit=previous_game_limit,
+        )
+
+
 def _parse_validated_liqi_protocol(data: str) -> tuple[dict | None, str | None]:
     try:
         json_obj = json.loads(data)
@@ -525,6 +540,7 @@ async def save_settings_handler(request: web.Request) -> web.Response:
 
     try:
         old_settings = get_settings_dict()
+        old_auto_join = old_settings.get("autoplay", {}).get("auto_join", {})
         old_mitm = old_settings.get("mitm", {})
         new_mitm = payload.get("mitm", {})
         game_proxy_changed = new_mitm != old_mitm
@@ -539,6 +555,12 @@ async def save_settings_handler(request: web.Request) -> web.Response:
                 status=503,
             )
         local_settings.save()
+
+        if payload.get("autoplay", {}).get("auto_join", {}) != old_auto_join:
+            _notify_auto_join_settings_changed(
+                was_enabled=bool(old_auto_join.get("enabled", False)),
+                previous_game_limit=int(old_auto_join.get("game_limit", 0)),
+            )
 
         restart_required = False
 
@@ -582,9 +604,16 @@ async def save_settings_handler(request: web.Request) -> web.Response:
 
 async def reset_settings_handler(_request: web.Request) -> web.Response:
     try:
+        old_settings = get_settings_dict()
         default_settings = get_default_settings_dict()
         local_settings.update(default_settings, clear_flya_api_key=True)
         local_settings.save()
+
+        old_auto_join = old_settings.get("autoplay", {}).get("auto_join", {})
+        _notify_auto_join_settings_changed(
+            was_enabled=bool(old_auto_join.get("enabled", False)),
+            previous_game_limit=int(old_auto_join.get("game_limit", 0)),
+        )
 
         clear_resource_cache()
         logger.info("Resource cache cleared due to settings reset.")

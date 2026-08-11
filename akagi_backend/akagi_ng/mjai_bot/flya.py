@@ -4,14 +4,17 @@ from __future__ import annotations
 
 import json
 import math
+import os
 import time
 from dataclasses import fields, replace
 from http import HTTPStatus
+from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
 import requests
 
+from akagi_ng.core.paths import get_logs_dir
 from akagi_ng.mjai_bot.flya_service import (
     FLYA_TEST_TIMEOUT_SECONDS,
     _log_flya_http_exception,
@@ -51,6 +54,8 @@ FLYA_DISPLAY_ACTION_LIMIT = 3
 THREE_PLAYER_SEATS = 3
 FOUR_PLAYER_SEATS = 4
 HTTP_SERVER_ERROR_LIMIT = 600
+FLYA_REPLAY_DIAGNOSTIC_DIR_ENV = "FLYA_REPLAY_DIAGNOSTIC_DIR"
+FLYA_REPLAY_DIAGNOSTIC_TAIL_LIMIT = 12
 
 _EVENT_FIELDS = {
     "start_game": ("names", "seed"),
@@ -88,6 +93,32 @@ _ACTION_FIELDS = {
     "kyushukyuhai": (),
     "pass_all": (),
 }
+_REPLAY_DIAGNOSTIC_EVENT_FIELDS = frozenset(
+    {
+        "type",
+        "actor",
+        "target",
+        "pai",
+        "consumed",
+        "tsumogiri",
+        "dora_marker",
+        "scores",
+        "deltas",
+    }
+)
+_REPLAY_ARTIFACT_EVENT_FIELDS = frozenset({"type"}).union(*_EVENT_FIELDS.values())
+_REPLAY_ARTIFACT_STATE_FIELDS = (
+    "schema",
+    "rule_line",
+    "viewer_seat",
+    "from_seq",
+    "to_seq",
+    "state_digest",
+)
+_REPLAY_ARTIFACT_REQUEST_FIELDS = ("request_id", "session_id", "model_id", "deadline_ms")
+_OBSERVED_PLAYER_ACTION_TYPES = frozenset(
+    {"dahai", "nukidora", "chi", "pon", "daiminkan", "ankan", "kakan", "reach", "hora", "ryukyoku"}
+)
 
 
 class FlyADecisionError(RuntimeError):
@@ -97,9 +128,129 @@ class FlyADecisionError(RuntimeError):
 class FlyADecisionSuppressed(FlyADecisionError):
     """The server authoritatively determined that no client action should be shown."""
 
-    def __init__(self, code: str):
+    def __init__(
+        self,
+        code: str,
+        *,
+        diagnostic: dict[str, Any] | None = None,
+        artifact_path: str | None = None,
+    ):
         super().__init__(code)
         self.code = code
+        self.diagnostic = diagnostic or {}
+        self.artifact_path = artifact_path
+
+
+def _state_request_summary(request: dict[str, Any]) -> dict[str, Any]:
+    """Return non-secret fields that identify one replay request."""
+    state = request.get("state") if isinstance(request.get("state"), dict) else {}
+    return {
+        "request_id": request.get("request_id"),
+        "session_id": request.get("session_id"),
+        "model_id": request.get("model_id"),
+        "from_seq": state.get("from_seq"),
+        "to_seq": state.get("to_seq"),
+        "state_digest": state.get("state_digest"),
+    }
+
+
+def _build_replay_diagnostic(
+    request: dict[str, Any],
+    last_accepted: dict[str, Any] | None,
+) -> dict[str, Any]:
+    """Build safe replay metadata; callers log only the bounded tail."""
+    diagnostic = _state_request_summary(request)
+    state = request.get("state") if isinstance(request.get("state"), dict) else {}
+    untrusted_events = state.get("events") if isinstance(state.get("events"), list) else []
+    raw_events = [
+        {key: value for key, value in event.items() if key in _REPLAY_ARTIFACT_EVENT_FIELDS}
+        for event in untrusted_events
+        if isinstance(event, dict)
+    ]
+    tail_events = raw_events[-FLYA_REPLAY_DIAGNOSTIC_TAIL_LIMIT:]
+    from_seq = state.get("from_seq")
+    sequence_base = from_seq if isinstance(from_seq, int) and not isinstance(from_seq, bool) else 0
+    diagnostic["tail_start_seq"] = sequence_base + max(0, len(raw_events) - len(tail_events))
+    diagnostic["tail_events"] = [
+        {key: value for key, value in event.items() if key in _REPLAY_DIAGNOSTIC_EVENT_FIELDS}
+        for event in tail_events
+        if isinstance(event, dict)
+    ]
+    if last_accepted and last_accepted.get("session_id") == diagnostic.get("session_id"):
+        diagnostic["last_accepted"] = dict(last_accepted)
+        last_to_seq = last_accepted.get("to_seq")
+        if (
+            isinstance(from_seq, int)
+            and not isinstance(from_seq, bool)
+            and isinstance(last_to_seq, int)
+            and not isinstance(last_to_seq, bool)
+        ):
+            delta_offset = last_to_seq - from_seq
+            if 0 <= delta_offset <= len(raw_events):
+                diagnostic["delta_from_seq"] = last_to_seq
+                diagnostic["delta_to_seq"] = state.get("to_seq")
+                diagnostic["delta_events"] = raw_events[delta_offset:]
+    return diagnostic
+
+
+def _safe_replay_request(request: dict[str, Any]) -> dict[str, Any]:
+    """Whitelist the replay body fields that are useful for offline reproduction."""
+    safe_request = {key: request[key] for key in _REPLAY_ARTIFACT_REQUEST_FIELDS if key in request}
+    raw_state = request.get("state") if isinstance(request.get("state"), dict) else {}
+    safe_state = {key: raw_state[key] for key in _REPLAY_ARTIFACT_STATE_FIELDS if key in raw_state}
+    source = raw_state.get("source")
+    if isinstance(source, dict) and "kind" in source:
+        safe_state["source"] = {"kind": source["kind"]}
+    raw_events = raw_state.get("events") if isinstance(raw_state.get("events"), list) else []
+    safe_state["events"] = [
+        {key: value for key, value in event.items() if key in _REPLAY_ARTIFACT_EVENT_FIELDS}
+        for event in raw_events
+        if isinstance(event, dict)
+    ]
+    safe_request["state"] = safe_state
+    return safe_request
+
+
+def _write_replay_diagnostic_artifact(
+    error_code: str,
+    request: dict[str, Any],
+    diagnostic: dict[str, Any],
+) -> str | None:
+    """Optionally persist a replayable request without HTTP headers or credentials."""
+    configured_dir = os.environ.get(FLYA_REPLAY_DIAGNOSTIC_DIR_ENV)
+    if configured_dir is not None:
+        configured_dir = configured_dir.strip()
+        if not configured_dir or configured_dir.lower() in {"0", "disabled", "false", "none", "off"}:
+            return None
+
+    safe_request = _safe_replay_request(request)
+    request_id = str(diagnostic.get("request_id") or uuid4())
+    safe_request_id = "".join(character for character in request_id if character.isalnum() or character in "-_")[:80]
+    artifact = {
+        "format": "akagi-flya-replay-diagnostic-v1",
+        "error_code": error_code,
+        "diagnostic": diagnostic,
+        "request": safe_request,
+    }
+    try:
+        directory = get_logs_dir() / "flya-replay" if configured_dir is None else Path(configured_dir).expanduser()
+        directory.mkdir(parents=True, exist_ok=True)
+        path = directory / f"flya-replay-{error_code}-{safe_request_id or uuid4()}.json"
+        try:
+            output = path.open("x", encoding="utf-8", newline="\n")
+        except FileExistsError:
+            path = directory / f"flya-replay-{error_code}-{safe_request_id or 'unknown'}-{uuid4()}.json"
+            output = path.open("x", encoding="utf-8", newline="\n")
+        with output:
+            json.dump(artifact, output, ensure_ascii=False, allow_nan=False, indent=2)
+            output.write("\n")
+    except (OSError, TypeError, ValueError) as error:
+        logger.warning(
+            "FlyA replay diagnostic artifact could not be written "
+            f"request_id={diagnostic.get('request_id') or 'none'} error={type(error).__name__}."
+        )
+        return None
+    return str(path)
 
 
 def canonical_event(event: MJAIEvent, seat_count: int) -> dict[str, Any]:
@@ -232,6 +383,7 @@ class FlyADecisionClient:
         self.circuit_open = False
         self._failures = 0
         self._retry_at = 0.0
+        self._last_accepted_state: dict[str, Any] | None = None
 
     def close(self) -> None:
         self.session.close()
@@ -262,6 +414,28 @@ class FlyADecisionClient:
                     "state_replay_incomplete",
                     "state_replay_invalid",
                 }:
+                    if code in {"state_replay_incomplete", "state_replay_invalid"}:
+                        diagnostic = _build_replay_diagnostic(frozen_request, self._last_accepted_state)
+                        artifact_path = _write_replay_diagnostic_artifact(code, frozen_request, diagnostic)
+                        tail_json = json.dumps(
+                            diagnostic["tail_events"], ensure_ascii=False, allow_nan=False, separators=(",", ":")
+                        )
+                        last_accepted = diagnostic.get("last_accepted") or {}
+                        logger.warning(
+                            f"FlyA replay rejected code={code} "
+                            f"request_id={diagnostic.get('request_id') or 'none'} "
+                            f"session_id={diagnostic.get('session_id') or 'none'} "
+                            f"from_seq={diagnostic.get('from_seq')} to_seq={diagnostic.get('to_seq')} "
+                            f"state_digest={diagnostic.get('state_digest') or 'none'} "
+                            f"last_accepted_to_seq={last_accepted.get('to_seq')} "
+                            f"tail_start_seq={diagnostic.get('tail_start_seq')} tail_events={tail_json} "
+                            f"artifact={artifact_path or 'disabled'}"
+                        )
+                        raise FlyADecisionSuppressed(
+                            code,
+                            diagnostic=diagnostic,
+                            artifact_path=artifact_path,
+                        )
                     raise FlyADecisionSuppressed(code)
                 detail = f", {code}" if code else ""
                 raise FlyADecisionError(f"FlyA decision failed (HTTP {response.status_code}{detail})")
@@ -270,6 +444,7 @@ class FlyADecisionClient:
             except ValueError:
                 raise FlyADecisionError("FlyA decision returned invalid JSON") from None
             action, actions, model_id = _validated_actions(value, frozen_request)
+            self._last_accepted_state = _state_request_summary(frozen_request)
         except FlyADecisionSuppressed:
             raise
         except FlyADecisionError:
@@ -428,6 +603,9 @@ class FlyADecider:
         self.session_id: str | None = None
         self.client: FlyADecisionClient | None = None
         self._client_signature: tuple[str, str, str] | None = None
+        self._pending_remote_actions: list[dict[str, Any]] = []
+        self._replay_gap_reason: str | None = None
+        self._discarded_replay_events = 0
         self._owns_online_executor = online_executor is None
         self.online_executor = online_executor or OnlineInferenceExecutor()
 
@@ -437,7 +615,7 @@ class FlyADecider:
             return
         self._disable_remote_for_game("game_disconnected")
 
-    def process(  # noqa: C901, PLR0911, PLR0912
+    def process(  # noqa: C901, PLR0911, PLR0912, PLR0915
         self, event: MJAIEvent, response: MJAIResponse | None, tracker: object
     ) -> MJAIResponse | None:
         self._record_event(event)
@@ -445,6 +623,15 @@ class FlyADecider:
             return response
         if isinstance(event, MJAIEventBase) and event.sync:
             return response
+        if self._pending_remote_actions:
+            # A new decision arrived without the previously selected action
+            # ever appearing in the observed stream. That prefix is incomplete
+            # and cannot be repaired by changing only the session UUID.
+            logger.warning(
+                "FlyA selected action was not observed before the next local decision; "
+                f"pending={self._pending_remote_actions}."
+            )
+            self._disable_remote_for_game("pending_action_unobserved_before_decision")
         if not self._enabled():
             self._disable_client()
             if response.get("meta", {}).get("engine_type") == "flya":
@@ -506,14 +693,23 @@ class FlyADecider:
                 self._rebuild_remote_state(error.code)
             return self._fallback(response)
         except OnlineInferenceCancelled:
+            # The worker may still finish a request that the caller abandoned.
+            # Never reuse that stateful server session for the local action that
+            # will be observed next, but keep the client and its breaker state.
+            self._rotate_remote_session("inference_cancelled")
             logger.info("FlyA inference cancelled; skipping local replay during lifecycle transition")
             return response
         except OnlineInferenceError:
             self.status.set_flag(NotificationCode.RECONNECTING)
             self.status.set_metadata(NotificationCode.RECONNECTING, True)
+            self._rotate_remote_session("inference_deadline_or_capacity")
             logger.exception("FlyA inference deadline/capacity failure; using the local Mortal decision")
             return self._fallback(response)
         except (FlyADecisionError, TypeError, ValueError):
+            # A response can be lost or rejected locally after the service has
+            # already accepted the request. A fresh session makes the next
+            # request a full replay of the action that actually happened.
+            self._rotate_remote_session("inference_result_uncertain")
             logger.exception("FlyA inference failed; using the local Mortal decision")
             return self._fallback(response)
 
@@ -531,9 +727,11 @@ class FlyADecider:
             }
         )
         remote["meta"] = remote_meta
+        self._remember_remote_action(remote, selected)
         return remote
 
     def _record_event(self, event: MJAIEvent) -> None:
+        self._reconcile_remote_action(event)
         if isinstance(event, StartGameEvent):
             self.online_executor.next_generation()
             self.events = []
@@ -542,6 +740,9 @@ class FlyADecider:
             self.is_3p = event.is_3p
             self.history_complete = True
             self.session_id = str(uuid4())
+            self._pending_remote_actions = []
+            self._replay_gap_reason = None
+            self._discarded_replay_events = 0
             if self.client:
                 self.client.close()
             self.client = None
@@ -562,6 +763,9 @@ class FlyADecider:
                 self.online_executor.next_generation()
                 self.player_id = None
                 self.session_id = None
+                self._pending_remote_actions = []
+                self._replay_gap_reason = None
+                self._discarded_replay_events = 0
             return
 
         self.mjai_events.append(event)
@@ -575,6 +779,9 @@ class FlyADecider:
             self.history_complete = False
             self.player_id = None
             self.session_id = None
+            self._pending_remote_actions = []
+            self._replay_gap_reason = None
+            self._discarded_replay_events = 0
             if self.client:
                 self.client.close()
             self.client = None
@@ -586,6 +793,8 @@ class FlyADecider:
             return
         previous_event_count = len(self.events)
         previous_session = self.session_id
+        recovery_reason = self._replay_gap_reason
+        discarded_replay_events = self._discarded_replay_events
         start_game = StartGameEvent(id=self.player_id, is_3p=self.is_3p, sync=True)
         seat_count = THREE_PLAYER_SEATS if self.is_3p else FOUR_PLAYER_SEATS
 
@@ -606,11 +815,15 @@ class FlyADecider:
 
         self.history_complete = True
         self.session_id = str(uuid4())
+        self._pending_remote_actions = []
+        self._replay_gap_reason = None
+        self._discarded_replay_events = 0
         self.status.set_metadata(NotificationCode.RECONNECTING, False)
         self.status.set_metadata(NotificationCode.FALLBACK_USED, False)
         logger.info(
             "FlyA replay resumed at fresh start_kyoku "
-            f"previous_events={previous_event_count} previous_session={previous_session or 'none'} "
+            f"reason={recovery_reason or 'unknown'} discarded_events={discarded_replay_events} "
+            f"pending_events={previous_event_count} previous_session={previous_session or 'none'} "
             f"new_session={self.session_id}."
         )
 
@@ -636,11 +849,30 @@ class FlyADecider:
             self.client.close()
         self.client = None
         self._client_signature = None
+        self._pending_remote_actions = []
+
+    def _rotate_remote_session(self, reason: str) -> None:
+        """Rotate only the server replay identity after an uncertain request result.
+
+        The blocking HTTP worker can outlive the caller deadline. Closing its
+        ``requests.Session`` here would race that worker, while replacing the
+        whole client would also discard circuit-breaker backoff. A new replay
+        UUID is sufficient: the next accepted decision sends the complete,
+        actually observed event history under an independent server session.
+        """
+        previous_session = self.session_id
+        self.session_id = str(uuid4()) if self.player_id is not None else None
+        self._pending_remote_actions = []
+        logger.info(
+            f"FlyA remote session rotated reason={reason} events={len(self.events)} "
+            f"previous_session={previous_session or 'none'} new_session={self.session_id or 'none'}."
+        )
 
     def _rebuild_remote_state(self, reason: str) -> None:
         """Keep observed history but force a fresh full replay on a new server session."""
         previous_session = self.session_id
         self.session_id = str(uuid4()) if self.player_id is not None else None
+        self._pending_remote_actions = []
         if self.client:
             self.client.close()
         self.client = None
@@ -652,26 +884,21 @@ class FlyADecider:
 
     def _disable_remote_for_game(self, reason: str) -> None:
         """Stop replaying an invalid prefix until the next complete hand boundary."""
-        diagnostic_fields = {
-            "type",
-            "actor",
-            "target",
-            "pai",
-            "consumed",
-            "tsumogiri",
-            "dora_marker",
-            "scores",
-            "deltas",
-        }
+        discarded_event_count = len(self.events)
         tail_events = [
-            {key: value for key, value in event.items() if key in diagnostic_fields} for event in self.events[-12:]
+            {key: value for key, value in event.items() if key in _REPLAY_DIAGNOSTIC_EVENT_FIELDS}
+            for event in self.events[-FLYA_REPLAY_DIAGNOSTIC_TAIL_LIMIT:]
         ]
         logger.warning(
-            f"FlyA disabled for current game reason={reason} events={len(self.events)} "
+            f"FlyA disabled until next complete start_kyoku reason={reason} events={discarded_event_count} "
             f"tail_events={tail_events}; local Mortal remains active."
         )
+        self._replay_gap_reason = self._replay_gap_reason or reason
+        self._discarded_replay_events += discarded_event_count
+        self.events = []
         self.history_complete = False
         self.session_id = None
+        self._pending_remote_actions = []
         self.status.set_metadata(NotificationCode.RECONNECTING, False)
         self.status.set_metadata(NotificationCode.FALLBACK_USED, True)
         self.online_executor.next_generation()
@@ -679,6 +906,67 @@ class FlyADecider:
             self.client.close()
         self.client = None
         self._client_signature = None
+
+    def _remember_remote_action(self, response: MJAIResponse, selected: dict[str, Any]) -> None:
+        """Remember the exact observed event sequence expected from one decision."""
+        response_type = response.get("type")
+        if response_type == "none":
+            self._pending_remote_actions = []
+            return
+
+        if response_type == "reach":
+            # Mahjong Soul reports riichi as two MJAI events from the same
+            # discard: reach followed by dahai. Both must match before a later
+            # decision is allowed to reuse the server session.
+            self._pending_remote_actions = [
+                {"type": "reach", "actor": response.get("actor")},
+                {
+                    "type": "dahai",
+                    "actor": response.get("actor"),
+                    "pai": response.get("pai"),
+                    "tsumogiri": bool(selected.get("tsumogiri", False)),
+                },
+            ]
+            return
+
+        if response_type not in _OBSERVED_PLAYER_ACTION_TYPES:
+            self._pending_remote_actions = []
+            return
+
+        comparable_fields = ("type", "actor", "target", "pai", "tsumogiri", "consumed")
+        self._pending_remote_actions = [{key: response[key] for key in comparable_fields if key in response}]
+
+    def _reconcile_remote_action(self, event: MJAIEvent) -> None:  # noqa: PLR0911
+        """Rotate a stateful FlyA session when the UI performs a different local action."""
+        if not self._pending_remote_actions or not isinstance(event, MJAIEventBase):
+            return
+        if isinstance(event, (StartGameEvent, EndGameEvent)):
+            self._pending_remote_actions = []
+            return
+        if isinstance(event, StartKyokuEvent) or event.type == "end_kyoku":
+            self._disable_remote_for_game("pending_action_unobserved_at_hand_boundary")
+            return
+
+        pending = self._pending_remote_actions[0]
+        if "actor" in pending and getattr(event, "actor", None) != self.player_id:
+            return
+        if event.type not in _OBSERVED_PLAYER_ACTION_TYPES:
+            return
+
+        actual = {key: getattr(event, key) for key in pending if hasattr(event, key)}
+        matches = event.type == pending["type"] and actual == pending
+        if matches:
+            self._pending_remote_actions.pop(0)
+            return
+        self._pending_remote_actions = []
+        if not self.history_complete:
+            return
+
+        logger.warning(
+            "FlyA observed local action differs from its selected action; rotating session before next decision "
+            f"expected={pending} actual={actual}."
+        )
+        self._rebuild_remote_state("observed_action_mismatch")
 
     def close(self) -> None:
         self._disable_client()

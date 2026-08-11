@@ -1,91 +1,90 @@
-# Akagi-NG Desktop
+Akagi-NG Desktop
+================
 
-Akagi-NG 是一个本地运行的麻将分析与辅助工具。
-它不会修改游戏客户端，也不包含任何自动打牌功能。
+Akagi-NG 是本地运行的立直麻将分析与辅助工具。它不会修改游戏客户端；
+Windows 版本提供可选的自动打牌，以及雀魂自动加入下一场功能。
 
-Akagi-NG is a local desktop tool for Mahjong analysis and assistance.
-It does not modify the game client and does not perform automatic gameplay.
+Akagi-NG is a local desktop tool for Riichi Mahjong analysis and assistance.
+It does not modify the game client. The Windows build provides optional
+input-based autoplay and Mahjong Soul auto join.
 
----
 
-## Quick Start | 快速开始
+快速开始 | Quick Start
+----------------------
 
-1. 解压下载的压缩包  
-2. 双击运行 `Akagi-NG`  
-3. 首次启动可能较慢，请耐心等待初始化完成
+1. 解压下载的发行包 / Extract the downloaded release archive.
+2. 双击运行 `Akagi-NG` / Double-click `Akagi-NG`.
+3. 在 Dashboard 中启动游戏并按需打开 HUD / Launch the game from the
+   Dashboard and open the HUD when needed.
 
-1. Extract the downloaded archive  
-2. Double-click `Akagi-NG`  
-3. The first launch may take longer due to initialization
+Windows 版本主程序会申请管理员权限，以便直接管理内置 mihomo TUN。
+The Windows desktop requests administrator rights so it can manage the bundled
+mihomo TUN directly.
 
----
 
-## Configuration | 配置说明
+运行数据 | Runtime Data
+-----------------------
 
-Akagi-NG 的配置文件位于操作系统分配的应用用户数据目录：
+配置、日志与插件保存在操作系统分配的 Electron 用户数据目录，而不是解压目录。
+Windows 发行包通常使用：
 
-`<userData>/config/settings.json`
+`%APPDATA%\akagi-ng-desktop`
 
-配置文件结构 **可能会在不同版本之间发生变化**。  
-当检测到配置不兼容时，程序会自动将原配置备份为
-`settings.json.bak`，并生成新的配置文件。
+主要路径：
 
-Akagi-NG stores its configuration in the operating system's application user
-data directory:
+- `<userData>/config/settings.json`：主配置
+- `<userData>/config/plugins.json`：插件启用状态
+- `<userData>/config/plugins/<plugin-id>/`：各插件配置
+- `<userData>/plugins/<plugin-id>/`：已安装插件代码
+- `<userData>/logs/`：运行日志与 FlyA 状态重放诊断
 
-`<userData>/config/settings.json`
+Settings, logs, and plugins live in Electron's operating-system user-data
+directory rather than the extracted application directory. The paths above
+map to the main settings, plugin state/configuration, installed plugin code,
+and runtime logs. Older portable-root settings are migrated on first launch.
 
-Existing configuration beside an older portable executable is migrated on the
-first launch of this version.
 
-The configuration format may change between versions.  
-If an incompatible configuration is detected, it will be automatically
-backed up as `settings.json.bak` and a new configuration will be generated.
+插件 | Plugins
+--------------
 
----
+插件可在 Dashboard 的“扩展工具 / Extensions”中从独立仓库安装、更新或导入。
+插件版本号与 Akagi-NG 桌面版本相互独立，更新插件不会覆盖插件配置。
 
-## Updating Akagi-NG | 更新方式
+一番街本地解锁的当前版本使用 Akagi-NG 已打包的 `ruamel.yaml`，无需安装
+PyYAML。如果旧插件仍提示缺少 PyYAML，请先在“扩展工具”中更新并重启程序，
+不要在发行包内部运行 `pip install`。
 
-Akagi-NG 以便携式（portable）形式发布。
+Plugins can be installed, updated, or imported from **Extensions**. Plugin
+versions are independent from the Akagi-NG desktop version, and an update does
+not overwrite per-plugin configuration. Current Riichi City Local Unlock
+releases use the bundled `ruamel.yaml`; do not install PyYAML into the packaged
+application.
 
-更新方式：
-- 删除旧版本目录
-- 解压新的版本压缩包
 
-如果配置结构发生变化，配置文件可能会被重置。
+更新 | Updating
+---------------
 
-Akagi-NG is distributed as a portable application.
+Akagi-NG 以可解压的发行包提供。更新时关闭程序、替换旧程序目录并启动新版本。
+正常情况下，`<userData>` 中的配置、日志与插件会保留。
 
-To update:
-- Remove the old directory
-- Extract the new version
+Akagi-NG is distributed as an extractable release archive. Close the app,
+replace the old application directory, and start the new version. Normal
+configuration, logs, and plugins under `<userData>` are preserved.
 
-Configuration files may be reset if the format has changed.
 
----
+注意 | Notes
+------------
 
-## Logs | 日志
+- 自动打牌、自动加入及解锁类插件可能违反游戏平台服务条款，请自行了解并承担风险。
+- 关闭 TUN 或退出软件时，主进程会终止由其管理的 mihomo 进程。
+- 出现启动、插件或 FlyA 问题时，请优先检查 `<userData>/logs/`。
 
-运行日志会生成在 `<userData>/logs/` 目录中。
-当程序无法启动或行为异常时，请优先查看该目录下的日志文件。
+- Autoplay, auto join, and unlock plugins may violate a game's Terms of
+  Service. Understand and accept the risk before use.
+- The managed mihomo process is terminated when TUN stops or Akagi-NG exits.
+- Check `<userData>/logs/` first when startup, plugin, or FlyA problems occur.
 
-Runtime logs are written to the `<userData>/logs/` directory.
-If the application fails to start or behaves unexpectedly,
-please check the log files first.
 
----
-
-## Notes | 说明
-
-- 默认模式不会安装系统级组件或修改系统网络配置
-- Windows 版主程序以管理员权限启动，并由主进程直接管理内置 mihomo TUN
-- 关闭 TUN 或退出软件时会终止由主进程管理的 mihomo
-
-Default mode does not install system-wide components or modify system networking.
-The Windows desktop runs as administrator and manages bundled mihomo TUN directly.
-The managed mihomo process is terminated when TUN stops or Akagi-NG exits.
-
----
-
-GitHub: https://github.com/Xe-Persistent/Akagi-NG
+GitHub: https://github.com/FanhuaAwA/Akagi-NG
+Plugins: https://github.com/FanhuaAwA/Akagi-NG-Plugins
 License: AGPL-3.0

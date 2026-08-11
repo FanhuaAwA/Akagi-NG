@@ -71,6 +71,7 @@ class AkagiApp:
         except ImportError:
             logger.exception("Failed to load components")
 
+        self.autoplay = AutoPlayManager(runtime_provider=self._build_autoplay_runtime)
         app_context = AppContext(
             settings=settings,
             controller=controller,
@@ -78,11 +79,11 @@ class AkagiApp:
             mitm_client=MitmClient(shared_queue=self.message_queue, plugin_manager=plugin_manager),
             plugin_manager=plugin_manager,
             electron_client=create_electron_client(settings.platform, shared_queue=self.message_queue),
+            autoplay=self.autoplay,
             shared_queue=self.message_queue,
             request_shutdown=self.stop,
         )
         set_app_context(app_context)
-        self.autoplay = AutoPlayManager(runtime_provider=self._build_autoplay_runtime)
 
     def start(self):
         self.ds.start()

@@ -2,6 +2,7 @@ import json
 
 from akagi_ng.mjai_bot.logger import logger
 from akagi_ng.mjai_bot.utils import serialize_mjai_event
+from akagi_ng.schema.constants import MahjongConstants
 from akagi_ng.schema.notifications import NotificationCode
 from akagi_ng.schema.protocols import EngineProtocol
 from akagi_ng.schema.types import MJAIEvent, MJAIMetadata, StartGameEvent
@@ -74,6 +75,26 @@ class LookaheadBot:
                 meta: MJAIMetadata = response.get("meta", {})
                 if meta:
                     return meta
+
+                # libriichi quick_eval intentionally skips engine inference
+                # when the simulated reach has exactly one legal discard. The
+                # response is valid but has no meta, so represent that forced
+                # discard as a single 100% candidate instead of reporting a
+                # riichi simulation failure.
+                pai = response.get("pai")
+                if (
+                    response.get("type") == "dahai"
+                    and response.get("actor") == self.player_id
+                    and pai in MahjongConstants.BASE_TILES
+                ):
+                    tile_index = MahjongConstants.BASE_TILES.index(pai)
+                    logger.debug(f"LookaheadBot: quick-eval forced riichi discard {pai}.")
+                    return {
+                        "q_values": [0.0],
+                        "mask_bits": 1 << tile_index,
+                        "is_greedy": True,
+                        "batch_size": 1,
+                    }
                 logger.warning("LookaheadBot: engine returned empty meta.")
 
         except Exception:

@@ -113,7 +113,10 @@ jobs:
 
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v7
-        if: success() && github.repository == 'Xe-Persistent/Akagi-NG'
+        if: >-
+          success() &&
+          github.repository == 'FanhuaAwA/Akagi-NG' &&
+          github.event_name != 'pull_request'
         with:
           files: akagi_backend/coverage.xml
           flags: backend
@@ -166,6 +169,15 @@ jobs:
 
       - name: Run startup and shutdown lifecycle regressions
         run: npm run test:lifecycle-regressions
+
+      - name: Run logger resilience regression tests
+        run: npm run test:logger-resilience
+
+      - name: Run mihomo configuration regression tests
+        run: npm run test:mihomo-config
+
+      - name: Run desktop privilege-boundary regression tests
+        run: npm run test:privilege-boundary
 
       - name: Run fast resource availability regression tests
         run: npm run test:resource-availability

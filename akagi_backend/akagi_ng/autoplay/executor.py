@@ -26,6 +26,15 @@ GOLD_MAX_BLUE = 130
 GOLD_COMPONENT_MIN_PIXELS = 180
 GOLD_COMPONENT_MIN_ASPECT = 1.8
 GOLD_COMPONENT_MAX_ASPECT = 8.0
+GOLD_EXPECTED_RADIUS_X = 1.6
+GOLD_EXPECTED_RADIUS_Y = 0.8
+LOBBY_ANCHOR_TOLERANCE = 38
+LOBBY_ANCHOR_SAMPLE_GRID = 4
+# 16:9 normalized position, patch size and expected RGB mean.
+LOBBY_ANCHORS: tuple[tuple[float, float, float, float, int, int, int], ...] = (
+    (5.587, 0.793, 0.16, 0.16, 168, 115, 85),
+    (8.012, 0.793, 0.16, 0.16, 32, 153, 215),
+)
 type OperationListProvider = Callable[[], list[dict]]
 type OperationStepProvider = Callable[[], int | None]
 type CancelPredicate = Callable[[], bool]
@@ -206,7 +215,11 @@ class WindowsInputExecutor:
             return None
         return geometry
 
-    def find_enabled_gold_button(self, geometry: WindowGeometry) -> tuple[int, int] | None:
+    def find_enabled_gold_button(
+        self,
+        geometry: WindowGeometry,
+        expected_coord: tuple[float, float] | None = None,
+    ) -> tuple[int, int] | None:
         """Find a large enabled Mahjong Soul gold button in the lower-right area.
 
         Locked result buttons are grey. Detecting the rendered gold component
@@ -222,6 +235,18 @@ class WindowsInputExecutor:
         x_end = int(geometry.width * 0.99)
         y_start = int(geometry.height * 0.60)
         y_end = int(geometry.height * 0.98)
+        calibrated_target: tuple[int, int] | None = None
+        if expected_coord is not None:
+            # Restrict readiness detection to the calibrated button. Other
+            # large gold lobby/result decorations must not redirect the click.
+            scale = min(geometry.width / 16.0, geometry.height / 9.0)
+            calibrated_target = self.normalized_to_screen(geometry, expected_coord)
+            client_x = calibrated_target[0] - geometry.left
+            client_y = calibrated_target[1] - geometry.top
+            x_start = max(x_start, int(client_x - GOLD_EXPECTED_RADIUS_X * scale))
+            x_end = min(x_end, int(client_x + GOLD_EXPECTED_RADIUS_X * scale))
+            y_start = max(y_start, int(client_y - GOLD_EXPECTED_RADIUS_Y * scale))
+            y_end = min(y_end, int(client_y + GOLD_EXPECTED_RADIUS_Y * scale))
         grid_width = max(0, (x_end - x_start) // stride)
         grid_height = max(0, (y_end - y_start) // stride)
         if grid_width == 0 or grid_height == 0:
@@ -249,8 +274,48 @@ class WindowsInputExecutor:
         client_center_x = x_start + (min_x + max_x) * stride // 2
         client_center_y = y_start + (min_y + max_y) * stride // 2
         target = (geometry.left + client_center_x, geometry.top + client_center_y)
-        logger.info(f"Detected enabled gold button at screen={target} matched_pixels={count}.")
+        logger.info(f"Detected enabled gold button near calibrated target at screen={target} matched_pixels={count}.")
         return target
+
+    def probe_lobby_ready(self, geometry: WindowGeometry) -> bool:
+        """Require both account-independent lobby chrome anchors to match."""
+        capture = self._capture_target_bgra(geometry)
+        if capture is None:
+            return False
+        pixels, bitmap_width, client_offset_x, client_offset_y = capture
+        scale = min(geometry.width / 16.0, geometry.height / 9.0)
+        play_width = 16.0 * scale
+        play_height = 9.0 * scale
+        play_left = client_offset_x + (geometry.width - play_width) / 2.0
+        play_top = client_offset_y + (geometry.height - play_height) / 2.0
+
+        for x, y, width, height, expected_r, expected_g, expected_b in LOBBY_ANCHORS:
+            left = play_left + (x - width / 2.0) * scale
+            top = play_top + (y - height / 2.0) * scale
+            patch_width = max(1.0, width * scale)
+            patch_height = max(1.0, height * scale)
+            red = green = blue = 0
+            samples = 0
+            for sample_y in range(LOBBY_ANCHOR_SAMPLE_GRID):
+                pixel_y = int(top + (sample_y + 0.5) * patch_height / LOBBY_ANCHOR_SAMPLE_GRID)
+                for sample_x in range(LOBBY_ANCHOR_SAMPLE_GRID):
+                    pixel_x = int(left + (sample_x + 0.5) * patch_width / LOBBY_ANCHOR_SAMPLE_GRID)
+                    if pixel_x < 0 or pixel_y < 0:
+                        return False
+                    offset = (pixel_y * bitmap_width + pixel_x) * 4
+                    if offset + 3 >= len(pixels):
+                        return False
+                    blue += pixels[offset]
+                    green += pixels[offset + 1]
+                    red += pixels[offset + 2]
+                    samples += 1
+            if (
+                abs(red / samples - expected_r) > LOBBY_ANCHOR_TOLERANCE
+                or abs(green / samples - expected_g) > LOBBY_ANCHOR_TOLERANCE
+                or abs(blue / samples - expected_b) > LOBBY_ANCHOR_TOLERANCE
+            ):
+                return False
+        return True
 
     @staticmethod
     def _is_enabled_gold(red: int, green: int, blue: int) -> bool:
@@ -483,7 +548,14 @@ class WindowsInputExecutor:
         normalized = platform if isinstance(platform, Platform) else Platform(platform)
         match normalized:
             case Platform.MAJSOUL | Platform.AUTO:
-                return ("mahjong soul", "majsoul", "jantama", "\u96c0\u9b42")
+                return (
+                    "mahjong soul",
+                    "mahjongsoul",
+                    "majsoul",
+                    "jantama",
+                    "\u3058\u3083\u3093\u305f\u307e",
+                    "\u96c0\u9b42",
+                )
             case Platform.TENHOU:
                 return ("tenhou", "\u5929\u9cf3")
             case Platform.RIICHI_CITY:

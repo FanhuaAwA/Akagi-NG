@@ -27,6 +27,12 @@ class EngineProvider(BaseEngine):
         name = f"Provider({online_engine.name if online_engine else 'None'} -> {local_engine.name})"
         super().__init__(status=status, is_3p=is_3p, version=4, name=name)
 
+        # Let libriichi inspect its native legal-action mask before invoking
+        # any local or online engine. It skips inference only when the mask has
+        # exactly one bit; tsumo/hora and every other real choice still reaches
+        # react_batch (and therefore the selected API engine).
+        self.enable_quick_eval = True
+
         self.online_engine = online_engine
         self.local_engine = local_engine
 

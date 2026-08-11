@@ -191,6 +191,7 @@ export interface Settings {
       room: 'copper' | 'silver' | 'gold' | 'jade' | 'throne';
       mode: 'four_east' | 'four_south' | 'three_east' | 'three_south';
       result_delay: number;
+      game_limit: number;
     };
   };
 }

@@ -19,6 +19,7 @@ import pytest
 from akagi_ng.mjai_bot.bot import MortalBot
 from akagi_ng.mjai_bot.lookahead import LookaheadBot
 from akagi_ng.mjai_bot.status import BotStatusContext
+from akagi_ng.mjai_bot.utils import meta_to_recommend
 from akagi_ng.schema.notifications import NotificationCode
 from akagi_ng.schema.types import ReachEvent, StartGameEvent, StartKyokuEvent, TsumoEvent
 
@@ -216,3 +217,55 @@ class TestRiichiLookahead(unittest.TestCase):
         # 验证结果
         self.assertIsNotNone(result)
         self.assertEqual(result["mask_bits"], 45)
+
+    def test_quick_eval_forced_discard_is_a_successful_single_candidate(self):
+        """A valid meta-less quick_eval discard must not become a false failure."""
+        mock_loader = sys.modules["akagi_ng.core.lib_loader"]
+        mock_engine = MagicMock()
+        mock_sim_bot = MagicMock()
+        mock_loader.libriichi3p.mjai.Bot = MagicMock(return_value=mock_sim_bot)
+        mock_sim_bot.react.side_effect = [
+            None,
+            None,
+            json.dumps({"type": "dahai", "actor": 0, "pai": "4p", "tsumogiri": False}),
+        ]
+        lookahead_bot = LookaheadBot(mock_engine, player_id=0, is_3p=True)
+
+        result = lookahead_bot.simulate_reach(
+            history_events=[
+                StartKyokuEvent(
+                    bakaze="E",
+                    kyoku=1,
+                    honba=0,
+                    kyotaku=0,
+                    oya=0,
+                    scores=[35000] * 4,
+                    dora_marker="1p",
+                    tehais=[["?"] * 13] * 4,
+                )
+            ],
+            candidate_event=ReachEvent(actor=0),
+            game_start_event=StartGameEvent(id=0, is_3p=True),
+        )
+
+        self.assertIsNotNone(result)
+        self.assertEqual(meta_to_recommend(result, is_3p=True, temperature=0.3), [("4p", 1.0)])
+
+    def test_meta_less_non_discard_response_remains_a_failure(self):
+        mock_loader = sys.modules["akagi_ng.core.lib_loader"]
+        mock_engine = MagicMock()
+        mock_sim_bot = MagicMock()
+        mock_loader.libriichi.mjai.Bot = MagicMock(return_value=mock_sim_bot)
+        mock_sim_bot.react.side_effect = [
+            None,
+            json.dumps({"type": "none"}),
+        ]
+        lookahead_bot = LookaheadBot(mock_engine, player_id=0, is_3p=False)
+
+        result = lookahead_bot.simulate_reach(
+            history_events=[],
+            candidate_event=ReachEvent(actor=0),
+            game_start_event=StartGameEvent(id=0, is_3p=False),
+        )
+
+        self.assertIsNone(result)

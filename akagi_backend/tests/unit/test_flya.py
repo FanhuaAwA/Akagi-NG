@@ -21,10 +21,13 @@ from akagi_ng.mjai_bot.online_inference import OnlineInferenceCancelled, OnlineI
 from akagi_ng.mjai_bot.status import BotStatusContext
 from akagi_ng.schema.notifications import NotificationCode
 from akagi_ng.schema.types import (
+    DahaiEvent,
     EndGameEvent,
+    EndKyokuEvent,
     HoraEvent,
     NukidoraEvent,
     ReachAcceptedEvent,
+    ReachEvent,
     StartGameEvent,
     StartKyokuEvent,
     TsumoEvent,
@@ -373,6 +376,7 @@ def test_decider_preserves_local_action_on_flya_failure(monkeypatch: pytest.Monk
     tracker = MagicMock(last_kawa_tile=None)
     local = {"type": "dahai", "actor": 0, "pai": "2s", "meta": {"mask_bits": 1, "engine_type": "mortal"}}
     monkeypatch.setattr(decider, "_replay_local_decision", lambda: local)
+    previous_session = decider.session_id
 
     result = decider.process(TsumoEvent(actor=0, pai="2s"), local, tracker)
 
@@ -380,6 +384,9 @@ def test_decider_preserves_local_action_on_flya_failure(monkeypatch: pytest.Monk
     assert result["meta"]["decision_source"] == "flya_fallback"
     assert result["meta"]["fallback_used"] is True
     assert result["meta"]["online_service_reconnecting"] is True
+    assert decider.session_id != previous_session
+    assert decider.client is client
+    client.close.assert_not_called()
 
 
 def test_decider_skips_expensive_local_replay_when_shutdown_cancels_inference(
@@ -390,6 +397,7 @@ def test_decider_skips_expensive_local_replay_when_shutdown_cancels_inference(
     executor.run.side_effect = OnlineInferenceCancelled("shutdown")
     decider = FlyADecider(BotStatusContext(), executor)
     _record_four_player_start(decider)
+    previous_session = decider.session_id
     client = MagicMock(circuit_open=False)
     monkeypatch.setattr(decider, "_get_client", lambda: client)
     replay = MagicMock()
@@ -399,6 +407,7 @@ def test_decider_skips_expensive_local_replay_when_shutdown_cancels_inference(
     result = decider.process(TsumoEvent(actor=0, pai="2s"), local, MagicMock(last_kawa_tile=None))
 
     assert result is local
+    assert decider.session_id != previous_session
     replay.assert_not_called()
 
 
@@ -450,6 +459,48 @@ def test_flya_cancellation_telemetry_ignores_late_worker_success(monkeypatch: py
         executor.close()
 
 
+def test_decider_rotates_session_when_http_worker_finishes_after_deadline(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _enable_flya(monkeypatch)
+    monkeypatch.setattr("akagi_ng.mjai_bot.flya.FLYA_END_TO_END_DEADLINE_SECONDS", 0.05)
+    executor = OnlineInferenceExecutor()
+    decider = FlyADecider(BotStatusContext(), executor)
+    _record_four_player_start(decider)
+    previous_session = decider.session_id
+    release = threading.Event()
+    worker_finished = threading.Event()
+    selected = {"type": "dahai", "pai": "1m", "tsumogiri": False}
+    client = MagicMock(circuit_open=False)
+
+    def late_success(_payload, _call_status):
+        release.wait(timeout=2.0)
+        worker_finished.set()
+        return selected, [{"action": selected, "prob": 1.0}], "late-model"
+
+    client.react.side_effect = late_success
+    decider.client = client
+    monkeypatch.setattr(decider, "_get_client", lambda: client)
+    local = {"type": "dahai", "actor": 0, "pai": "2s", "meta": {"mask_bits": 1}}
+    monkeypatch.setattr(decider, "_replay_local_decision", lambda: local.copy())
+
+    try:
+        result = decider.process(TsumoEvent(actor=0, pai="2s"), local, MagicMock(last_kawa_tile=None))
+
+        assert result["meta"]["decision_source"] == "flya_fallback"
+        assert decider.session_id not in {None, previous_session}
+        assert decider.client is client
+        assert decider._pending_remote_actions == []
+        client.close.assert_not_called()
+
+        release.set()
+        assert worker_finished.wait(timeout=1.0)
+        assert decider._pending_remote_actions == []
+    finally:
+        release.set()
+        executor.close()
+
+
 def test_decider_falls_back_and_rebuilds_session_when_server_suppresses_required_decision(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -483,6 +534,7 @@ def test_decider_disables_remote_for_game_after_invalid_state_replay(
     _enable_flya(monkeypatch)
     decider = FlyADecider(BotStatusContext())
     _record_four_player_start(decider)
+    previous_session = decider.session_id
     client = MagicMock(circuit_open=False)
     client.react.side_effect = FlyADecisionSuppressed("state_replay_invalid")
     decider.client = client
@@ -499,8 +551,248 @@ def test_decider_disables_remote_for_game_after_invalid_state_replay(
     assert decider.history_complete is False
     assert decider.session_id is None
     assert decider.client is None
+    assert decider.events == []
+    assert len(decider.mjai_events) == 4
+    assert decider._replay_gap_reason == "state_replay_invalid"
     client.react.assert_called_once()
     client.close.assert_called_once_with()
+
+    next_kyoku = StartKyokuEvent(
+        bakaze="E",
+        dora_marker="4p",
+        kyoku=2,
+        honba=0,
+        kyotaku=0,
+        oya=1,
+        scores=[24000, 26000, 25000, 25000],
+        tehais=[["1m"] * 13, ["?"] * 13, ["?"] * 13, ["?"] * 13],
+    )
+    decider.process(next_kyoku, None, object())
+
+    assert decider.history_complete is True
+    assert decider.session_id is not None
+    assert decider.session_id != previous_session
+    assert [event["type"] for event in decider.events] == ["start_game", "start_kyoku"]
+    assert [event.type for event in decider.mjai_events] == ["start_game", "start_kyoku"]
+    assert decider._replay_gap_reason is None
+
+
+@pytest.mark.parametrize(
+    ("observed_pai", "observed_tsumogiri", "should_rotate"),
+    [("2s", False, False), ("3s", False, True), ("2s", True, True)],
+)
+def test_decider_rotates_session_when_observed_discard_differs_from_flya_selection(
+    monkeypatch: pytest.MonkeyPatch,
+    observed_pai: str,
+    observed_tsumogiri: bool,
+    should_rotate: bool,
+) -> None:
+    _enable_flya(monkeypatch)
+    decider = FlyADecider(BotStatusContext())
+    _record_four_player_start(decider)
+    selected = {"type": "dahai", "pai": "2s", "tsumogiri": False}
+    client = MagicMock(circuit_open=False)
+    client.react.return_value = selected, [{"action": selected, "prob": 1.0}], "flya-heyman-2.1"
+    decider.client = client
+    monkeypatch.setattr(decider, "_get_client", lambda: client)
+    local = {"type": "dahai", "actor": 0, "pai": "1s", "meta": {"mask_bits": 1}}
+
+    remote = decider.process(TsumoEvent(actor=0, pai="2s"), local, MagicMock(last_kawa_tile=None))
+    selected_session = decider.session_id
+    assert remote["pai"] == "2s"
+    assert decider._pending_remote_actions == [
+        {
+            "type": "dahai",
+            "actor": 0,
+            "pai": "2s",
+            "tsumogiri": False,
+        }
+    ]
+
+    decider.process(
+        DahaiEvent(actor=0, pai=observed_pai, tsumogiri=observed_tsumogiri),
+        None,
+        object(),
+    )
+
+    assert decider._pending_remote_actions == []
+    assert (decider.session_id != selected_session) is should_rotate
+    assert client.close.call_count == int(should_rotate)
+    assert decider.history_complete is True
+    assert decider.events[-1] == {
+        "type": "dahai",
+        "actor": 0,
+        "pai": observed_pai,
+        "tsumogiri": observed_tsumogiri,
+    }
+
+
+@pytest.mark.parametrize(
+    ("observed_event", "should_rotate"),
+    [(NukidoraEvent(actor=0), False), (DahaiEvent(actor=0, pai="N", tsumogiri=False), True)],
+)
+def test_decider_reconciles_observed_kita_and_rotates_on_mismatch(
+    monkeypatch: pytest.MonkeyPatch,
+    observed_event,
+    should_rotate: bool,
+) -> None:
+    _enable_flya(monkeypatch)
+    decider = FlyADecider(BotStatusContext())
+    _record_four_player_start(decider)
+    selected = {"type": "kita"}
+    client = MagicMock(circuit_open=False)
+    client.react.return_value = selected, [{"action": selected, "prob": 1.0}], "flya-heyman-2.1"
+    decider.client = client
+    monkeypatch.setattr(decider, "_get_client", lambda: client)
+    local = {"type": "dahai", "actor": 0, "pai": "1s", "meta": {"mask_bits": 1}}
+
+    remote = decider.process(TsumoEvent(actor=0, pai="N"), local, MagicMock(last_kawa_tile=None))
+    selected_session = decider.session_id
+    assert remote["type"] == "nukidora"
+
+    decider.process(observed_event, None, object())
+
+    assert decider._pending_remote_actions == []
+    assert (decider.session_id != selected_session) is should_rotate
+    assert client.close.call_count == int(should_rotate)
+
+
+def test_decider_disables_remote_when_selected_action_is_never_observed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _enable_flya(monkeypatch)
+    decider = FlyADecider(BotStatusContext())
+    _record_four_player_start(decider)
+    selected = {"type": "dahai", "pai": "2s", "tsumogiri": False}
+    client = MagicMock(circuit_open=False)
+    client.react.return_value = selected, [{"action": selected, "prob": 1.0}], "flya-heyman-2.1"
+    decider.client = client
+    monkeypatch.setattr(decider, "_get_client", lambda: client)
+    local = {"type": "dahai", "actor": 0, "pai": "1s", "meta": {"mask_bits": 1}}
+    monkeypatch.setattr(decider, "_replay_local_decision", lambda: local.copy())
+
+    remote = decider.process(TsumoEvent(actor=0, pai="2s"), local, MagicMock(last_kawa_tile=None))
+    fallback = decider.process(TsumoEvent(actor=0, pai="3s"), local, MagicMock(last_kawa_tile=None))
+
+    assert remote["meta"]["decision_source"] == "flya"
+    assert fallback["meta"]["decision_source"] == "flya_fallback"
+    assert client.react.call_count == 1
+    assert decider.history_complete is False
+    assert decider.session_id is None
+    assert decider.events == []
+    assert decider._pending_remote_actions == []
+    assert decider._replay_gap_reason == "pending_action_unobserved_before_decision"
+    client.close.assert_called_once_with()
+
+
+def test_decider_rebases_next_hand_when_pending_action_reaches_hand_boundary(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _enable_flya(monkeypatch)
+    decider = FlyADecider(BotStatusContext())
+    _record_four_player_start(decider)
+    selected = {"type": "kita"}
+    client = MagicMock(circuit_open=False)
+    client.react.return_value = selected, [{"action": selected, "prob": 1.0}], "flya-heyman-2.1"
+    decider.client = client
+    monkeypatch.setattr(decider, "_get_client", lambda: client)
+    local = {"type": "dahai", "actor": 0, "pai": "1s", "meta": {"mask_bits": 1}}
+
+    decider.process(TsumoEvent(actor=0, pai="N"), local, MagicMock(last_kawa_tile=None))
+    previous_session = decider.session_id
+    decider.process(EndKyokuEvent(), None, object())
+
+    assert decider.history_complete is False
+    assert decider._replay_gap_reason == "pending_action_unobserved_at_hand_boundary"
+    assert decider.session_id is None
+
+    next_kyoku = StartKyokuEvent(
+        bakaze="E",
+        dora_marker="4p",
+        kyoku=2,
+        honba=0,
+        kyotaku=0,
+        oya=1,
+        scores=[24000, 26000, 25000, 25000],
+        tehais=[["1m"] * 13, ["?"] * 13, ["?"] * 13, ["?"] * 13],
+    )
+    decider.process(next_kyoku, None, object())
+
+    assert decider.history_complete is True
+    assert decider.session_id not in {None, previous_session}
+    assert [event["type"] for event in decider.events] == ["start_game", "start_kyoku"]
+    assert decider._pending_remote_actions == []
+
+
+@pytest.mark.parametrize(("observed_pai", "should_rotate"), [("2p", False), ("3p", True)])
+def test_decider_reconciles_two_stage_riichi_discard(
+    monkeypatch: pytest.MonkeyPatch,
+    observed_pai: str,
+    should_rotate: bool,
+) -> None:
+    _enable_flya(monkeypatch)
+    decider = FlyADecider(BotStatusContext())
+    _record_four_player_start(decider)
+    selected = {"type": "riichi_dahai", "pai": "2p", "tsumogiri": False}
+    client = MagicMock(circuit_open=False)
+    client.react.return_value = selected, [{"action": selected, "prob": 1.0}], "flya-heyman-2.1"
+    decider.client = client
+    monkeypatch.setattr(decider, "_get_client", lambda: client)
+    local = {"type": "dahai", "actor": 0, "pai": "1s", "meta": {"mask_bits": 1}}
+
+    remote = decider.process(TsumoEvent(actor=0, pai="2p"), local, MagicMock(last_kawa_tile=None))
+    selected_session = decider.session_id
+    assert remote["type"] == "reach"
+    assert decider._pending_remote_actions == [
+        {"type": "reach", "actor": 0},
+        {"type": "dahai", "actor": 0, "pai": "2p", "tsumogiri": False},
+    ]
+
+    decider.process(ReachEvent(actor=0), None, object())
+    assert decider._pending_remote_actions == [{"type": "dahai", "actor": 0, "pai": "2p", "tsumogiri": False}]
+    decider.process(DahaiEvent(actor=0, pai=observed_pai, tsumogiri=False), None, object())
+
+    assert decider._pending_remote_actions == []
+    assert (decider.session_id != selected_session) is should_rotate
+    assert client.close.call_count == int(should_rotate)
+
+
+def test_decider_replays_actual_mismatched_action_under_new_session(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _enable_flya(monkeypatch)
+    decider = FlyADecider(BotStatusContext())
+    _record_four_player_start(decider)
+    first_selected = {"type": "dahai", "pai": "2s", "tsumogiri": False}
+    first_client = MagicMock(circuit_open=False)
+    first_client.react.return_value = (
+        first_selected,
+        [{"action": first_selected, "prob": 1.0}],
+        "flya-heyman-2.1",
+    )
+    monkeypatch.setattr(decider, "_get_client", lambda: first_client)
+    local = {"type": "dahai", "actor": 0, "pai": "1s", "meta": {"mask_bits": 1}}
+
+    decider.process(TsumoEvent(actor=0, pai="2s"), local, MagicMock(last_kawa_tile=None))
+    old_session = decider.session_id
+    decider.process(DahaiEvent(actor=0, pai="3s", tsumogiri=False), None, object())
+    new_session = decider.session_id
+
+    second_selected = {"type": "dahai", "pai": "4s", "tsumogiri": True}
+    second_client = MagicMock(circuit_open=False)
+    second_client.react.return_value = (
+        second_selected,
+        [{"action": second_selected, "prob": 1.0}],
+        "flya-heyman-2.1",
+    )
+    monkeypatch.setattr(decider, "_get_client", lambda: second_client)
+    decider.process(TsumoEvent(actor=0, pai="4s"), local, MagicMock(last_kawa_tile=None))
+
+    request = second_client.react.call_args.args[0]
+    assert new_session not in {None, old_session}
+    assert request["session_id"] == new_session
+    assert request["state"]["from_seq"] == 0
+    assert {"type": "dahai", "actor": 0, "pai": "3s", "tsumogiri": False} in request["state"]["events"]
 
 
 def test_decider_stops_remote_requests_immediately_after_game_disconnect(
@@ -715,6 +1007,7 @@ def test_decision_http_log_contains_diagnostics_without_api_key(monkeypatch: pyt
     warning = MagicMock()
     monkeypatch.setattr("akagi_ng.mjai_bot.flya_service.logger.info", info)
     monkeypatch.setattr("akagi_ng.mjai_bot.flya_service.logger.warning", warning)
+    monkeypatch.setenv("FLYA_REPLAY_DIAGNOSTIC_DIR", "disabled")
     client = FlyADecisionClient("https://server.example", "never-log-this-key")
     client.session.request = MagicMock(return_value=_response({"error": "state_replay_incomplete"}, status=422))
 
@@ -729,6 +1022,69 @@ def test_decision_http_log_contains_diagnostics_without_api_key(monkeypatch: pyt
     assert "request_id=" in joined
     assert "state_digest=" in joined
     assert "never-log-this-key" not in joined
+
+
+def test_state_replay_rejection_writes_safe_delta_artifact_by_default(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+) -> None:
+    monkeypatch.delenv("FLYA_REPLAY_DIAGNOSTIC_DIR", raising=False)
+    monkeypatch.setattr("akagi_ng.mjai_bot.flya.get_logs_dir", lambda: tmp_path)
+    warning = MagicMock()
+    monkeypatch.setattr("akagi_ng.mjai_bot.flya.logger.warning", warning)
+    accepted_events = [{"type": "start_game", "names": ["", "", ""], "seed": None}]
+    rejected_events = [
+        *accepted_events,
+        {"type": "kita", "actor": 1, "pai": "N", "authorization": "never-write-this"},
+        {"type": "tsumo", "actor": 1, "pai": "4p"},
+        {"type": "kita", "actor": 1, "pai": "N"},
+    ]
+    session_id = "session-for-replay-test"
+    accepted = {
+        **_decision_payload(),
+        "session_id": session_id,
+        "state": build_state_envelope(accepted_events, player_id=0, is_3p=True),
+    }
+    rejected = {
+        **_decision_payload(),
+        "session_id": session_id,
+        "state": build_state_envelope(rejected_events, player_id=0, is_3p=True),
+        "authorization": "never-write-this",
+        "api_key": "never-write-this",
+    }
+    client = FlyADecisionClient("https://server.example", "never-write-this")
+    client.session.request = MagicMock(
+        side_effect=[_response(_success()), _response({"error": "state_replay_invalid"}, status=400)]
+    )
+
+    client.react(accepted, BotStatusContext())
+    with pytest.raises(FlyADecisionSuppressed, match="state_replay_invalid") as exc_info:
+        client.react(rejected, BotStatusContext())
+
+    artifacts = list((tmp_path / "flya-replay").glob("flya-replay-state_replay_invalid-*.json"))
+    assert len(artifacts) == 1
+    artifact_text = artifacts[0].read_text(encoding="utf-8")
+    artifact = json.loads(artifact_text)
+    failed_body = json.loads(client.session.request.call_args_list[1].kwargs["data"])
+    assert artifact["format"] == "akagi-flya-replay-diagnostic-v1"
+    assert artifact["request"]["request_id"] == failed_body["request_id"]
+    assert set(artifact["request"]) == {"request_id", "session_id", "model_id", "deadline_ms", "state"}
+    assert artifact["diagnostic"]["last_accepted"]["to_seq"] == 1
+    assert artifact["diagnostic"]["last_accepted"]["request_id"]
+    assert artifact["diagnostic"]["delta_from_seq"] == 1
+    assert artifact["diagnostic"]["delta_to_seq"] == 4
+    assert artifact["diagnostic"]["delta_events"] == [
+        {"type": "kita", "actor": 1, "pai": "N"},
+        {"type": "tsumo", "actor": 1, "pai": "4p"},
+        {"type": "kita", "actor": 1, "pai": "N"},
+    ]
+    assert "authorization" not in artifact["request"]["state"]["events"][1]
+    assert "never-write-this" not in artifact_text
+    assert exc_info.value.artifact_path == str(artifacts[0])
+    messages = "\n".join(str(call.args[0]) for call in warning.call_args_list)
+    assert failed_body["request_id"] in messages
+    assert "last_accepted_to_seq=1" in messages
+    assert "never-write-this" not in messages
 
 
 @pytest.mark.parametrize(

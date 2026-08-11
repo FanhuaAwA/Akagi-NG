@@ -428,6 +428,12 @@
               "default": 10.0,
               "minimum": 5.0,
               "maximum": 60.0
+            },
+            "game_limit": {
+              "type": "integer",
+              "description": "Stop auto joining after this many completed games; zero means unlimited.",
+              "default": 0,
+              "minimum": 0
             }
           },
           "required": ["enabled", "room", "mode", "result_delay"],

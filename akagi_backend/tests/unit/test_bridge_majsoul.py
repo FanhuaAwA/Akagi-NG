@@ -49,6 +49,7 @@ class TestMajsoulBridge(unittest.TestCase):
 
     def test_match_submission_and_start_notification_cancel_lobby_clicks(self):
         for message in (
+            {"method": ".lq.Lobby.startUnifiedMatch", "type": MsgType.Req, "data": {}},
             {"method": ".lq.Lobby.matchGame", "type": MsgType.Res, "data": {}},
             {"method": ".lq.NotifyMatchGameStart", "type": MsgType.Notify, "data": {}},
         ):

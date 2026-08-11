@@ -397,6 +397,25 @@ async def test_autoplay_only_save_keeps_loaded_model_cache(cli):
     mock_clear.assert_not_called()
 
 
+async def test_auto_join_enable_change_notifies_live_manager(cli):
+    current = {"autoplay": {"auto_join": {"enabled": False}}}
+    updated = {"autoplay": {"auto_join": {"enabled": True}}}
+    mock_app = MagicMock()
+    with (
+        patch("akagi_ng.dataserver.api.verify_settings", return_value=True),
+        patch("akagi_ng.dataserver.api.local_settings"),
+        patch("akagi_ng.dataserver.api.get_settings_dict", side_effect=[current, updated]),
+        patch("akagi_ng.dataserver.api.get_app_context", return_value=mock_app),
+    ):
+        resp = await cli.post("/api/settings", json=updated)
+
+    assert resp.status == 200
+    mock_app.autoplay.on_auto_join_settings_changed.assert_called_once_with(
+        was_enabled=False,
+        previous_game_limit=0,
+    )
+
+
 async def test_reset_settings_triggers_cache_clear(cli):
     """验证重置设置时会触发缓存清理"""
     with (

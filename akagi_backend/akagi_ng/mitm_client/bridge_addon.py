@@ -2,6 +2,8 @@ import queue
 import threading
 import time
 from collections.abc import Callable
+from ipaddress import ip_address
+from urllib.parse import urlsplit
 
 import mitmproxy.http
 import mitmproxy.websocket
@@ -84,6 +86,21 @@ class BridgeAddon:
         for platform, patterns in PLATFORM_URL_PATTERNS.items():
             if any(pattern in url for pattern in patterns):
                 return platform
+
+        # The native Mahjong Soul client can connect to a route IP directly
+        # (for example http://203.107.63.200:7201/gateway).  In that case the
+        # hostname contains no platform marker and falling back to a stale UI
+        # selection creates the wrong bridge.  /gateway is the Liqi WebSocket
+        # endpoint returned by Mahjong Soul's route API, so treat the exact
+        # endpoint as stronger evidence than the saved platform as well.
+        parsed = urlsplit(url)
+        if parsed.path.rstrip("/") == "/gateway" and parsed.hostname:
+            try:
+                ip_address(parsed.hostname)
+            except ValueError:
+                pass
+            else:
+                return Platform.MAJSOUL
 
         return None
 

@@ -153,15 +153,26 @@ def test_lobby_ready_schedules_initial_auto_join_once():
     manager._auto_join.schedule.assert_called_once_with(initial_lobby=True)
 
 
-def test_matching_started_cancels_pending_auto_join():
+def test_matching_started_confirms_pending_auto_join():
     manager = AutoPlayManager(lambda: _runtime(), executor=_executor())
-    manager._auto_join.stop = MagicMock()
+    manager._auto_join.notify_matching_started = MagicMock()
     manager._lobby_ready_seen = True
 
     manager.observe_system_event(NotificationCode.MATCHING_STARTED)
 
-    manager._auto_join.stop.assert_called_once_with()
+    manager._auto_join.notify_matching_started.assert_called_once_with()
     assert manager._lobby_ready_seen is False
+    assert manager._matching_active is True
+
+
+def test_lobby_ready_does_not_restart_auto_join_while_matching():
+    manager = AutoPlayManager(lambda: _runtime(), executor=_executor())
+    manager._auto_join.schedule = MagicMock(return_value=True)
+
+    manager.observe_system_event(NotificationCode.MATCHING_STARTED)
+    manager.observe_system_event(NotificationCode.LOBBY_READY)
+
+    manager._auto_join.schedule.assert_not_called()
 
 
 def test_lobby_ready_is_ignored_during_game_and_round_result():
@@ -173,3 +184,119 @@ def test_lobby_ready_is_ignored_during_game_and_round_result():
     manager.observe_system_event(NotificationCode.LOBBY_READY)
 
     manager._auto_join.schedule.assert_not_called()
+
+
+def test_completed_game_limit_stops_at_exact_boundary_and_deduplicates_end_game():
+    manager = AutoPlayManager(lambda: _runtime(), executor=_executor())
+    manager._auto_join.schedule = MagicMock(return_value=True)
+    manager._auto_join.stop = MagicMock()
+
+    with (
+        patch.object(local_settings.autoplay.auto_join, "enabled", True),
+        patch.object(local_settings.autoplay.auto_join, "game_limit", 2),
+    ):
+        manager.observe_event(SimpleNamespace(type="start_game"))
+        manager.observe_event(SimpleNamespace(type="end_game"))
+        manager.observe_event(SimpleNamespace(type="end_game"))
+        manager.observe_event(SimpleNamespace(type="start_game"))
+        manager._auto_join.stop.reset_mock()
+        manager.observe_event(SimpleNamespace(type="end_game"))
+
+    manager._auto_join.schedule.assert_called_once_with()
+    manager._auto_join.stop.assert_called_once_with()
+    assert manager._completed_games == 2
+
+
+def test_zero_completed_game_limit_remains_unlimited():
+    manager = AutoPlayManager(lambda: _runtime(), executor=_executor())
+    manager._auto_join.schedule = MagicMock(return_value=True)
+
+    with (
+        patch.object(local_settings.autoplay.auto_join, "enabled", True),
+        patch.object(local_settings.autoplay.auto_join, "game_limit", 0),
+    ):
+        for _ in range(3):
+            manager.observe_event(SimpleNamespace(type="start_game"))
+            manager.observe_event(SimpleNamespace(type="end_game"))
+
+    assert manager._auto_join.schedule.call_count == 3
+    assert manager._completed_games == 3
+
+
+def test_initial_lobby_does_not_consume_completed_game_limit():
+    manager = AutoPlayManager(lambda: _runtime(), executor=_executor())
+    manager._auto_join.schedule = MagicMock(return_value=True)
+
+    with patch.object(local_settings.autoplay.auto_join, "enabled", True):
+        manager.observe_system_event(NotificationCode.LOBBY_READY)
+
+    manager._auto_join.schedule.assert_called_once_with(initial_lobby=True)
+    assert manager._completed_games == 0
+
+
+def test_lobby_ready_does_not_restart_auto_join_after_limit_is_reached():
+    manager = AutoPlayManager(lambda: _runtime(), executor=_executor())
+    manager._auto_join.schedule = MagicMock(return_value=True)
+    manager._completed_games = 1
+
+    with (
+        patch.object(local_settings.autoplay.auto_join, "enabled", True),
+        patch.object(local_settings.autoplay.auto_join, "game_limit", 1),
+    ):
+        manager.observe_system_event(NotificationCode.LOBBY_READY)
+
+    manager._auto_join.schedule.assert_not_called()
+
+
+def test_reenabling_auto_join_resets_limit_and_resumes_known_lobby():
+    manager = AutoPlayManager(lambda: _runtime(), executor=_executor())
+    manager._auto_join.schedule = MagicMock(return_value=True)
+    manager._auto_join.stop = MagicMock()
+    manager._completed_games = 3
+    manager._lobby_ready_seen = True
+
+    with patch.object(local_settings.autoplay.auto_join, "enabled", False):
+        manager.on_auto_join_settings_changed(was_enabled=True)
+    manager._auto_join.stop.assert_called_once_with()
+
+    with patch.object(local_settings.autoplay.auto_join, "enabled", True):
+        manager.on_auto_join_settings_changed(was_enabled=False)
+
+    assert manager._completed_games == 0
+    manager._auto_join.schedule.assert_called_once_with(initial_lobby=True)
+
+
+def test_raising_completed_game_limit_resumes_known_lobby():
+    manager = AutoPlayManager(lambda: _runtime(), executor=_executor())
+    manager._auto_join.schedule = MagicMock(return_value=True)
+    manager._completed_games = 2
+    manager._lobby_ready_seen = True
+
+    with (
+        patch.object(local_settings.autoplay.auto_join, "enabled", True),
+        patch.object(local_settings.autoplay.auto_join, "game_limit", 3),
+    ):
+        manager.on_auto_join_settings_changed(was_enabled=True, previous_game_limit=2)
+
+    manager._auto_join.schedule.assert_called_once_with(initial_lobby=True)
+
+
+def test_disabled_or_non_majsoul_games_do_not_consume_limit():
+    disabled = AutoPlayManager(lambda: _runtime(), executor=_executor())
+    disabled._auto_join.schedule = MagicMock(return_value=True)
+    with patch.object(local_settings.autoplay.auto_join, "enabled", False):
+        disabled.observe_event(SimpleNamespace(type="start_game"))
+        disabled.observe_event(SimpleNamespace(type="end_game"))
+
+    other_platform_runtime = _runtime()
+    other_platform_runtime.platform = Platform.TENHOU
+    other_platform = AutoPlayManager(lambda: other_platform_runtime, executor=_executor())
+    other_platform._auto_join.schedule = MagicMock(return_value=True)
+    with patch.object(local_settings.autoplay.auto_join, "enabled", True):
+        other_platform.observe_event(SimpleNamespace(type="start_game"))
+        other_platform.observe_event(SimpleNamespace(type="end_game"))
+
+    assert disabled._completed_games == 0
+    assert other_platform._completed_games == 0
+    disabled._auto_join.schedule.assert_not_called()
+    other_platform._auto_join.schedule.assert_not_called()

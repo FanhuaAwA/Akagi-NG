@@ -18,10 +18,13 @@ import pytest
 
 from akagi_ng.bridge.majsoul.bridge import MajsoulBridge
 from akagi_ng.mjai_bot.bot import MortalBot
+from akagi_ng.mjai_bot.engine.factory import FlyAProbeEngine
 from akagi_ng.mjai_bot.engine.provider import EngineProvider
+from akagi_ng.mjai_bot.lookahead import LookaheadBot
 from akagi_ng.mjai_bot.status import BotStatusContext
-from akagi_ng.schema.types import StartGameEvent, StartKyokuEvent, TsumoEvent
-from tests.conftest import HAS_LIBRIICHI
+from akagi_ng.mjai_bot.utils import meta_to_recommend
+from akagi_ng.schema.types import ReachEvent, StartGameEvent, StartKyokuEvent, TsumoEvent
+from tests.conftest import HAS_LIBRIICHI, HAS_LIBRIICHI3P
 
 # ==========================================
 # Real Liqi Payloads (Shared Resource)
@@ -69,6 +72,52 @@ LIQI_LOG_DATA = {
         },
     },
 }
+
+
+@pytest.mark.skipif(not HAS_LIBRIICHI3P, reason="libriichi3p not available in CI environment")
+def test_real_libriichi3p_quick_eval_forced_reach_discard_is_not_a_failure():
+    """Regression for the production log's unique 4p discard after a 3p reach."""
+    status = BotStatusContext()
+    engine = FlyAProbeEngine(status, is_3p=True)
+    engine.enable_quick_eval = True
+    lookahead = LookaheadBot(engine, player_id=0, is_3p=True)
+    hand = [
+        "4p",
+        "6p",
+        "6p",
+        "1s",
+        "2s",
+        "3s",
+        "4s",
+        "5sr",
+        "5s",
+        "6s",
+        "7s",
+        "8s",
+        "9s",
+    ]
+    unknown_hand = ["?"] * 13
+
+    result = lookahead.simulate_reach(
+        history_events=[
+            StartKyokuEvent(
+                bakaze="E",
+                kyoku=1,
+                honba=0,
+                kyotaku=0,
+                oya=0,
+                scores=[35000] * 4,
+                dora_marker="1p",
+                tehais=[hand, unknown_hand, unknown_hand, unknown_hand],
+            ),
+            TsumoEvent(actor=0, pai="3s"),
+        ],
+        candidate_event=ReachEvent(actor=0),
+        game_start_event=StartGameEvent(id=0, is_3p=True),
+    )
+
+    assert result is not None
+    assert meta_to_recommend(result, is_3p=True, temperature=0.3) == [("4p", 1.0)]
 
 
 class TestMortalBotResilience(unittest.TestCase):

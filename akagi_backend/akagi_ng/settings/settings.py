@@ -148,6 +148,7 @@ class AutoJoinConfig:
     room: str
     mode: str
     result_delay: float
+    game_limit: int
 
 
 @dataclass(slots=True)
@@ -182,6 +183,7 @@ def _default_autoplay_config() -> AutoplayConfig:
             room="gold",
             mode="four_south",
             result_delay=10.0,
+            game_limit=0,
         ),
     )
 
@@ -426,12 +428,11 @@ class Settings:
                     bezier_steps=autoplay_input.get("bezier_steps", 18),
                 ),
                 auto_join=AutoJoinConfig(
-                    # Auto join is temporarily unavailable. Ignore stale
-                    # persisted true values so no background click task starts.
-                    enabled=False,
+                    enabled=auto_join_data.get("enabled", False),
                     room=auto_join_data.get("room", "gold"),
                     mode=auto_join_data.get("mode", "four_south"),
                     result_delay=auto_join_data.get("result_delay", 10.0),
+                    game_limit=auto_join_data.get("game_limit", 0),
                 ),
             ),
         )
@@ -578,6 +579,7 @@ def get_default_settings_dict() -> dict:
                 "room": "gold",
                 "mode": "four_south",
                 "result_delay": 10.0,
+                "game_limit": 0,
             },
         },
     }
@@ -736,12 +738,11 @@ def _update_settings(settings: Settings, data: dict):  # noqa: PLR0915
     settings.autoplay.input.bezier_smoothing = autoplay_input.get("bezier_smoothing", 0.35)
     settings.autoplay.input.bezier_steps = autoplay_input.get("bezier_steps", 18)
     auto_join_data = autoplay_data.get("auto_join", {})
-    # Keep the runtime hard-disabled even when an older frontend/configuration
-    # submits enabled=true.
-    settings.autoplay.auto_join.enabled = False
+    settings.autoplay.auto_join.enabled = auto_join_data.get("enabled", False)
     settings.autoplay.auto_join.room = auto_join_data.get("room", "gold")
     settings.autoplay.auto_join.mode = auto_join_data.get("mode", "four_south")
     settings.autoplay.auto_join.result_delay = auto_join_data.get("result_delay", 10.0)
+    settings.autoplay.auto_join.game_limit = auto_join_data.get("game_limit", 0)
 
     ot_data = data.get("ot", {})
     settings.ot.online = ot_data.get("online", False)

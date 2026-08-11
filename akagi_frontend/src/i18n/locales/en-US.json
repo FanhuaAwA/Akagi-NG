@@ -211,9 +211,8 @@
       "bezier_steps_desc": "Interpolation steps used during cursor movement."
     },
     "auto_join": {
-      "temporarily_disabled": "Auto join is temporarily unavailable while its screen-state detection is being improved.",
       "enabled": "Enable auto join",
-      "enabled_desc": "Leave the result screens and join the selected ranked room and match mode after a game.",
+      "enabled_desc": "Join the selected ranked room and mode after entering the Mahjong Soul lobby or finishing a game.",
       "target_title": "Target match",
       "target_desc": "Choose a ranked room first, then the match mode inside it. Throne is revealed by scrolling automatically.",
       "room": "Ranked room",
@@ -232,7 +231,9 @@
       "timing_title": "Result timing",
       "result_delay": "Result animation wait (seconds)",
       "result_delay_desc": "Wait after the end-game event before operating the result screen. Increase this if animations run slowly.",
-      "safety": "Auto join only runs after a Mahjong Soul end-game event. A new game, disabling the feature, or a changed target window cancels all remaining clicks."
+      "game_limit": "Completed-game limit",
+      "game_limit_desc": "Stop after this many completed games. Set to 0 for no limit; disabling and re-enabling resets the count.",
+      "safety": "Runs only after Mahjong Soul lobby/end-game protocol events and stable lobby visual anchors. A new game, manual matchmaking, disabling the feature, or a changed target window cancels remaining clicks."
     },
     "status_saved": "Save success.",
     "status_saving": "Saving…",

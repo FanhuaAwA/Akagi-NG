@@ -15,6 +15,7 @@ from akagi_ng.schema.types import AkagiEvent
 from akagi_ng.settings import Settings
 
 if TYPE_CHECKING:
+    from akagi_ng.autoplay import AutoPlayManager
     from akagi_ng.plugins import PluginManager
 
 
@@ -29,6 +30,7 @@ class AppContext:
     mitm_client: MitmClientProtocol | None
     plugin_manager: PluginManager | None = None
     electron_client: ElectronClientProtocol | None = None
+    autoplay: AutoPlayManager | None = None
     request_shutdown: Callable[[], None] | None = None
 
 

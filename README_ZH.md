@@ -73,17 +73,22 @@ Akagi-NG 的核心理念：
   - 反截图保护 - 可见的主界面与标准 HUD 支持尽力而为的系统级捕获排除
   - HUD 鼠标穿透 - 可点击受保护 HUD 下方的内容，同时保留控制按钮交互
   - 可选托盘图标 - 可隐藏托盘图标，但不会隐藏主界面或任务栏入口
+  - Windows 自动打牌 - 按可配置的拟人化时序执行舍牌、立直、吃碰杠、和牌、拔北与跳过等推荐动作
+  - 雀魂自动加入 - 自动离开结算画面并进入指定段位场，可设置完成对局数上限
   - 全新毛玻璃风格界面 - 丝滑且通透的视觉体验
   - 多语言支持 - 简体中文 / 繁體中文 / 日本語 / English
 
 - 🤖 **AI 模型**
-  - Mortal (Mortal 4p / Mortal 3p)
-  - AkagiOT (AkagiOT 4p / AkagiOT 3p)
+  - 本地 Mortal（Mortal 四麻 / Mortal 三麻）
+  - 在线 Akagi OT3、AkagiOT Legacy 与 FlyA-test-api
+  - 在线推理不可用时自动回退到本地 Mortal 模型
 
 - **独立插件系统**
   - 可从 [Akagi-NG 插件仓库](https://github.com/FanhuaAwA/Akagi-NG-Plugins) 安装和更新插件
   - 支持导入本地 `.zip` 或 `.akagi-plugin.zip`，并执行重复与冲突检查
   - 雀魂 MAX 和一番街本地解锁可独立于 Akagi-NG 主程序发布更新
+  - 插件版本号与桌面程序相互独立，插件更新不会覆盖各插件的配置
+  - 一番街本地解锁使用 NG 已打包的 `ruamel.yaml`，无需单独安装 PyYAML
 
 > [!NOTE]
 > **Riichi Lookahead（立直前瞻）** 是 Akagi-NG 的一项核心功能，旨在解决“当 AI 建议立直时，我应该切哪张牌？”的问题。
@@ -122,6 +127,8 @@ https://github.com/user-attachments/assets/701a3dcf-1574-46af-9594-082605c4e158
 
 ## 运行截图
 
+> 截图用于界面示意，可能略晚于当前版本；现有 Dashboard 还包含“自动化”“扩展”和“日志”页面。
+
 ### 主界面
 
 ![主界面](./docs/screen_shots/ui.png)
@@ -159,12 +166,12 @@ Akagi-NG/
   ├── Akagi-NG     # 主程序 (Electron 桌面端)
   ├── assets/      # 各平台相关的界面资源
   ├── bin/         # 后端核心程序所在的目录
-  ├── config/      # 配置文件目录 (settings.json)
+  ├── config/      # 旧版/默认占位目录；运行配置位于系统用户数据目录
   ├── lib/         # libriichi 二进制扩展 (.pyd/.so)
   │     ├── libriichi
   │     └── libriichi3p
   ├── locales/     # 多语言支持资源
-  ├── logs/        # 运行日志目录
+  ├── logs/        # 旧版占位目录；运行日志位于系统用户数据目录
   ├── models/      # AI 模型权重文件 (.pth)
   │     ├── mortal
   │     └── mortal3p
@@ -173,6 +180,21 @@ Akagi-NG/
   ├── README       # 极简使用说明
   └── ...          # 其他必要的运行时支持文件 (.dll, .pak 等)
 ```
+
+可变运行数据不会写入解压后的程序目录，而是保存在 Electron 为当前操作系统
+分配的用户数据目录。Windows 发行包通常位于 `%APPDATA%\akagi-ng-desktop`：
+
+```plain
+<userData>/
+  ├── config/settings.json             # 主配置
+  ├── config/plugins.json              # 插件启用状态
+  ├── config/plugins/<plugin-id>/       # 各插件配置
+  ├── logs/                             # 后端日志与状态重放诊断
+  └── plugins/<plugin-id>/              # 独立安装的插件代码
+```
+
+因此，替换旧的解压目录不会删除正常的配置、日志和已安装插件；旧版便携目录中的
+配置会在首次启动时迁移。
 
 ### 3. 启动与退出
 
@@ -201,7 +223,7 @@ HUD 右上角始终显示鼠标指针按钮。开启后，HUD 内容区域的点
 
 ### 4. 配置
 
-Akagi-NG 的所有配置均位于 `config/settings.json` 文件中。您可以点击 Dashboard 右上角的齿轮图标进入设置面板来调整程序行为。
+Akagi-NG 的主配置位于 `<userData>/config/settings.json`。您可以点击 Dashboard 右上角的齿轮图标进入设置面板来调整程序行为；旧版便携目录配置会在首次启动时自动迁移。
 
 ### 5. 内置浏览器模式
 
@@ -374,7 +396,13 @@ Akagi-NG 支持通过中间人攻击 (MITM) 方式截获游戏数据，这允许
 
 #### Q: 有没有自动打牌功能？
 
-**A:** 很遗憾，Akagi-NG 暂不支持自动打牌功能。
+**A:** 有。Windows 用户可在“**自动化**”页面启用基于输入模拟的自动打牌，并配置拟人化延迟和目标窗口关键词；程序可执行模型给出的舍牌及操作建议。雀魂还支持自动加入下一场，并可在完成指定对局数后停止。该功能通过模拟鼠标控制游戏，请在游戏界面或显示缩放发生变化后重新确认目标窗口，并在首次使用时观察执行情况。
+
+#### Q: 一番街本地解锁为什么提示缺少 PyYAML？
+
+**A:** 请在“**扩展工具**”中更新插件并重启 Akagi-NG。当前一番街本地解锁插件使用 Akagi-NG 已打包的 `ruamel.yaml`，不要在发行包内部运行 `pip install`。桌面运行时有意不提供通用顶层 `yaml` 模块，因此仍使用 `import yaml` 的第三方插件需要改用明确打包或自带的 YAML 实现。
+
+插件发布使用独立版本号，更新插件不会改变 Akagi-NG 桌面版本，也不会覆盖插件配置；插件作者仍需保证其代码兼容当前插件 API。
 
 ---
 
@@ -434,7 +462,7 @@ cp lib/libriichi3p-3.12-x86_64-unknown-linux-gnu.so lib/libriichi3p.so
 在项目根目录下，执行安装：
 
 ```bash
-npm install
+npm ci
 ```
 
 ### 2. 开发环境运行

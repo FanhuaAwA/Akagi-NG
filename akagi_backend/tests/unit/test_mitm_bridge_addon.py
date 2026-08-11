@@ -90,6 +90,42 @@ def test_bridge_addon_detected_riichi_city_overrides_stale_tenhou_setting(addon)
     assert isinstance(addon.bridges.get(mock_flow.id), RiichiCityBridge)
 
 
+def test_bridge_addon_detects_majsoul_ip_gateway_over_stale_tenhou_setting(addon):
+    mock_flow = MagicMock()
+    mock_flow.id = "majsoul-ip-gateway"
+    mock_flow.request.url = "http://203.107.63.200:7201/gateway"
+
+    with patch("akagi_ng.mitm_client.bridge_addon.local_settings") as mock_settings:
+        mock_settings.platform = "tenhou"
+        addon.websocket_start(mock_flow)
+
+    assert mock_flow.id in addon.activated_flows
+    assert isinstance(addon.bridges.get(mock_flow.id), MajsoulBridge)
+
+
+def test_bridge_addon_passes_majsoul_bridge_to_plugin_for_ip_gateway(shared_queue):
+    plugin_manager = MagicMock()
+    addon = BridgeAddon(shared_queue, plugin_manager=plugin_manager)
+    mock_flow = MagicMock()
+    mock_flow.id = "majsoul-max-ip-gateway"
+    mock_flow.request.url = "http://203.107.63.200:7201/gateway?route=cn"
+
+    with patch("akagi_ng.mitm_client.bridge_addon.local_settings") as mock_settings:
+        mock_settings.platform = "tenhou"
+        addon.websocket_start(mock_flow)
+
+    bridge = addon.bridges[mock_flow.id]
+    assert isinstance(bridge, MajsoulBridge)
+    plugin_manager.websocket_start.assert_called_once_with(mock_flow, bridge)
+
+
+def test_bridge_addon_does_not_treat_arbitrary_domain_gateway_as_majsoul(addon):
+    mock_flow = MagicMock()
+    mock_flow.request.url = "wss://unrelated.example/gateway"
+
+    assert addon._get_platform_for_flow(mock_flow) is None
+
+
 def test_bridge_addon_filtering(addon):
     mock_flow = MagicMock()
     mock_flow.id = "test_flow_id"

@@ -26,22 +26,17 @@ interface AutoJoinSectionProps {
 export const AutoJoinSection: FC<AutoJoinSectionProps> = memo(({ settings, updateSetting }) => {
   const { t } = useTranslation();
   const config = settings.autoplay.auto_join;
-  const temporarilyDisabled = true;
 
   return (
     <div className='space-y-6'>
       <div className='border-border/70 bg-muted/20 rounded-xl border p-5'>
-        <p className='mb-4 text-sm font-medium text-amber-500'>
-          {t('settings.auto_join.temporarily_disabled')}
-        </p>
         <SettingsItem
           label={t('settings.auto_join.enabled')}
           description={t('settings.auto_join.enabled_desc')}
         >
           <CapsuleSwitch
             className='w-fit'
-            checked={false}
-            disabled={temporarilyDisabled}
+            checked={config.enabled}
             onCheckedChange={(value) => updateSetting(['autoplay', 'auto_join', 'enabled'], value)}
             labelOn={t('common.enabled')}
             labelOff={t('common.disabled')}
@@ -61,7 +56,6 @@ export const AutoJoinSection: FC<AutoJoinSectionProps> = memo(({ settings, updat
             description={t('settings.auto_join.room_desc')}
           >
             <Select
-              disabled={temporarilyDisabled}
               value={config.room}
               onValueChange={(value: Settings['autoplay']['auto_join']['room']) =>
                 updateSetting(['autoplay', 'auto_join', 'room'], value)
@@ -85,7 +79,6 @@ export const AutoJoinSection: FC<AutoJoinSectionProps> = memo(({ settings, updat
             description={t('settings.auto_join.mode_desc')}
           >
             <Select
-              disabled={temporarilyDisabled}
               value={config.mode}
               onValueChange={(value: Settings['autoplay']['auto_join']['mode']) =>
                 updateSetting(['autoplay', 'auto_join', 'mode'], value)
@@ -116,25 +109,44 @@ export const AutoJoinSection: FC<AutoJoinSectionProps> = memo(({ settings, updat
           <Clock3 className='h-4 w-4 text-violet-500' />
           <h3 className='settings-section-title'>{t('settings.auto_join.timing_title')}</h3>
         </div>
-        <SettingsItem
-          label={t('settings.auto_join.result_delay')}
-          description={t('settings.auto_join.result_delay_desc')}
-        >
-          <Input
-            disabled={temporarilyDisabled}
-            type='number'
-            min='5'
-            max='60'
-            step='0.5'
-            value={config.result_delay}
-            onChange={(event) => {
-              const next = Number.parseFloat(event.target.value);
-              if (!Number.isNaN(next)) {
-                updateSetting(['autoplay', 'auto_join', 'result_delay'], next, true);
-              }
-            }}
-          />
-        </SettingsItem>
+        <div className='grid grid-cols-1 gap-4 md:grid-cols-2'>
+          <SettingsItem
+            label={t('settings.auto_join.result_delay')}
+            description={t('settings.auto_join.result_delay_desc')}
+          >
+            <Input
+              type='number'
+              min='5'
+              max='60'
+              step='0.5'
+              value={config.result_delay}
+              onChange={(event) => {
+                const next = Number.parseFloat(event.target.value);
+                if (!Number.isNaN(next)) {
+                  updateSetting(['autoplay', 'auto_join', 'result_delay'], next, true);
+                }
+              }}
+            />
+          </SettingsItem>
+
+          <SettingsItem
+            label={t('settings.auto_join.game_limit')}
+            description={t('settings.auto_join.game_limit_desc')}
+          >
+            <Input
+              type='number'
+              min='0'
+              step='1'
+              value={config.game_limit}
+              onChange={(event) => {
+                const next = Number.parseInt(event.target.value, 10);
+                if (!Number.isNaN(next)) {
+                  updateSetting(['autoplay', 'auto_join', 'game_limit'], Math.max(0, next), true);
+                }
+              }}
+            />
+          </SettingsItem>
+        </div>
       </section>
 
       <div className='border-border/70 bg-muted/20 flex gap-3 rounded-xl border p-4'>

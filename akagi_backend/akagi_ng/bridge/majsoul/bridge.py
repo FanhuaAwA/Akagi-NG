@@ -221,12 +221,10 @@ class MajsoulBridge(BaseBridge):
             tehais[self.seat] = list(sorted_tehais)
             my_tehais = sorted_tehais
         elif len(tiles) == MahjongConstants.TSUMO_TEHAI_SIZE:
-            # 将14张牌排序后，前13张作为手牌，最后1张作为摸牌
-            all_tiles = sorted(
-                [*my_tehais, MS_TILE_2_MJAI_TILE[tiles[MahjongConstants.TEHAI_SIZE]]], key=cmp_to_key(compare_pai)
-            )
-            my_tehais = all_tiles[: MahjongConstants.TEHAI_SIZE]
-            my_tsumohai = all_tiles[MahjongConstants.TEHAI_SIZE]
+            # ActionNewRound 的最后一张是庄家真实的第 14 张牌。只排序前 13 张手牌；
+            # 若将 14 张一起排序，会把最大的牌伪报为摸牌，并使后续 tsumogiri 事实不可重放。
+            my_tehais.sort(key=cmp_to_key(compare_pai))
+            my_tsumohai = MS_TILE_2_MJAI_TILE[tiles[MahjongConstants.TEHAI_SIZE]]
             tehais[self.seat] = list(my_tehais)
         else:
             logger.error(f"Unexpected tile count in ActionNewRound: {len(tiles)}")
@@ -525,10 +523,12 @@ class MajsoulBridge(BaseBridge):
                 return [self.make_system_event(NotificationCode.LOBBY_READY)]
             return []
 
-        # Cancel lobby coordinate input as soon as matchmaking is submitted.
+        # The current client emits startUnifiedMatch after the room/mode click
+        # chain. Keep matchGame response support for older server variants.
+        is_unified_match_request = method == ".lq.Lobby.startUnifiedMatch" and msg_type == MsgType.Req
         is_match_response = method == ".lq.Lobby.matchGame" and msg_type == MsgType.Res
         is_match_start = method == ".lq.NotifyMatchGameStart" and msg_type == MsgType.Notify
-        if is_match_response or is_match_start:
+        if is_unified_match_request or is_match_response or is_match_start:
             return [self.make_system_event(NotificationCode.MATCHING_STARTED)]
         return None
 
