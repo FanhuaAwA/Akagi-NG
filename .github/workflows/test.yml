@@ -41,6 +41,9 @@ jobs:
         run: ruff format --check akagi_ng/
 
   test-backend:
+    permissions:
+      contents: read
+      id-token: write
     strategy:
       fail-fast: false
       matrix:
@@ -121,7 +124,7 @@ jobs:
           files: akagi_backend/coverage.xml
           flags: backend
           fail_ci_if_error: true
-          token: ${{ secrets.CODECOV_TOKEN }}
+          use_oidc: true
           verbose: true
 
       - name: Upload coverage HTML report
