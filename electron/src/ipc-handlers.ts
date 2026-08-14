@@ -1,6 +1,7 @@
 import { app, ipcMain, shell } from 'electron';
 
-import type { BackendManager } from './backend-manager.js';
+import { type BackendManager, formatBackendApiUrl } from './backend-manager.js';
+import { waitForBackendEndpoint } from './backend-wait.js';
 import { EXIT_ANIMATION_DELAY_MS } from './constants.js';
 import { createLogger } from './logger.js';
 import type { MihomoManager } from './mihomo-manager.js';
@@ -17,7 +18,6 @@ import type { WindowManager } from './window-manager.js';
 const logger = createLogger('IPC');
 const SUPPORTED_LOCALES = new Set(['zh-CN', 'zh-TW', 'en-US', 'ja-JP']);
 const SUPPORTED_GAME_PLATFORMS = new Set(['auto', 'majsoul', 'tenhou']);
-const MAX_BACKEND_WAIT_MS = 120_000;
 
 function requireBoolean(value: unknown, name: string): boolean {
   if (typeof value !== 'boolean') throw new TypeError(`${name} must be a boolean.`);
@@ -157,7 +157,7 @@ export function registerIpcHandlers(
       const liqiText = await liqiRes.text();
 
       const config = await backendManager.getBackendConfig();
-      const backendRes = await fetch(`http://127.0.0.1:${config.port}/api/protocol/update`, {
+      const backendRes = await fetch(formatBackendApiUrl(config, '/api/protocol/update'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ data: liqiText }),
@@ -214,16 +214,7 @@ export function registerIpcHandlers(
   handle('get-startup-config', () => backendManager.getStartupConfig());
 
   handle('wait-for-backend', async (_event, value?: unknown) => {
-    const timeoutMs = value === undefined ? undefined : Number(value);
-    if (
-      timeoutMs !== undefined &&
-      (!Number.isFinite(timeoutMs) || timeoutMs < 0 || timeoutMs > MAX_BACKEND_WAIT_MS)
-    ) {
-      throw new TypeError('Invalid backend wait timeout.');
-    }
-    const isReady = await backendManager.waitForReady(timeoutMs);
-    if (!isReady) throw new Error('Backend failed to start');
-    return backendManager.getBackendConfig();
+    return waitForBackendEndpoint(backendManager, value);
   });
 
   handle('update-locale', (_event, value: unknown) => {

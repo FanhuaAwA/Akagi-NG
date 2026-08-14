@@ -19,7 +19,6 @@ export const HUD_MAX_WIDTH = 1280;
 export const HUD_MAX_HEIGHT = 720;
 
 // 后端启动检查配置
-export const BACKEND_STARTUP_CHECK_RETRIES = 60;
 export const BACKEND_STARTUP_CHECK_INTERVAL_MS = 100;
 export const BACKEND_STARTUP_CHECK_MAX_INTERVAL_MS = 500;
 export const BACKEND_STARTUP_CHECK_TIMEOUT_MS = 1000;
@@ -41,4 +40,4 @@ export const GITHUB_RELEASES_API = `https://api.github.com/repos/${GITHUB_OWNER}
 export const EXIT_ANIMATION_DELAY_MS = 300;
 
 // 后端就绪检查默认超时
-export const BACKEND_READY_TIMEOUT_MS = 20000;
+export const BACKEND_READY_TIMEOUT_MS = 60000;

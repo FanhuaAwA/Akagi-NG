@@ -1,5 +1,6 @@
 import { fetchJson } from '@/lib/api-client';
 import type {
+  OT3CreatedCheckout,
   OT3CreatedOrder,
   OT3CreatedSubscription,
   OT3Health,
@@ -85,6 +86,26 @@ export function fetchOT3SubscriptionResult(
   return post('/api/ot3/purchase/subscription/result', {
     ...connection,
     subscription_id: subscriptionId,
+    claim,
+  });
+}
+
+export function createOT3Checkout(
+  connection: OT3Connection,
+  product: string,
+  redeem: boolean,
+): Promise<OT3CreatedCheckout> {
+  return post('/api/ot3/purchase/checkout', { ...connection, product, redeem });
+}
+
+export function fetchOT3CheckoutResult(
+  connection: OT3Connection,
+  checkoutId: string,
+  claim: string,
+): Promise<OT3OrderResult> {
+  return post('/api/ot3/purchase/checkout/result', {
+    ...connection,
+    checkout_id: checkoutId,
     claim,
   });
 }

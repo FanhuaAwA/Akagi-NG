@@ -1,3 +1,3 @@
-from akagi_ng.dataserver.dataserver import DataServer
+from akagi_ng.dataserver.dataserver import DataServer, DataServerStartupError
 
-__all__ = ["DataServer"]
+__all__ = ["DataServer", "DataServerStartupError"]

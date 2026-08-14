@@ -2,6 +2,44 @@
 
 All notable changes to Akagi-NG are documented in this file.
 
+## [1.2.5] - 2026-08-15
+
+### Added
+
+- Added Creem as a second OT3/FlyA purchase channel alongside PayPal, with a
+  checkout creation endpoint, result polling, and a new settings dialog flow.
+- Added an authenticated `/api/health` readiness endpoint that exposes the
+  running service version and PID to the desktop shell.
+
+### Fixed
+
+- Made DataServer startup transactional: the main backend now waits for a real
+  socket bind, exits immediately on startup failure, and preserves the native
+  `errno`/Windows error details for every rejected candidate port.
+- Replaced the generic Electron backend timeout with an authenticated
+  `/api/health` readiness check, PID validation, bounded stderr diagnostics,
+  and direct propagation of the concrete startup error to the dashboard.
+- Delayed optional Mihomo startup until the backend health check succeeds and
+  updated API/SSE connections when DataServer falls back to a different port.
+- Normalized `kita` events to `nukidora` in the action planner so the
+  three-player North draw is matched by both MJAI consumers.
+- Rendered the dashboard against the resolved backend endpoint instead of the
+  preloaded placeholder, keeping API/SSE traffic on the actually bound port.
+
+### Changed
+
+- OT3 health now reports the aggregate queue depth and worker liveness instead
+  of the per-model map, with backwards compatibility for older servers.
+- Extended the desktop backend readiness timeout to 60 seconds to accommodate
+  first-run torch imports on slower machines.
+
+### Testing
+
+- Added regressions for an exhausted port range, Windows-style bind permission
+  failures, fallback-port persistence, backend exit/error propagation, health
+  identity validation, backend-before-Mihomo startup ordering, and Creem
+  checkout parsing.
+
 ## [1.2.4] - 2026-08-11
 
 ### Added

@@ -44,10 +44,14 @@ const loadStartupConfig = async () => {
 
 // 预加载应用数据
 const startupConfigPromise = loadStartupConfig();
-const backendSettingsPromise = startupConfigPromise.then(async () => {
+const backendEndpointPromise = startupConfigPromise.then(async () => {
   // Python imports continue after the first frame, without delaying the dashboard.
   const { host, port } = await window.electron.waitForBackend(60_000);
-  setBaseUrl(`http://${host}:${port}`);
+  const apiBase = `http://${host}:${port}`;
+  setBaseUrl(apiBase);
+  return { host, port, apiBase };
+});
+const backendSettingsPromise = backendEndpointPromise.then(async () => {
   return await fetchSettingsApi();
 });
 void backendSettingsPromise.catch(() => {});
@@ -59,6 +63,11 @@ function AppInner() {
   const [backendState, setBackendState] = useState<
     { status: 'starting' | 'ready'; error: null } | { status: 'error'; error: string }
   >({ status: 'starting', error: null });
+  const [connection, setConnection] = useState(() => ({
+    host: data.host,
+    port: data.port,
+    apiBase: data.apiBase,
+  }));
 
   const [splashStage, setSplashStage] = useState<'splash' | 'exiting' | 'ready'>(
     isHud ? 'ready' : 'splash',
@@ -96,6 +105,12 @@ function AppInner() {
 
   useEffect(() => {
     let active = true;
+    void backendEndpointPromise.then(
+      (endpoint) => {
+        if (active) setConnection(endpoint);
+      },
+      () => {},
+    );
     void backendSettingsPromise.then(
       () => {
         if (active) setBackendState({ status: 'ready', error: null });
@@ -114,7 +129,7 @@ function AppInner() {
   }, []);
 
   return (
-    <ConnectionProvider host={data.host} port={data.port} apiBase={data.apiBase}>
+    <ConnectionProvider host={connection.host} port={connection.port} apiBase={connection.apiBase}>
       <SettingsProvider
         initialSettings={data.settings}
         resolvedSettingsPromise={backendSettingsPromise}

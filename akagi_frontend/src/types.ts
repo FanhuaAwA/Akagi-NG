@@ -225,6 +225,12 @@ export interface SaveSettingsResponse extends ApiResponse<Settings> {
 
 export interface OT3Health {
   status: string;
+  queue_depth: number;
+  workers_alive: boolean;
+}
+
+export interface FlyAHealth {
+  status: string;
   models: string[];
   queue_depth: Record<string, number>;
 }
@@ -296,6 +302,12 @@ export interface OT3CreatedOrder {
 export interface OT3CreatedSubscription {
   subscription_id: string;
   approve_url: string;
+  claim_secret: string;
+}
+
+export interface OT3CreatedCheckout {
+  checkout_id: string;
+  checkout_url: string;
   claim_secret: string;
 }
 

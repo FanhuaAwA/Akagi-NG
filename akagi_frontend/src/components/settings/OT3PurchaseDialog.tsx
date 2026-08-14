@@ -22,15 +22,19 @@ import {
 } from '@/components/ui/select';
 import { ApiError } from '@/lib/api-client';
 import {
+  createOT3Checkout,
   createOT3Order,
   createOT3Subscription,
+  fetchOT3CheckoutResult,
   fetchOT3OrderResult,
   fetchOT3SubscriptionResult,
   type OT3Connection,
   redeemOT3Code,
 } from '@/lib/ot3-api';
 import { OT3_PRODUCTS, type OT3Product } from '@/lib/ot3-products';
-import type { Settings } from '@/types';
+import type { OT3OrderResult, Settings } from '@/types';
+
+type PaymentProvider = 'paypal' | 'creem';
 
 type PurchasePhase =
   | 'idle'
@@ -44,6 +48,7 @@ type PurchasePhase =
 
 type ActivePurchase = {
   kind: OT3Product['kind'];
+  provider: PaymentProvider;
   id: string;
   claim: string;
   connection: OT3Connection;
@@ -72,6 +77,10 @@ export function OT3PurchaseDialog({
 }: OT3PurchaseDialogProps) {
   const { t } = useTranslation();
   const [productId, setProductId] = useState<OT3Product['id']>('pro-30');
+  // Creem (card / Google Pay / Apple Pay / Alipay) is the primary provider;
+  // PayPal stays available but only behind an explicit "pay with PayPal
+  // instead" click, never as the default.
+  const [provider, setProvider] = useState<PaymentProvider>('creem');
   const [renew, setRenew] = useState(false);
   const [phase, setPhase] = useState<PurchasePhase>('idle');
   const [approveUrl, setApproveUrl] = useState('');
@@ -85,6 +94,9 @@ export function OT3PurchaseDialog({
   const generationRef = useRef(0);
 
   const selected = OT3_PRODUCTS.find((product) => product.id === productId) ?? OT3_PRODUCTS[0];
+  // Brand name for interpolated strings ("opens {{provider}}") — a proper
+  // noun, so it is NOT translated; the picker labels are.
+  const providerName = provider === 'paypal' ? 'PayPal' : 'Creem';
   const busy = phase === 'creating' || phase === 'approving' || phase === 'redeeming';
 
   const clearTimer = () => {
@@ -155,6 +167,35 @@ export function OT3PurchaseDialog({
     }
   };
 
+  const handleOrderResult = async (
+    generation: number,
+    result: OT3OrderResult,
+    purchase: ActivePurchase,
+  ) => {
+    if (result.status === 'pending') {
+      delayRef.current = POLL_INITIAL_MS;
+      schedulePoll(generation);
+      return;
+    }
+    if (result.status === 'ready') {
+      if (result.key) {
+        finishWithKey(result.key, result.plan, null);
+        return;
+      }
+      if (result.code) {
+        await redeemPurchasedCode(generation, result.code, purchase, result.plan);
+        return;
+      }
+      throw new Error(t('settings.model_config.purchase_missing_credential'));
+    }
+    if (result.status === 'delivered') {
+      clearTimer();
+      setPhase('delivered');
+      return;
+    }
+    throw new Error(result.status);
+  };
+
   const poll = async (generation: number) => {
     const purchase = activeRef.current;
     if (!purchase || generation !== generationRef.current || phase === 'failed') return;
@@ -165,31 +206,25 @@ export function OT3PurchaseDialog({
     }
 
     try {
+      if (purchase.provider === 'creem') {
+        // Creem uses ONE poll for both product kinds, shaped like the PayPal
+        // order-result: a subscription arrives as `key` (+ `days: 0`), which
+        // the order handler already delivers key-first.
+        const result = await fetchOT3CheckoutResult(
+          purchase.connection,
+          purchase.id,
+          purchase.claim,
+        );
+        if (generation !== generationRef.current) return;
+        await handleOrderResult(generation, result, purchase);
+        return;
+      }
+
       if (purchase.kind === 'onetime') {
         const result = await fetchOT3OrderResult(purchase.connection, purchase.id, purchase.claim);
         if (generation !== generationRef.current) return;
-        if (result.status === 'pending') {
-          delayRef.current = POLL_INITIAL_MS;
-          schedulePoll(generation);
-          return;
-        }
-        if (result.status === 'ready') {
-          if (result.key) {
-            finishWithKey(result.key, result.plan, null);
-            return;
-          }
-          if (result.code) {
-            await redeemPurchasedCode(generation, result.code, purchase, result.plan);
-            return;
-          }
-          throw new Error(t('settings.model_config.purchase_missing_credential'));
-        }
-        if (result.status === 'delivered') {
-          clearTimer();
-          setPhase('delivered');
-          return;
-        }
-        throw new Error(result.status);
+        await handleOrderResult(generation, result, purchase);
+        return;
       }
 
       const result = await fetchOT3SubscriptionResult(
@@ -215,13 +250,17 @@ export function OT3PurchaseDialog({
       throw new Error(result.status);
     } catch (caught) {
       if (generation !== generationRef.current) return;
-      if (caught instanceof ApiError && caught.status === 404) {
+      // Wrong/expired claim is a server 404 (surfaced as "... failed (HTTP 404)"
+      // through the backend) and counts toward the per-IP failure guard — never
+      // retry it, treat it as terminal.
+      const message = errorMessage(caught);
+      if ((caught instanceof ApiError && caught.status === 404) || message.includes('HTTP 404')) {
         setPhase('failed');
         setError(t('settings.model_config.purchase_claim_failed'));
         return;
       }
       delayRef.current = Math.min(delayRef.current * 2, POLL_MAX_MS);
-      setError(errorMessage(caught));
+      setError(message);
       schedulePoll(generation);
     }
   };
@@ -245,11 +284,30 @@ export function OT3PurchaseDialog({
     };
     const renewKey = selected.kind === 'onetime' && renew ? settings.ot.api_key.trim() : '';
     try {
-      if (selected.kind === 'onetime') {
+      if (provider === 'creem') {
+        // Same rule as the PayPal order: server-side redeem unless the code
+        // itself is needed to renew an existing key. Subscriptions ignore the
+        // flag (they always deliver the key), so `false` there is correct and
+        // simply omitted from the wire.
+        const created = await createOT3Checkout(connection, selected.id, !renewKey);
+        if (generation !== generationRef.current) return;
+        activeRef.current = {
+          kind: selected.kind,
+          provider,
+          id: created.checkout_id,
+          claim: created.claim_secret,
+          connection,
+          renewKey,
+        };
+        setApproveUrl(created.checkout_url);
+        setPhase('approving');
+        await window.electron.openExternal(created.checkout_url);
+      } else if (selected.kind === 'onetime') {
         const created = await createOT3Order(connection, selected.id, !renewKey);
         if (generation !== generationRef.current) return;
         activeRef.current = {
           kind: selected.kind,
+          provider,
           id: created.order_id,
           claim: created.claim_secret,
           connection,
@@ -263,6 +321,7 @@ export function OT3PurchaseDialog({
         if (generation !== generationRef.current) return;
         activeRef.current = {
           kind: selected.kind,
+          provider,
           id: created.subscription_id,
           claim: created.claim_secret,
           connection,
@@ -319,6 +378,31 @@ export function OT3PurchaseDialog({
             <p className='text-muted-foreground text-xs'>
               {t('settings.model_config.purchase_price_notice')}
             </p>
+            {/* Creem is the one visible payment method; PayPal exists only as
+                the muted "pay with PayPal instead" escape hatch (and a way
+                back). No two-card picker — the default should not look like
+                an open question. */}
+            <div className='grid gap-1'>
+              <span className='text-xs font-medium'>
+                {t('settings.model_config.purchase_provider')}
+              </span>
+              <div className='flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1'>
+                <span className='text-sm'>
+                  {provider === 'creem'
+                    ? t('settings.model_config.purchase_provider_creem')
+                    : t('settings.model_config.purchase_provider_paypal')}
+                </span>
+                <button
+                  type='button'
+                  className='text-muted-foreground hover:text-foreground text-xs underline underline-offset-2'
+                  onClick={() => setProvider(provider === 'creem' ? 'paypal' : 'creem')}
+                >
+                  {provider === 'creem'
+                    ? t('settings.model_config.purchase_switch_paypal')
+                    : t('settings.model_config.purchase_switch_creem')}
+                </button>
+              </div>
+            </div>
             {selected.kind === 'onetime' && settings.ot.api_key && (
               <label className='flex items-start gap-2 text-sm'>
                 <Checkbox checked={renew} onCheckedChange={(value) => setRenew(value === true)} />
@@ -384,7 +468,7 @@ export function OT3PurchaseDialog({
           )}
           {phase === 'idle' ? (
             <Button onClick={startPurchase} disabled={!settings.ot.server}>
-              {t('settings.model_config.purchase_submit')}
+              {t('settings.model_config.purchase_submit', { provider: providerName })}
             </Button>
           ) : !busy ? (
             <Button variant='outline' onClick={reset}>

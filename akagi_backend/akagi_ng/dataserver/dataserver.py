@@ -11,6 +11,13 @@ from akagi_ng.dataserver.sse import SSEManager
 from akagi_ng.schema.types import FullRecommendationData, InferenceStatus, Notification
 from akagi_ng.settings import local_settings
 
+MAX_TCP_PORT = 65535
+MAX_BIND_ATTEMPTS = 10
+
+
+class DataServerStartupError(RuntimeError):
+    """Raised when the HTTP data server cannot complete its startup sequence."""
+
 
 class DataServer(threading.Thread):
     def __init__(self, host: str | None = None, external_port: int | None = None):
@@ -24,6 +31,31 @@ class DataServer(threading.Thread):
         self.running = False
         self._stop_lock = threading.Lock()
         self._stop_requested = threading.Event()
+        self._startup_complete = threading.Event()
+        self.startup_ready_event = threading.Event()
+        self.startup_failed_event = threading.Event()
+        self.startup_error: Exception | None = None
+
+    def wait_until_ready(self, timeout: float | None = None) -> bool:
+        """Wait for a successful bind, or re-raise startup failure on the caller thread."""
+        if not self._startup_complete.wait(timeout):
+            timeout_description = "the configured timeout" if timeout is None else f"{timeout:.1f} seconds"
+            raise TimeoutError(f"DataServer did not finish startup within {timeout_description}")
+
+        if self.startup_error is not None:
+            raise self.startup_error
+        if not self.startup_ready_event.is_set():
+            raise DataServerStartupError("DataServer stopped before becoming ready")
+        return True
+
+    def _mark_startup_ready(self) -> None:
+        self.startup_ready_event.set()
+        self._startup_complete.set()
+
+    def _mark_startup_failed(self, error: Exception) -> None:
+        self.startup_error = error
+        self.startup_failed_event.set()
+        self._startup_complete.set()
 
     def broadcast_event(self, event: str, data: dict):
         """代理到 SSEManager"""
@@ -105,7 +137,33 @@ class DataServer(threading.Thread):
             except TimeoutError:
                 logger.warning("DataServer aiohttp cleanup exceeded the shutdown deadline.")
 
-    def run(self):
+    def _bind_first_available_port(self) -> None:
+        requested_port = self.external_port
+        if not 1 <= requested_port <= MAX_TCP_PORT:
+            raise DataServerStartupError(f"Invalid DataServer port: {requested_port}")
+
+        last_port = min(requested_port + MAX_BIND_ATTEMPTS - 1, MAX_TCP_PORT)
+        last_bind_error: OSError | None = None
+        for current_port in range(requested_port, last_port + 1):
+            try:
+                site = web.TCPSite(self.runner, self.host, current_port)
+                self.loop.run_until_complete(site.start())
+                self.external_port = current_port
+                return
+            except OSError as exc:
+                last_bind_error = exc
+                logger.warning(
+                    "DataServer bind failed: "
+                    f"host={self.host!r} port={current_port} "
+                    f"errno={getattr(exc, 'errno', None)!r} "
+                    f"winerror={getattr(exc, 'winerror', None)!r} "
+                    f"error={exc!r}"
+                )
+
+        error = DataServerStartupError(f"Could not bind DataServer on {self.host}:{requested_port}-{last_port}")
+        raise error from last_bind_error
+
+    def _run(self):
         self.loop = asyncio.new_event_loop()
         asyncio.set_event_loop(self.loop)
 
@@ -115,8 +173,7 @@ class DataServer(threading.Thread):
 
         try:
             if self._stop_requested.is_set():
-                logger.info("DataServer startup cancelled before initialization.")
-                return
+                raise DataServerStartupError("DataServer startup cancelled before initialization")
 
             app = web.Application(middlewares=[cors_middleware])
 
@@ -127,22 +184,7 @@ class DataServer(threading.Thread):
             self.runner = web.AppRunner(app, shutdown_timeout=0.25)
             self.loop.run_until_complete(self.runner.setup())
 
-            max_retries = 10
-            bound = False
-            for port_offset in range(max_retries):
-                current_port = self.external_port + port_offset
-                try:
-                    site = web.TCPSite(self.runner, self.host, current_port)
-                    self.loop.run_until_complete(site.start())
-                    bound = True
-                    self.external_port = current_port
-                    break
-                except OSError:
-                    logger.warning(f"DataServer port {current_port} is in use or unavailable, trying next...")
-
-            if not bound:
-                msg = f"Could not bind to any port from {self.external_port} to {self.external_port + max_retries - 1}"
-                raise RuntimeError(msg)
+            self._bind_first_available_port()
 
             if self.external_port != local_settings.server.port:
                 local_settings.server.port = self.external_port
@@ -150,17 +192,21 @@ class DataServer(threading.Thread):
                 logger.info(f"DataServer port conflicted. Switched to {self.external_port}.")
 
             if self._stop_requested.is_set():
-                logger.info("DataServer startup cancelled before entering the event loop.")
-                return
+                raise DataServerStartupError("DataServer startup cancelled before entering the event loop")
 
             logger.info(f"DataServer listening on {self.host}:{self.external_port}")
             self.running = True
+            self._mark_startup_ready()
 
             # 保活任务由 SSEManager 管理，但事件循环仍需 run_forever
             self.loop.run_forever()
         except Exception as e:
-            logger.error(f"DataServer runtime error: {e}")
             self.running = False
+            if not self._startup_complete.is_set():
+                self.startup_error = e
+                logger.exception(f"DataServer startup failed: {e}")
+            else:
+                logger.exception(f"DataServer runtime error: {e}")
         finally:
             with contextlib.suppress(Exception):
                 self.loop.run_until_complete(self._shutdown_async())
@@ -177,3 +223,25 @@ class DataServer(threading.Thread):
                 self.loop.close()
 
             logger.info("DataServer event loop stopped.")
+
+    def run(self) -> None:
+        """Run the server thread and always publish a terminal startup result."""
+        try:
+            self._run()
+        except Exception as exc:
+            self.running = False
+            self.startup_error = exc
+            logger.exception(f"DataServer startup failed before event-loop initialization: {exc}")
+
+            loop = self.loop
+            if loop is not None and not loop.is_closed():
+                self.sse_manager.stop()
+                with contextlib.suppress(Exception):
+                    loop.close()
+                logger.info("DataServer event loop stopped.")
+        finally:
+            if not self._startup_complete.is_set():
+                error = self.startup_error or DataServerStartupError(
+                    "DataServer stopped before reporting startup status"
+                )
+                self._mark_startup_failed(error)

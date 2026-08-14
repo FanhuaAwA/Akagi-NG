@@ -1,5 +1,5 @@
 import { fetchJson } from '@/lib/api-client';
-import type { FlyAQuota, OT3Health, OT3ModelInfo } from '@/types';
+import type { FlyAHealth, FlyAQuota, OT3ModelInfo } from '@/types';
 
 export type FlyAConnection = {
   server: string;
@@ -14,7 +14,7 @@ async function post<T>(path: string, body: object): Promise<T> {
   });
 }
 
-export function checkFlyAHealth(connection: FlyAConnection): Promise<OT3Health> {
+export function checkFlyAHealth(connection: FlyAConnection): Promise<FlyAHealth> {
   return post('/api/flya/health', connection);
 }
 

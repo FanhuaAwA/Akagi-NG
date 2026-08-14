@@ -7,6 +7,7 @@ import { BackendManager } from './backend-manager.js';
 import { registerIpcHandlers } from './ipc-handlers.js';
 import { createLogger, initializeLogger } from './logger.js';
 import { MihomoManager } from './mihomo-manager.js';
+import { startMihomoAfterBackendReady, waitForSpawnedBackend } from './startup-sequencer.js';
 import { UpdaterManager } from './updater.js';
 import { getUserDataRoot } from './utils.js';
 import { WindowManager } from './window-manager.js';
@@ -84,7 +85,19 @@ app.whenReady().then(async () => {
 
   // 1. Start the backend while the trusted local renderer loads. The bounded
   // critical-resource availability check does not enumerate or hash the bundle.
-  const backendStartPromise = backendManager.start();
+  // Process spawn and API readiness are deliberately separate lifecycle states.
+  const backendSpawnPromise = backendManager.start();
+  const backendReadyPromise = waitForSpawnedBackend(backendSpawnPromise, () =>
+    backendManager.waitForReady(),
+  ).then(
+    (endpoint) => endpoint !== null,
+    (error: unknown) => {
+      const message = error instanceof Error ? error.message : String(error);
+      logger.error('Backend failed before readiness:', message);
+      if (!shutdownStarted) dialog.showErrorBox('Backend Initialization Failed', message);
+      return false;
+    },
+  );
 
   // 2. Render the dashboard while backend imports continue.
   await windowManager.reconcileDesktopSettings(checkForUpdatesIfActive);
@@ -93,21 +106,28 @@ app.whenReady().then(async () => {
     logger.info(`Dashboard loaded after ${Date.now() - applicationStartedAt} ms.`);
   });
 
-  const backendStarted = await backendStartPromise;
-  if (shutdownStarted) return;
-
-  // 3. Start the optional TUN asynchronously from the already-elevated desktop process.
-  if (backendStarted) {
-    void mihomoManager.startIfEnabled().then((mihomoStatus) => {
+  // 3. Queue optional TUN startup behind authenticated backend readiness.
+  void startMihomoAfterBackendReady(
+    backendReadyPromise,
+    () => mihomoManager.startIfEnabled(),
+    () => !shutdownStarted,
+  ).then(
+    (mihomoStatus) => {
       if (shutdownStarted) return;
-      if (mihomoStatus.error) {
+      if (!mihomoStatus) {
+        logger.error('Backend did not become ready. Optional mihomo startup was skipped.');
+      } else if (mihomoStatus.error) {
         logger.error(`mihomo initialization failed: ${mihomoStatus.error}`);
         dialog.showErrorBox('Mihomo Initialization Failed', mihomoStatus.error);
       }
-    });
-  } else {
-    logger.error('External runtime startup was blocked. Optional mihomo startup was skipped.');
-  }
+    },
+    (error: unknown) => {
+      if (shutdownStarted) return;
+      const message = error instanceof Error ? error.message : String(error);
+      logger.error(`mihomo initialization failed: ${message}`);
+      dialog.showErrorBox('Mihomo Initialization Failed', message);
+    },
+  );
 
   // 4. Setup Auto Updater
   checkForUpdatesIfActive();

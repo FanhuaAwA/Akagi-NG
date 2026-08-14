@@ -41,6 +41,11 @@ export interface StartupConfig {
   settings: Record<string, unknown>;
 }
 
+export interface BackendEndpoint {
+  host: string;
+  port: number;
+}
+
 const BLOCKED_SETTINGS_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
 
 function isSettingsObject(value: unknown): value is Record<string, unknown> {
@@ -81,7 +86,6 @@ import {
   BACKEND_SHUTDOWN_TIMEOUT_MS,
   BACKEND_STARTUP_CHECK_INTERVAL_MS,
   BACKEND_STARTUP_CHECK_MAX_INTERVAL_MS,
-  BACKEND_STARTUP_CHECK_RETRIES,
   BACKEND_STARTUP_CHECK_TIMEOUT_MS,
 } from './constants.js';
 import type { ResourceStatus } from './resource-checker.js';
@@ -89,6 +93,53 @@ import { ResourceChecker } from './resource-checker.js';
 import { getAssetPath, getProjectRoot, getUserDataRoot } from './utils.js';
 
 const logger = createLogger('BackendManager');
+const BACKEND_STDERR_TAIL_MAX_CHARS = 8_192;
+
+export class BackendReadinessTimeoutError extends Error {
+  public constructor(message: string) {
+    super(message);
+    this.name = 'BackendReadinessTimeoutError';
+  }
+}
+
+function describeError(error: unknown): string {
+  const message = error instanceof Error ? error.message : String(error);
+  const cause = error instanceof Error ? error.cause : undefined;
+  if (cause === undefined) return message;
+
+  const causeMessage = cause instanceof Error ? cause.message : String(cause);
+  return causeMessage && causeMessage !== message ? `${message} (${causeMessage})` : message;
+}
+
+export function normalizeBackendEndpoint(endpoint: BackendEndpoint): BackendEndpoint {
+  const configuredHost = endpoint.host.trim();
+  let host = configuredHost;
+  if (host === '*' || host === '0.0.0.0') host = '127.0.0.1';
+  if (host === '::' || host === '[::]') host = '::1';
+  if (host.includes(':') && !host.startsWith('[')) host = `[${host}]`;
+  return { host, port: endpoint.port };
+}
+
+export function isExpectedBackendHealth(payload: unknown, expectedPid: number): boolean {
+  if (!payload || typeof payload !== 'object') return false;
+  const envelope = payload as Record<string, unknown>;
+  const data = envelope.data;
+  if (!data || typeof data !== 'object') return false;
+  const health = data as Record<string, unknown>;
+  return (
+    envelope.ok === true &&
+    health.service === 'akagi-ng' &&
+    health.status === 'ready' &&
+    typeof health.version === 'string' &&
+    health.version.trim().length > 0 &&
+    health.pid === expectedPid
+  );
+}
+
+export function formatBackendApiUrl(endpoint: BackendEndpoint, path: string): string {
+  const { host, port } = normalizeBackendEndpoint(endpoint);
+  return `http://${host}:${port}${path}`;
+}
 
 export class BackendManager {
   private pyProcess: ChildProcess | null = null;
@@ -96,13 +147,17 @@ export class BackendManager {
   private resourceStatus: ResourceStatus | null = null;
   private resourceStatusPromise: Promise<ResourceStatus> | null = null;
   private isReadyState: boolean = false;
+  private readyEndpoint: BackendEndpoint | null = null;
   private readyError: Error | null = null;
-  private readyPromise: Promise<void>;
-  private resolveReady!: () => void;
+  private readyPromise: Promise<BackendEndpoint>;
+  private resolveReady!: (endpoint: BackendEndpoint) => void;
   private rejectReady!: (reason?: Error) => void;
   private isMockMode: boolean = false;
   private isClosing: boolean = false;
   private startupStartedAt: number | null = null;
+  private lastHealthEndpoint: BackendEndpoint | null = null;
+  private lastHealthError: Error | null = null;
+  private stderrTail: string = '';
 
   private async getSettings(): Promise<AppSettings> {
     try {
@@ -167,15 +222,16 @@ export class BackendManager {
     }
   }
 
-  public async getBackendConfig(): Promise<{ host: string; port: number }> {
+  public async getBackendConfig(): Promise<BackendEndpoint> {
+    if (this.readyEndpoint) return { ...this.readyEndpoint };
     if (process.argv.includes('--mock')) {
       return { host: '127.0.0.1', port: 8765 };
     }
     const settings = await this.getSettings();
-    return {
+    return normalizeBackendEndpoint({
       host: settings.server?.host ?? '127.0.0.1',
       port: settings.server?.port ?? 8765,
-    };
+    });
   }
 
   public async getStartupConfig(): Promise<StartupConfig> {
@@ -203,9 +259,12 @@ export class BackendManager {
       }
       publicOt.flya_api_key = '';
     }
-    return {
+    const endpoint = normalizeBackendEndpoint({
       host: settings.server?.host ?? '127.0.0.1',
       port: settings.server?.port ?? 8765,
+    });
+    return {
+      ...endpoint,
       // The settings file contains the same public representation returned by
       // /api/settings. Secrets managed by the credential store are not present.
       settings: publicSettings,
@@ -304,20 +363,19 @@ export class BackendManager {
 
     try {
       this.startupStartedAt = Date.now();
+      let spawned: boolean;
       if (this.pyProcess) {
-        logger.info('Backend already running.');
-        return true;
-      }
-
-      const isDev = !app.isPackaged;
-
-      if (process.argv.includes('--mock')) {
-        return this.startMockBackend();
-      } else if (isDev) {
-        return this.startDevBackend();
+        logger.info('Backend process is already spawned; waiting for readiness.');
+        spawned = true;
+      } else if (process.argv.includes('--mock')) {
+        spawned = this.startMockBackend();
+      } else if (!app.isPackaged) {
+        spawned = this.startDevBackend();
       } else {
-        return await this.startProdBackend();
+        spawned = await this.startProdBackend();
       }
+
+      return spawned;
     } catch (error) {
       if (this.isClosing) {
         logger.info('Backend startup was cancelled during shutdown.');
@@ -361,7 +419,9 @@ export class BackendManager {
     const env = {
       ...process.env,
       PYTHONDONTWRITEBYTECODE: '1',
+      PYTHONIOENCODING: 'utf-8',
       PYTHONUNBUFFERED: '1',
+      PYTHONUTF8: '1',
       PYTHONPATH: process.env.PYTHONPATH
         ? `${backendRoot}${delimiter}${process.env.PYTHONPATH}`
         : backendRoot,
@@ -391,7 +451,7 @@ export class BackendManager {
       this.isMockMode = false;
       return false;
     }
-    this.markReady();
+    this.markReady({ host: '127.0.0.1', port: 8765 });
     return true;
   }
 
@@ -433,8 +493,10 @@ export class BackendManager {
           ...process.env,
           AKAGI_USER_DATA_DIR: getUserDataRoot(),
           PYTHONDONTWRITEBYTECODE: '1',
+          PYTHONIOENCODING: 'utf-8',
           PYTHONPATH: join(bundleDir, 'app_packages'),
           PYTHONUNBUFFERED: '1',
+          PYTHONUTF8: '1',
         },
       });
       this.pyProcess = childProcess;
@@ -458,31 +520,56 @@ export class BackendManager {
     }
   }
 
-  private async startHealthCheck() {
+  private async startHealthCheck(): Promise<void> {
     const deadline = Date.now() + BACKEND_READY_TIMEOUT_MS;
+    let attempt = 0;
     try {
-      for (let i = 0; i < BACKEND_STARTUP_CHECK_RETRIES; i++) {
-        if (this.isClosing) break;
+      while (!this.isClosing && !this.isReadyState && !this.readyError) {
         if (!this.isRunning()) {
           logger.warn('Backend process has stopped. Aborting readiness check.');
           break;
         }
-        if (Date.now() >= deadline) break;
+        const remainingBeforeCheck = deadline - Date.now();
+        if (remainingBeforeCheck <= 0) break;
 
         let timeoutId: NodeJS.Timeout | undefined;
         try {
-          const { host, port } = await this.getBackendConfig();
+          const endpoint = await this.getBackendConfig();
+          this.lastHealthEndpoint = endpoint;
+          const expectedPid = this.pyProcess?.pid;
+          if (expectedPid === undefined) {
+            throw new Error('Spawned backend process does not have a process ID.');
+          }
           const controller = new AbortController();
-          timeoutId = setTimeout(() => controller.abort(), BACKEND_STARTUP_CHECK_TIMEOUT_MS);
-          await fetch(`http://${host}:${port}`, { signal: controller.signal });
-          logger.info(`Backend API is listening on port ${port}.`);
-          this.markReady();
+          timeoutId = setTimeout(
+            () => controller.abort(),
+            Math.max(1, Math.min(BACKEND_STARTUP_CHECK_TIMEOUT_MS, remainingBeforeCheck)),
+          );
+          const response = await fetch(formatBackendApiUrl(endpoint, '/api/health'), {
+            signal: controller.signal,
+          });
+          if (!response.ok) {
+            throw new Error(`Health endpoint returned HTTP ${response.status}.`);
+          }
+          const payload = (await response.json()) as unknown;
+          if (!isExpectedBackendHealth(payload, expectedPid)) {
+            throw new Error('Health endpoint returned an unexpected response.');
+          }
+
+          this.lastHealthError = null;
+          logger.info(`Backend API is ready at ${formatBackendApiUrl(endpoint, '/api/health')}.`);
+          this.markReady(endpoint);
           return;
-        } catch {
+        } catch (error) {
+          this.lastHealthError =
+            error instanceof Error
+              ? error
+              : new Error(`Unknown health check error: ${String(error)}`);
           const retryDelay = Math.min(
-            BACKEND_STARTUP_CHECK_INTERVAL_MS * 2 ** Math.min(i, 3),
+            BACKEND_STARTUP_CHECK_INTERVAL_MS * 2 ** Math.min(attempt, 3),
             BACKEND_STARTUP_CHECK_MAX_INTERVAL_MS,
           );
+          attempt += 1;
           const remaining = deadline - Date.now();
           if (remaining > 0) {
             await new Promise((resolve) => setTimeout(resolve, Math.min(retryDelay, remaining)));
@@ -492,41 +579,82 @@ export class BackendManager {
         }
       }
     } catch (err) {
+      this.lastHealthError =
+        err instanceof Error ? err : new Error(`Unknown health check error: ${String(err)}`);
       logger.warn('Backend health check terminated unexpectedly:', err);
     }
 
-    if (!this.isReadyState && !this.readyError) {
-      this.markFailed(new Error('Backend readiness check timed out.'));
-    }
+    if (this.isClosing || this.isReadyState || this.readyError) return;
+
+    const error = this.isRunning()
+      ? this.buildReadinessError(
+          `Backend did not become ready within ${BACKEND_READY_TIMEOUT_MS} ms.`,
+          BackendReadinessTimeoutError,
+        )
+      : this.buildReadinessError('Backend process stopped before its health endpoint was ready.');
+    // Publish the detailed terminal error before killing the child. The close
+    // event then cannot replace it with a generic exit-code message.
+    this.markFailed(error);
+    this.terminateFailedProcess();
   }
 
   private setupListeners() {
     if (!this.pyProcess) return;
 
+    this.pyProcess.stderr?.setEncoding('utf8');
+
     this.pyProcess.on('error', (err) => {
       const msg = `Failed to execute backend process: ${err.message}`;
       logger.error(msg);
-      dialog.showErrorBox('Backend Fatal Error', msg);
-      this.markFailed(new Error(msg));
+      this.markFailed(this.buildReadinessError(msg));
     });
 
-    this.pyProcess.stderr?.on('data', (data) => {
-      logger.error(`Backend stderr: ${data.toString().trim()}`);
+    this.pyProcess.stderr?.on('data', (data: string) => {
+      const chunk = data;
+      this.appendStderr(chunk);
+      logger.error(`Backend stderr: ${chunk.trim()}`);
     });
 
-    this.pyProcess.on('close', (code) => {
-      logger.info(`Backend service terminated with code ${code}`);
+    this.pyProcess.on('close', (code, signal) => {
+      logger.info(`Backend service terminated with code ${code}, signal ${signal ?? 'none'}`);
       this.pyProcess = null;
       if (!this.isReadyState) {
-        this.markFailed(new Error(`Backend service terminated with code ${code}`));
+        this.markFailed(
+          this.buildReadinessError(
+            `Backend service terminated before readiness (code ${code}, signal ${signal ?? 'none'}).`,
+          ),
+        );
       }
     });
   }
 
-  private markReady() {
+  private appendStderr(chunk: string): void {
+    this.stderrTail = `${this.stderrTail}${chunk}`.slice(-BACKEND_STDERR_TAIL_MAX_CHARS);
+  }
+
+  private buildReadinessError(
+    message: string,
+    ErrorType: new (message: string) => Error = Error,
+  ): Error {
+    const details = [message];
+    if (this.lastHealthEndpoint) {
+      details.push(
+        `Health endpoint: ${formatBackendApiUrl(this.lastHealthEndpoint, '/api/health')}`,
+      );
+    }
+    if (this.lastHealthError) {
+      details.push(`Last health check error: ${describeError(this.lastHealthError)}`);
+    }
+    const stderr = this.stderrTail.trim();
+    if (stderr) details.push(`Backend stderr tail:\n${stderr}`);
+    return new ErrorType(details.join('\n'));
+  }
+
+  private markReady(endpoint: BackendEndpoint): void {
     if (!this.isClosing && !this.isReadyState && !this.readyError) {
       this.isReadyState = true;
-      this.resolveReady();
+      this.readyEndpoint = normalizeBackendEndpoint(endpoint);
+      this.resolveReady({ ...this.readyEndpoint });
       logger.info(
         `Backend service initialization completed after ${this.startupStartedAt ? Date.now() - this.startupStartedAt : 0} ms.`,
       );
@@ -549,20 +677,37 @@ export class BackendManager {
     }
   }
 
-  public async waitForReady(timeoutMs: number = BACKEND_READY_TIMEOUT_MS): Promise<boolean> {
-    if (this.isReadyState) return true;
-    if (this.readyError) return false;
+  private terminateFailedProcess(): void {
+    const process = this.pyProcess;
+    if (!process || process.killed) return;
+    logger.warn('Terminating backend process after readiness failure.');
+    try {
+      process.kill('SIGKILL');
+    } catch (error) {
+      logger.warn('Failed to terminate backend process after readiness failure:', error);
+    }
+  }
+
+  public async waitForReady(
+    timeoutMs: number = BACKEND_READY_TIMEOUT_MS,
+  ): Promise<BackendEndpoint> {
+    if (this.readyEndpoint) return { ...this.readyEndpoint };
+    if (this.readyError) throw this.readyError;
 
     let timeoutId: NodeJS.Timeout | undefined;
-    const timeoutPromise = new Promise<boolean>((resolve) => {
-      timeoutId = setTimeout(() => resolve(false), timeoutMs);
+    const timeoutPromise = new Promise<never>((_resolve, reject) => {
+      timeoutId = setTimeout(() => {
+        reject(
+          this.buildReadinessError(
+            `Timed out waiting ${timeoutMs} ms for backend readiness.`,
+            BackendReadinessTimeoutError,
+          ),
+        );
+      }, timeoutMs);
     });
 
     try {
-      return await Promise.race([
-        this.readyPromise.then(() => true).catch(() => false),
-        timeoutPromise,
-      ]);
+      return await Promise.race([this.readyPromise, timeoutPromise]);
     } finally {
       if (timeoutId) clearTimeout(timeoutId);
     }
@@ -579,8 +724,8 @@ export class BackendManager {
     if (!this.isRunning()) return;
 
     try {
-      const { host, port } = await this.getBackendConfig();
-      await fetch(`http://${host}:${port}/api/shutdown`, {
+      const endpoint = await this.getBackendConfig();
+      await fetch(formatBackendApiUrl(endpoint, '/api/shutdown'), {
         method: 'POST',
         signal: AbortSignal.timeout(BACKEND_SHUTDOWN_API_TIMEOUT_MS),
       });

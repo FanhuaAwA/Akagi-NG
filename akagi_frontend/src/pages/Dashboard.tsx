@@ -204,7 +204,14 @@ function Dashboard({ backendState, isSplashActive = false }: DashboardProps) {
                       : 'app.backend_starting',
                   )}
                 </p>
-                <p className='text-muted-foreground truncate text-xs'>
+                <p
+                  className={cn(
+                    'text-muted-foreground text-xs',
+                    backendState.status === 'error'
+                      ? 'max-h-32 overflow-y-auto break-words whitespace-pre-wrap'
+                      : 'truncate',
+                  )}
+                >
                   {backendState.status === 'error'
                     ? backendState.error
                     : t('app.backend_starting_desc')}

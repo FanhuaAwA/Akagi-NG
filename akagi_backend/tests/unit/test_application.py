@@ -16,6 +16,7 @@ import pytest
 from akagi_ng.application import AkagiApp
 from akagi_ng.bridge import MajsoulBridge
 from akagi_ng.core.context import AppContext
+from akagi_ng.dataserver import DataServerStartupError
 from akagi_ng.schema.notifications import NotificationCode
 from akagi_ng.schema.types import MJAIResponse, ProcessResult, SystemEvent
 
@@ -60,11 +61,48 @@ def test_app_start_stop(app) -> None:
         app.start()
 
         assert app.ds.start.called
+        app.ds.wait_until_ready.assert_called_once_with(timeout=10.0)
         assert mock_ctx.mitm_client.start.called
         assert mock_ctx.electron_client.start.called
 
         app.stop()
         assert app.get_stop_event().is_set()
+
+
+def test_app_start_propagates_dataserver_failure_before_starting_clients(app) -> None:
+    failure = DataServerStartupError("all ports unavailable")
+    app.ds = MagicMock()
+    app.ds.wait_until_ready.side_effect = failure
+
+    with (
+        patch("akagi_ng.application.get_app_context") as get_context,
+        patch("akagi_ng.application.signal.signal") as install_signal,
+        pytest.raises(DataServerStartupError, match="all ports unavailable"),
+    ):
+        app.start()
+
+    app.ds.start.assert_called_once_with()
+    app.ds.stop.assert_called_once_with()
+    get_context.assert_not_called()
+    install_signal.assert_not_called()
+
+
+def test_cli_main_propagates_startup_failure_instead_of_entering_main_loop() -> None:
+    from akagi_ng.__main__ import main
+
+    failure = DataServerStartupError("permission denied")
+    mock_app = MagicMock()
+    mock_app.start.side_effect = failure
+
+    with (
+        patch("akagi_ng.__main__.AkagiApp", return_value=mock_app),
+        pytest.raises(DataServerStartupError, match="permission denied"),
+    ):
+        main()
+
+    mock_app.initialize.assert_called_once_with()
+    mock_app.start.assert_called_once_with()
+    mock_app.run.assert_not_called()
 
 
 def test_app_main_loop_flow(app) -> None:

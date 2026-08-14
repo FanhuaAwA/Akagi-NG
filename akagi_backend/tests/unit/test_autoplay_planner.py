@@ -123,6 +123,21 @@ def test_plan_nukidora_button_supported():
     assert plan[0].expected_types == (11,)
 
 
+def test_plan_kita_alias_normalized_to_nukidora():
+    planner = ActionPlanner()
+    planner.update_operation_list([{"type": 11, "combination": []}])
+
+    plan = planner.plan(
+        {"type": "kita", "pai": "N"},
+        ["N", "1m", "2m", "3m", "4m", "5m", "6m", "7m", "8m", "9m", "1p", "2p", "3p"],
+        None,
+    )
+
+    assert len(plan) == 1
+    assert plan[0].label == "nukidora"
+    assert plan[0].expected_types == (11,)
+
+
 def test_plan_chi_candidate_uses_fallback_operation_reconstruction():
     planner = ActionPlanner()
     player_state = _mock_player_state(

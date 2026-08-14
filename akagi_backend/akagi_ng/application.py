@@ -30,6 +30,7 @@ from akagi_ng.schema.types import (
 from akagi_ng.settings import local_settings as loaded_settings
 
 logger = logger.bind(module="akagi")
+DATASERVER_STARTUP_TIMEOUT_SECONDS = 10.0
 
 
 class AkagiApp:
@@ -86,7 +87,19 @@ class AkagiApp:
         set_app_context(app_context)
 
     def start(self):
+        if self.ds is None:
+            raise RuntimeError("AkagiApp must be initialized before it is started")
+
         self.ds.start()
+        try:
+            self.ds.wait_until_ready(timeout=DATASERVER_STARTUP_TIMEOUT_SECONDS)
+        except Exception:
+            logger.exception("DataServer failed to become ready")
+            self.ds.stop()
+            raise
+
+        target_host = "127.0.0.1" if self.ds.host == "0.0.0.0" else self.ds.host
+        self.frontend_url = f"http://{target_host}:{self.ds.external_port}/"
         logger.info(f"DataServer started at {self.frontend_url}")
 
         app = get_app_context()

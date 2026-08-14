@@ -239,6 +239,9 @@ class ActionPlanner:
             return []
 
         action_type = mjai_msg.get("type")
+        if action_type == "kita":
+            mjai_msg = {**mjai_msg, "type": "nukidora"}
+            action_type = "nukidora"
         dealer_opening = self.is_new_round and self.oya is not None and self.player_id == self.oya
         if action_type == "dahai" and (not self.reached or self.pending_reach_discard):
             first_action = self.is_new_round

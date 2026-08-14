@@ -26,6 +26,8 @@ OT3_ENDPOINT_LABELS = {
     "/paypal/order-result": "Order result",
     "/paypal/create-subscription": "Create subscription",
     "/paypal/subscription-result": "Subscription result",
+    "/creem/create-checkout": "Create checkout",
+    "/creem/result": "Checkout result",
 }
 
 
@@ -47,8 +49,8 @@ class OT3ServiceClient:
         value = self._request_json("GET", "/healthz")
         return {
             "status": _string(value, "status"),
-            "models": _string_list(value, "models"),
-            "queue_depth": _number_map(value, "queue_depth"),
+            "queue_depth": _queue_depth_total(value, "queue_depth"),
+            "workers_alive": _optional_boolean(value, "workers_alive", default=True),
         }
 
     def key_status(self) -> dict[str, Any]:
@@ -148,6 +150,37 @@ class OT3ServiceClient:
             },
         )
         return _purchase_result(value, subscription=True)
+
+    def create_checkout(self, product: str, *, redeem: bool) -> dict[str, str]:
+        product_id = _validate_product(product)
+        if not isinstance(redeem, bool):
+            raise ValueError("redeem must be a boolean")
+        payload: dict[str, Any] = {"product": product_id}
+        # `redeem: false` is the server default and the endpoint is shared with
+        # subscriptions, where an unexpected field risks a 400 — omit it entirely.
+        if redeem:
+            payload["redeem"] = True
+        value = self._request_json(
+            "POST",
+            "/creem/create-checkout",
+            timeout=OT3_PURCHASE_TIMEOUT_SECONDS,
+            json=payload,
+        )
+        return _created_checkout(value)
+
+    def checkout_result(self, checkout_id: str, claim: str) -> dict[str, Any]:
+        value = self._request_json(
+            "POST",
+            "/creem/result",
+            timeout=OT3_PURCHASE_TIMEOUT_SECONDS,
+            json={
+                "checkout_id": _required_text(checkout_id, "Checkout ID", max_length=256),
+                "claim": _required_text(claim, "Claim", max_length=512),
+            },
+        )
+        # Creem uses one poll shape for both product kinds, matching the PayPal
+        # order-result: a subscription arrives as `key` with `days: 0`.
+        return _purchase_result(value, subscription=False)
 
     def _request_json(
         self,
@@ -253,23 +286,33 @@ def _number(value: dict[str, Any], field: str) -> float:
     return float(item)
 
 
-def _string_list(value: dict[str, Any], field: str) -> list[str]:
-    item = value.get(field, [])
-    if not isinstance(item, list) or not all(isinstance(entry, str) for entry in item):
+def _optional_boolean(value: dict[str, Any], field: str, *, default: bool) -> bool:
+    item = value.get(field, default)
+    if item is None:
+        return default
+    if not isinstance(item, bool):
         raise OT3ServiceError("OT3 service returned an invalid response")
     return item
 
 
-def _number_map(value: dict[str, Any], field: str) -> dict[str, float]:
-    item = value.get(field, {})
-    if not isinstance(item, dict):
+def _queue_depth_total(value: dict[str, Any], field: str) -> int:
+    item = value.get(field, 0)
+    if isinstance(item, bool):
         raise OT3ServiceError("OT3 service returned an invalid response")
-    result: dict[str, float] = {}
-    for key, number in item.items():
-        if not isinstance(key, str) or isinstance(number, bool) or not isinstance(number, int | float):
-            raise OT3ServiceError("OT3 service returned an invalid response")
-        result[key] = float(number)
-    return result
+    if isinstance(item, int):
+        return item
+    if isinstance(item, float):
+        return int(item)
+    # Legacy shape: a per-model map — summed to the same aggregate total so a
+    # not-yet-updated server doesn't read as a failed health check.
+    if isinstance(item, dict):
+        total = 0
+        for number in item.values():
+            if isinstance(number, bool) or not isinstance(number, int | float):
+                raise OT3ServiceError("OT3 service returned an invalid response")
+            total += int(number)
+        return total
+    raise OT3ServiceError("OT3 service returned an invalid response")
 
 
 def _created_purchase(value: dict[str, Any], *, id_field: str) -> dict[str, str]:
@@ -285,6 +328,21 @@ def _is_paypal_url(value: str) -> bool:
     parsed = urlparse(value)
     hostname = (parsed.hostname or "").lower()
     return parsed.scheme == "https" and (hostname == "paypal.com" or hostname.endswith(".paypal.com"))
+
+
+def _created_checkout(value: dict[str, Any]) -> dict[str, str]:
+    checkout_id = _required_text(value.get("checkout_id"), "Checkout ID", max_length=256)
+    checkout_url = _required_text(value.get("checkout_url"), "Checkout URL", max_length=2048)
+    claim_secret = _required_text(value.get("claim_secret"), "Claim secret", max_length=512)
+    if not _is_creem_url(checkout_url):
+        raise OT3ServiceError("Purchase server returned an unsafe checkout URL")
+    return {"checkout_id": checkout_id, "checkout_url": checkout_url, "claim_secret": claim_secret}
+
+
+def _is_creem_url(value: str) -> bool:
+    parsed = urlparse(value)
+    hostname = (parsed.hostname or "").lower()
+    return parsed.scheme == "https" and (hostname == "creem.io" or hostname.endswith(".creem.io"))
 
 
 def _purchase_result(value: dict[str, Any], *, subscription: bool) -> dict[str, Any]:

@@ -18,7 +18,7 @@ def test_management_endpoints_and_bearer_header() -> None:
     client = OT3ServiceClient("http://server.example/", "secret")
     client.session.request = MagicMock(
         side_effect=[
-            _response({"status": "ok", "models": ["4p-ot3"], "queue_depth": {"4p-ot3": 1}}),
+            _response({"status": "ok", "queue_depth": 0, "workers_alive": True}),
             _response(
                 {
                     "plan": "pro",
@@ -41,7 +41,10 @@ def test_management_endpoints_and_bearer_header() -> None:
         ]
     )
 
-    assert client.health()["queue_depth"]["4p-ot3"] == 1
+    health = client.health()
+    assert health["status"] == "ok"
+    assert health["queue_depth"] == 0
+    assert health["workers_alive"] is True
     assert client.key_status()["rpm"] == 10.0
     models = client.models()
     assert [model["id"] for model in models] == ["4p-ot3", "4p-fast", "3p-ot3"]
@@ -53,6 +56,49 @@ def test_management_endpoints_and_bearer_header() -> None:
     assert calls[1].args[:2] == ("GET", "http://server.example/v3/key")
     assert calls[1].kwargs["headers"]["Authorization"] == "Bearer secret"
     assert calls[2].args[:2] == ("GET", "http://server.example/v3/models")
+
+
+def test_health_parses_aggregate_shape() -> None:
+    client = OT3ServiceClient("https://server.example")
+    client.session.request = MagicMock(
+        return_value=_response({"status": "ok", "queue_depth": 3, "workers_alive": True})
+    )
+    health = client.health()
+    assert health["status"] == "ok"
+    assert health["queue_depth"] == 3
+    assert health["workers_alive"] is True
+
+
+def test_health_accepts_legacy_per_model_shape() -> None:
+    client = OT3ServiceClient("https://server.example")
+    client.session.request = MagicMock(
+        return_value=_response(
+            {"status": "ok", "models": ["4p-x", "3p-x"], "queue_depth": {"4p-x": 2, "3p-x": 1}}
+        )
+    )
+    health = client.health()
+    # The legacy per-model map sums to the same aggregate total.
+    assert health["status"] == "ok"
+    assert health["queue_depth"] == 3
+    # `workers_alive` is absent on older servers: defaults to alive, not degraded.
+    assert health["workers_alive"] is True
+
+
+def test_health_degraded_and_missing_fields() -> None:
+    client = OT3ServiceClient("https://server.example")
+    client.session.request = MagicMock(
+        return_value=_response({"status": "degraded", "queue_depth": 0, "workers_alive": False})
+    )
+    health = client.health()
+    assert health["status"] == "degraded"
+    assert health["queue_depth"] == 0
+    assert health["workers_alive"] is False
+
+    # Bare minimum body — every field defaulted.
+    client.session.request = MagicMock(return_value=_response({}))
+    health = client.health()
+    assert health["queue_depth"] == 0
+    assert health["workers_alive"] is True
 
 
 def test_management_client_applies_proxy_to_every_endpoint() -> None:
@@ -137,6 +183,91 @@ def test_purchase_rejects_unknown_product_and_unsafe_approval_url() -> None:
     )
     with pytest.raises(OT3ServiceError, match="unsafe"):
         client.create_order("pro-30", redeem=True)
+
+
+def test_creem_checkout_contract() -> None:
+    client = OT3ServiceClient("https://server.example")
+    client.session.request = MagicMock(
+        return_value=_response(
+            {
+                "checkout_id": "ch_1",
+                "checkout_url": "https://checkout.creem.io/pay/ch_1",
+                "claim_secret": "claim",
+            }
+        )
+    )
+
+    created = client.create_checkout("pro-30", redeem=True)
+
+    assert created["checkout_id"] == "ch_1"
+    assert created["checkout_url"] == "https://checkout.creem.io/pay/ch_1"
+    call = client.session.request.call_args
+    assert call.args[:2] == ("POST", "https://server.example/creem/create-checkout")
+    assert call.kwargs["json"] == {"product": "pro-30", "redeem": True}
+
+    client.session.request = MagicMock(
+        return_value=_response(
+            {
+                "checkout_id": "ch_2",
+                "checkout_url": "https://checkout.creem.io/pay/ch_2",
+                "claim_secret": "claim",
+            }
+        )
+    )
+    created = client.create_checkout("pro-monthly", redeem=False)
+    # `redeem: false` is the server default; the endpoint is shared with
+    # subscriptions, so it is omitted from the wire entirely.
+    assert client.session.request.call_args.kwargs["json"] == {"product": "pro-monthly"}
+    assert created["checkout_id"] == "ch_2"
+
+
+def test_creem_checkout_result_parses_key_with_zero_days() -> None:
+    client = OT3ServiceClient("https://server.example")
+    client.session.request = MagicMock(
+        return_value=_response(
+            {"status": "ready", "key": "k0000000000000000000000000000005", "plan": "pro", "days": 0}
+        )
+    )
+
+    result = client.checkout_result("ch_1", "claim")
+
+    assert result["status"] == "ready"
+    assert result["key"] == "k0000000000000000000000000000005"
+    assert result["days"] == 0
+    assert "code" not in result
+    call = client.session.request.call_args
+    assert call.args[:2] == ("POST", "https://server.example/creem/result")
+    assert call.kwargs["json"] == {"checkout_id": "ch_1", "claim": "claim"}
+
+
+def test_creem_checkout_result_pending_has_no_credential() -> None:
+    client = OT3ServiceClient("https://server.example")
+    client.session.request = MagicMock(return_value=_response({"status": "pending"}))
+
+    result = client.checkout_result("ch_1", "claim")
+
+    assert result == {"status": "pending"}
+
+
+def test_creem_rejects_unsafe_checkout_url() -> None:
+    client = OT3ServiceClient("https://server.example")
+    client.session.request = MagicMock(
+        return_value=_response(
+            {
+                "checkout_id": "ch_1",
+                "checkout_url": "https://evil.example/steal",
+                "claim_secret": "claim",
+            }
+        )
+    )
+    with pytest.raises(OT3ServiceError, match="unsafe checkout URL"):
+        client.create_checkout("pro-30", redeem=True)
+
+
+def test_creem_checkout_rejects_unknown_product() -> None:
+    client = OT3ServiceClient("https://server.example")
+    with pytest.raises(ValueError, match="Unknown"):
+        client.create_checkout("custom-price", redeem=True)
 
 
 def test_errors_never_expose_key_or_server_response_body() -> None:

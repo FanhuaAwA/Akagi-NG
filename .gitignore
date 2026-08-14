@@ -17,6 +17,7 @@ models/*
 !models/mortal.pth
 !models/mortal3p.pth
 node_modules/
+output/
 tmp/
 
 __pycache__/

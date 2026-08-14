@@ -10,6 +10,7 @@ from urllib.parse import urlsplit
 
 from aiohttp import web
 
+from akagi_ng import AKAGI_VERSION
 from akagi_ng.core.context import AppContext, get_app_context
 from akagi_ng.core.logging import LOG_FILE, configure_logging
 from akagi_ng.core.paths import ensure_dir, get_models_dir, get_settings_dir
@@ -494,8 +495,49 @@ async def ot3_subscription_result_handler(request: web.Request) -> web.Response:
     return await _ot3_response(lambda: client.subscription_result(subscription_id, claim))
 
 
+async def ot3_create_checkout_handler(request: web.Request) -> web.Response:
+    try:
+        payload = await _request_object(request)
+        client = _ot3_client(payload)
+        product = payload.get("product", "")
+        redeem = payload.get("redeem", True)
+        if not isinstance(product, str) or not isinstance(redeem, bool):
+            raise ValueError("product must be a string and redeem must be a boolean")
+    except ValueError as exc:
+        return _json_response({"ok": False, "error": str(exc)}, status=400)
+    return await _ot3_response(lambda: client.create_checkout(product, redeem=redeem))
+
+
+async def ot3_checkout_result_handler(request: web.Request) -> web.Response:
+    try:
+        payload = await _request_object(request)
+        client = _ot3_client(payload)
+        checkout_id = payload.get("checkout_id", "")
+        claim = payload.get("claim", "")
+        if not isinstance(checkout_id, str) or not isinstance(claim, str):
+            raise ValueError("checkout_id and claim must be strings")
+    except ValueError as exc:
+        return _json_response({"ok": False, "error": str(exc)}, status=400)
+    return await _ot3_response(lambda: client.checkout_result(checkout_id, claim))
+
+
 async def get_settings_handler(_request: web.Request) -> web.Response:
     return _json_response({"ok": True, "data": get_settings_dict()})
+
+
+async def health_handler(_request: web.Request) -> web.Response:
+    """Return success only after aiohttp has accepted requests on the bound endpoint."""
+    return _json_response(
+        {
+            "ok": True,
+            "data": {
+                "service": "akagi-ng",
+                "status": "ready",
+                "version": AKAGI_VERSION,
+                "pid": os.getpid(),
+            },
+        }
+    )
 
 
 async def get_http_captures_handler(request: web.Request) -> web.Response:
@@ -770,6 +812,7 @@ async def shutdown_handler(_request: web.Request) -> web.Response:
 
 
 def setup_routes(app: web.Application):
+    app.router.add_get("/api/health", health_handler)
     app.router.add_get("/api/settings", get_settings_handler)
     app.router.add_post("/api/settings", save_settings_handler)
     app.router.add_post("/api/settings/reset", reset_settings_handler)
@@ -793,6 +836,8 @@ def setup_routes(app: web.Application):
     app.router.add_post("/api/ot3/purchase/order/result", ot3_order_result_handler)
     app.router.add_post("/api/ot3/purchase/subscription", ot3_create_subscription_handler)
     app.router.add_post("/api/ot3/purchase/subscription/result", ot3_subscription_result_handler)
+    app.router.add_post("/api/ot3/purchase/checkout", ot3_create_checkout_handler)
+    app.router.add_post("/api/ot3/purchase/checkout/result", ot3_checkout_result_handler)
     app.router.add_post("/api/ingest", ingest_mjai_handler)
     app.router.add_post("/api/protocol/update", update_protocol_handler)
     app.router.add_post("/api/shutdown", shutdown_handler)

@@ -2,9 +2,22 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 
-import { BackendManager, mergeStartupSettings } from '../electron/src/backend-manager';
+import {
+  type BackendEndpoint,
+  BackendManager,
+  BackendReadinessTimeoutError,
+  formatBackendApiUrl,
+  isExpectedBackendHealth,
+  mergeStartupSettings,
+  normalizeBackendEndpoint,
+} from '../electron/src/backend-manager';
+import { MAX_BACKEND_WAIT_MS, waitForBackendEndpoint } from '../electron/src/backend-wait';
 import { MihomoManager } from '../electron/src/mihomo-manager';
 import { buildProxyRules, normalizeProxyHost } from '../electron/src/proxy-endpoint';
+import {
+  startMihomoAfterBackendReady,
+  waitForSpawnedBackend,
+} from '../electron/src/startup-sequencer';
 
 const rootDir = resolve(__dirname, '..');
 const source = (path: string) => readFileSync(join(rootDir, path), 'utf8');
@@ -22,13 +35,18 @@ const exitOverlaySource = source('akagi_frontend/src/components/ExitOverlay.tsx'
 const frontendConstants = source('akagi_frontend/src/config/constants.ts');
 const dashboardSource = source('akagi_frontend/src/pages/Dashboard.tsx');
 
-const backendStart = mainSource.indexOf('const backendStartPromise = backendManager.start()');
+const backendStart = mainSource.indexOf('const backendSpawnPromise = backendManager.start()');
+const backendReady = mainSource.indexOf('const backendReadyPromise = waitForSpawnedBackend');
 const dashboardCreate = mainSource.indexOf('createDashboardWindow()');
-const backendAwait = mainSource.indexOf('await backendStartPromise');
-assert.ok(backendStart >= 0, 'Backend startup must have an explicit promise.');
+const mihomoAfterReady = mainSource.indexOf('void startMihomoAfterBackendReady(');
+assert.ok(backendStart >= 0, 'Backend process spawn must have an explicit promise.');
 assert.ok(
-  backendStart < dashboardCreate && dashboardCreate < backendAwait,
-  'The trusted dashboard must load while backend startup continues.',
+  backendStart < backendReady && backendReady < dashboardCreate,
+  'Backend spawn and readiness must be represented by separate promises.',
+);
+assert.ok(
+  dashboardCreate < mihomoAfterReady,
+  'The trusted dashboard must load while backend readiness continues.',
 );
 
 const localStartupLoad = appSource.slice(
@@ -39,8 +57,9 @@ assert.match(localStartupLoad, /getStartupConfig\(\)/);
 assert.doesNotMatch(localStartupLoad, /waitForBackend|fetchSettingsApi/);
 assert.match(
   appSource,
-  /const backendSettingsPromise[\s\S]*waitForBackend\(60_000\)[\s\S]*fetchSettingsApi\(\)/,
+  /const backendEndpointPromise[\s\S]*waitForBackend\(60_000\)[\s\S]*const backendSettingsPromise[\s\S]*fetchSettingsApi\(\)/,
 );
+assert.match(appSource, /backendEndpointPromise\.then\([\s\S]*setConnection\(endpoint\)/);
 assert.match(appSource, /const data = use\(startupConfigPromise\)/);
 assert.match(appSource, /<GameProvider backendReady=\{backendState\.status === 'ready'\}>/);
 assert.doesNotMatch(appSource, /const data = use\(backendSettingsPromise\)/);
@@ -56,6 +75,8 @@ assert.ok(
   'Packaged backend execution must follow the bounded resource availability check.',
 );
 assert.match(prodSource, /PYTHONDONTWRITEBYTECODE: '1'/);
+assert.equal((backendSource.match(/PYTHONIOENCODING: 'utf-8'/g) ?? []).length, 2);
+assert.equal((backendSource.match(/PYTHONUTF8: '1'/g) ?? []).length, 2);
 assert.match(prodSource, /AKAGI_USER_DATA_DIR: getUserDataRoot\(\)/);
 assert.match(backendSource, /join\(getUserDataRoot\(\), 'config', 'settings\.json'\)/);
 assert.match(backendSource, /public async getStartupConfig\(\)/);
@@ -126,11 +147,34 @@ assert.match(
 assert.match(resourceStatusMethod, /this\.resourceStatus = status/);
 assert.match(resourceStatusMethod, /this\.resourceStatusPromise = null/);
 assert.match(backendSource, /private markFailed\(error: Error\)/);
-assert.match(backendSource, /if \(this\.readyError\) return false/);
+assert.match(backendSource, /if \(this\.readyError\) throw this\.readyError/);
 assert.match(backendSource, /if \(timeoutId\) clearTimeout\(timeoutId\)/);
+assert.match(backendSource, /readyEndpoint: BackendEndpoint \| null/);
+assert.match(backendSource, /if \(this\.readyEndpoint\) return \{ \.\.\.this\.readyEndpoint \}/);
+const healthSource = backendSource.slice(
+  backendSource.indexOf('private async startHealthCheck'),
+  backendSource.indexOf('private setupListeners'),
+);
+assert.match(healthSource, /formatBackendApiUrl\(endpoint, '\/api\/health'\)/);
+assert.match(healthSource, /isExpectedBackendHealth\(payload, expectedPid\)/);
+assert.match(healthSource, /this\.markFailed\(error\)[\s\S]*this\.terminateFailedProcess\(\)/);
+assert.doesNotMatch(healthSource, /fetch\(`http:\/\/\$\{host\}:\$\{port\}`/);
+const waitIpcSource = ipcSource.slice(
+  ipcSource.indexOf("handle('wait-for-backend'"),
+  ipcSource.indexOf("handle('update-locale'"),
+);
+assert.match(waitIpcSource, /return waitForBackendEndpoint\(backendManager, value\)/);
+assert.doesNotMatch(waitIpcSource, /Backend failed to start/);
+assert.match(ipcSource, /formatBackendApiUrl\(config, '\/api\/protocol\/update'\)/);
 assert.match(electronConstants, /BACKEND_STARTUP_CHECK_INTERVAL_MS = 100/);
 assert.match(electronConstants, /BACKEND_STARTUP_CHECK_MAX_INTERVAL_MS = 500/);
 assert.match(electronConstants, /BACKEND_SHUTDOWN_TIMEOUT_MS = 2000/);
+assert.match(electronConstants, /BACKEND_READY_TIMEOUT_MS = 60000/);
+assert.equal(
+  MAX_BACKEND_WAIT_MS,
+  120_000,
+  'The IPC compatibility limit must not be confused with the 60-second backend lifecycle.',
+);
 assert.match(mihomoSource, /STOP_TIMEOUT_MS = 2_000/);
 
 assert.match(mainSource, /let shutdownPromise: Promise<void> \| null = null/);
@@ -161,12 +205,11 @@ const mihomoReconcileHandler = ipcSource.slice(
 assert.match(mihomoReconcileHandler, /resetGameWindowForProxyChange\(\)/);
 assert.match(mihomoReconcileHandler, /requireBoolean\(gameProxyChanged/);
 assert.match(mihomoReconcileHandler, /gameWindowClosed/);
-const postBackendStartup = mainSource.slice(mainSource.indexOf('const backendStarted'));
-assert.ok(
-  postBackendStartup.indexOf('if (shutdownStarted) return') <
-    postBackendStartup.indexOf('mihomoManager.startIfEnabled()'),
-  'Optional mihomo startup must be skipped once shutdown begins.',
+const postBackendStartup = mainSource.slice(
+  mainSource.indexOf('void startMihomoAfterBackendReady'),
 );
+assert.match(postBackendStartup, /\(\) => mihomoManager\.startIfEnabled\(\)/);
+assert.match(postBackendStartup, /\(\) => !shutdownStarted/);
 const guardedUpdateCheck = mainSource.slice(
   mainSource.indexOf('function checkForUpdatesIfActive'),
   mainSource.indexOf('function shutdownOnce'),
@@ -250,6 +293,55 @@ assert.equal(buildProxyRules('mitm.local', 6789), 'http://mitm.local:6789');
 assert.throws(() => buildProxyRules('http://attacker.invalid', 6789), /Invalid MITM proxy host/);
 assert.throws(() => buildProxyRules('[::1', 6789), /Invalid MITM proxy host/);
 assert.throws(() => buildProxyRules('127.0.0.1', 0), /Invalid MITM proxy port/);
+assert.deepEqual(normalizeBackendEndpoint({ host: '0.0.0.0', port: 8765 }), {
+  host: '127.0.0.1',
+  port: 8765,
+});
+assert.deepEqual(normalizeBackendEndpoint({ host: '::', port: 8765 }), {
+  host: '[::1]',
+  port: 8765,
+});
+assert.deepEqual(normalizeBackendEndpoint({ host: '::1', port: 8765 }), {
+  host: '[::1]',
+  port: 8765,
+});
+assert.equal(
+  formatBackendApiUrl({ host: '::1', port: 8765 }, '/api/health'),
+  'http://[::1]:8765/api/health',
+);
+assert.equal(
+  isExpectedBackendHealth(
+    {
+      ok: true,
+      data: { service: 'akagi-ng', status: 'ready', version: 'test', pid: 1234 },
+    },
+    1234,
+  ),
+  true,
+);
+assert.equal(
+  isExpectedBackendHealth(
+    { ok: true, data: { service: 'akagi-ng', status: 'ready', pid: 9999 } },
+    1234,
+  ),
+  false,
+  'A stale backend process must not satisfy readiness for a newly spawned PID.',
+);
+assert.equal(
+  isExpectedBackendHealth(
+    { ok: true, data: { service: 'akagi-ng', status: 'ready', pid: 1234 } },
+    1234,
+  ),
+  false,
+  'A legacy or spoofed health response without a version must be rejected.',
+);
+assert.equal(
+  isExpectedBackendHealth(
+    { ok: true, data: { service: 'other', status: 'ready', pid: 1234 } },
+    1234,
+  ),
+  false,
+);
 
 function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
   return new Promise<T>((resolve, reject) => {
@@ -412,10 +504,168 @@ async function testResourceAvailabilitySingleFlight(): Promise<void> {
   assert.equal(retryCalls, 2, 'A failed resource check must clear the in-flight cache for retry.');
 }
 
+interface BackendManagerTestInternals {
+  appendStderr(chunk: string): void;
+  buildReadinessError(message: string): Error;
+  markFailed(error: Error): void;
+  markReady(endpoint: BackendEndpoint): void;
+}
+
+function createReadinessManager(): BackendManager {
+  const manager = Object.create(BackendManager.prototype) as BackendManager;
+  let resolveReady!: (endpoint: BackendEndpoint) => void;
+  let rejectReady!: (error: Error) => void;
+  const readyPromise = new Promise<BackendEndpoint>((resolve, reject) => {
+    resolveReady = resolve;
+    rejectReady = reject;
+  });
+  void readyPromise.catch(() => {});
+  Object.assign(manager, {
+    isReadyState: false,
+    readyEndpoint: null,
+    readyError: null,
+    readyPromise,
+    resolveReady,
+    rejectReady,
+    isClosing: false,
+    startupStartedAt: Date.now(),
+    lastHealthEndpoint: null,
+    lastHealthError: null,
+    stderrTail: '',
+  });
+  return manager;
+}
+
+async function testBackendReadinessErrorPropagation(): Promise<void> {
+  const manager = createReadinessManager();
+  const internals = manager as unknown as BackendManagerTestInternals;
+  const startupFailure = new Error('bind failed: winerror=10013');
+  const waiting = manager.waitForReady(5_000);
+  internals.markFailed(startupFailure);
+  await assert.rejects(
+    waiting,
+    (error: unknown) => error === startupFailure,
+    'A concrete startup failure must settle waiters immediately and preserve Error identity.',
+  );
+
+  const timeoutManager = createReadinessManager();
+  await assert.rejects(
+    timeoutManager.waitForReady(1),
+    (error: unknown) => error instanceof BackendReadinessTimeoutError,
+  );
+  const timeoutInternals = timeoutManager as unknown as BackendManagerTestInternals;
+  timeoutInternals.markReady({ host: '::1', port: 18765 });
+  assert.deepEqual(await timeoutManager.waitForReady(), { host: '[::1]', port: 18765 });
+  assert.deepEqual(await timeoutManager.getBackendConfig(), { host: '[::1]', port: 18765 });
+
+  const diagnosticManager = createReadinessManager();
+  const diagnosticInternals = diagnosticManager as unknown as BackendManagerTestInternals;
+  Object.assign(diagnosticManager, {
+    lastHealthEndpoint: { host: '127.0.0.1', port: 8765 },
+    lastHealthError: new Error('connect ECONNREFUSED'),
+  });
+  diagnosticInternals.appendStderr(`${'x'.repeat(9_000)}\ntraceback marker`);
+  const diagnostic = diagnosticInternals.buildReadinessError('backend exited').message;
+  assert.match(diagnostic, /127\.0\.0\.1:8765\/api\/health/);
+  assert.match(diagnostic, /connect ECONNREFUSED/);
+  assert.match(diagnostic, /traceback marker/);
+  assert.ok(diagnostic.length < 8_500, 'The stderr diagnostic tail must remain bounded.');
+}
+
+async function testBackendWaitIpcContract(): Promise<void> {
+  const endpoint = { host: '127.0.0.1', port: 18765 };
+  let receivedTimeout: number | undefined;
+  assert.deepEqual(
+    await waitForBackendEndpoint(
+      {
+        waitForReady: async (timeoutMs) => {
+          receivedTimeout = timeoutMs;
+          return endpoint;
+        },
+      },
+      12_345,
+    ),
+    endpoint,
+  );
+  assert.equal(receivedTimeout, 12_345);
+
+  const readinessFailure = new Error('specific backend readiness failure');
+  await assert.rejects(
+    waitForBackendEndpoint(
+      {
+        waitForReady: async () => {
+          throw readinessFailure;
+        },
+      },
+      1_000,
+    ),
+    (error: unknown) => error === readinessFailure,
+    'The IPC adapter must not replace the original readiness error.',
+  );
+  await assert.rejects(
+    waitForBackendEndpoint({ waitForReady: async () => endpoint }, MAX_BACKEND_WAIT_MS + 1),
+    /Invalid backend wait timeout/,
+  );
+}
+
+async function testBackendAndMihomoStartupSequencing(): Promise<void> {
+  let waitCalls = 0;
+  assert.equal(
+    await waitForSpawnedBackend(Promise.resolve(false), async () => {
+      waitCalls += 1;
+      return { host: '127.0.0.1', port: 8765 };
+    }),
+    null,
+  );
+  assert.equal(waitCalls, 0, 'A backend that failed to spawn must not enter readiness waiting.');
+
+  let resolveReady!: (ready: boolean) => void;
+  const backendReady = new Promise<boolean>((resolve) => {
+    resolveReady = resolve;
+  });
+  let mihomoStarts = 0;
+  const mihomoStart = startMihomoAfterBackendReady(backendReady, async () => {
+    mihomoStarts += 1;
+    return 'started';
+  });
+  await Promise.resolve();
+  assert.equal(mihomoStarts, 0, 'Mihomo must not start while backend readiness is pending.');
+  resolveReady(true);
+  assert.equal(await mihomoStart, 'started');
+  assert.equal(mihomoStarts, 1);
+
+  assert.equal(
+    await startMihomoAfterBackendReady(
+      Promise.resolve(true),
+      async () => {
+        mihomoStarts += 1;
+        return 'started during shutdown';
+      },
+      () => false,
+    ),
+    null,
+  );
+  assert.equal(mihomoStarts, 1, 'Shutdown must prevent queued Mihomo startup.');
+
+  const readinessFailure = new Error('backend exited before ready');
+  let rejectedMihomoStarts = 0;
+  await assert.rejects(
+    startMihomoAfterBackendReady(Promise.reject(readinessFailure), async () => {
+      rejectedMihomoStarts += 1;
+      return 'unexpected';
+    }),
+    (error: unknown) => error === readinessFailure,
+  );
+  assert.equal(rejectedMihomoStarts, 0, 'A rejected readiness promise must not start Mihomo.');
+}
+
 Promise.all([
   testMihomoShutdownCancellation(),
   testMihomoSuspendsInBrowserModeAndRestoresInProxyMode(),
   testResourceAvailabilitySingleFlight(),
+  testBackendReadinessErrorPropagation(),
+  testBackendWaitIpcContract(),
+  testBackendAndMihomoStartupSequencing(),
 ]).then(
   () => console.log('Lifecycle and proxy regression tests passed.'),
   (error) => {

@@ -10,6 +10,7 @@
 """
 
 import json
+import os
 import queue
 from unittest.mock import MagicMock, patch
 
@@ -17,6 +18,7 @@ import pytest
 from aiohttp import web
 from aiohttp.test_utils import TestClient, TestServer
 
+from akagi_ng import AKAGI_VERSION
 from akagi_ng.dataserver.api import (
     _atomic_write_text,
     _is_allowed_origin,
@@ -65,6 +67,21 @@ async def test_get_settings(cli):
         data = await resp.json()
         assert data["ok"] is True
         assert data["data"] == {"test": "val"}
+
+
+async def test_health_identifies_the_ready_akagi_dataserver(cli):
+    response = await cli.get("/api/health")
+
+    assert response.status == 200
+    assert await response.json() == {
+        "ok": True,
+        "data": {
+            "service": "akagi-ng",
+            "status": "ready",
+            "version": AKAGI_VERSION,
+            "pid": os.getpid(),
+        },
+    }
 
 
 async def test_ot3_management_routes_use_local_proxy_without_exposing_credentials(cli):
@@ -161,9 +178,24 @@ async def test_ot3_redeem_and_purchase_routes_validate_input(cli):
         "/api/ot3/purchase/order",
         json={"server": "https://server.example", "product": 123, "redeem": True},
     )
+    invalid_checkout_product = await cli.post(
+        "/api/ot3/purchase/checkout",
+        json={"server": "https://server.example", "product": 123, "redeem": True},
+    )
+    invalid_checkout_redeem = await cli.post(
+        "/api/ot3/purchase/checkout",
+        json={"server": "https://server.example", "product": "pro-30", "redeem": 1},
+    )
+    missing_checkout_result = await cli.post(
+        "/api/ot3/purchase/checkout/result",
+        json={"server": "https://server.example", "checkout_id": "ch_1"},
+    )
 
     assert missing_code.status == 400
     assert invalid_product.status == 400
+    assert invalid_checkout_product.status == 400
+    assert invalid_checkout_redeem.status == 400
+    assert missing_checkout_result.status == 400
 
 
 async def test_save_settings_invalid_json(cli):

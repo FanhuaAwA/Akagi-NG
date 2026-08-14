@@ -35,7 +35,14 @@ import {
 } from '@/components/ui/select';
 import { checkFlyAHealth, fetchFlyAModels, fetchFlyAQuota } from '@/lib/flya-api';
 import { checkOT3Health, fetchOT3KeyStatus, fetchOT3Models, redeemOT3Code } from '@/lib/ot3-api';
-import type { FlyAQuota, OT3Health, OT3KeyStatus, OT3ModelInfo, Settings } from '@/types';
+import type {
+  FlyAHealth,
+  FlyAQuota,
+  OT3Health,
+  OT3KeyStatus,
+  OT3ModelInfo,
+  Settings,
+} from '@/types';
 
 const FLYA_DISCORD_URL = 'https://discord.com/invite/YEgQRT4MMU';
 const FLYA_QQ_GROUP = '1093245435';
@@ -113,7 +120,7 @@ interface OT3ServicePanelProps {
 export function OT3ServicePanel({ settings, updateSettingsBatch }: OT3ServicePanelProps) {
   const { t } = useTranslation();
   const [busy, setBusy] = useState<'health' | 'key' | 'models' | ''>('');
-  const [health, setHealth] = useState<OT3Health | null>(null);
+  const [health, setHealth] = useState<OT3Health | FlyAHealth | null>(null);
   const [keyStatus, setKeyStatus] = useState<OT3KeyStatus | null>(null);
   const [quota, setQuota] = useState<FlyAQuota | null>(null);
   const [models, setModels] = useState<OT3ModelInfo[]>([]);
@@ -299,13 +306,27 @@ export function OT3ServicePanel({ settings, updateSettingsBatch }: OT3ServicePan
         <Alert variant={health.status.toLowerCase() === 'ok' ? 'success' : 'warning'}>
           <CheckCircle2 />
           <AlertDescription>
-            {t('settings.model_config.health_result', {
-              status: health.status,
-              count: health.models.length,
-            })}
-            {Object.keys(health.queue_depth).length > 0 && (
+            {isFlyA ? (
+              <span>
+                {t('settings.model_config.health_result', {
+                  status: health.status,
+                  count: (health as FlyAHealth).models.length,
+                })}
+              </span>
+            ) : (
+              <span>
+                {t('settings.model_config.health_result_ot3', {
+                  status: health.status,
+                  depth: (health as OT3Health).queue_depth,
+                  workers: (health as OT3Health).workers_alive
+                    ? t('settings.model_config.health_workers_ok')
+                    : t('settings.model_config.health_workers_down'),
+                })}
+              </span>
+            )}
+            {isFlyA && Object.keys((health as FlyAHealth).queue_depth).length > 0 && (
               <div className='mt-2 flex flex-wrap gap-1'>
-                {Object.entries(health.queue_depth).map(([model, depth]) => (
+                {Object.entries((health as FlyAHealth).queue_depth).map(([model, depth]) => (
                   <Badge key={model} variant='outline'>
                     {model}: {depth}
                   </Badge>
