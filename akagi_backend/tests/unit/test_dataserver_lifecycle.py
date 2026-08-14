@@ -11,6 +11,7 @@
 import asyncio
 import inspect
 import socket
+import sys
 import threading
 import time
 from unittest.mock import MagicMock, patch
@@ -268,7 +269,11 @@ def test_dataserver_preserves_permission_error_details_and_exception_chain():
     assert all("host='127.0.0.1'" in message for message in warnings)
     assert "port=28000" in warnings[0]
     assert "errno=13" in warnings[0]
-    assert "winerror=10013" in warnings[0]
+    if sys.platform == "win32":
+        assert "winerror=10013" in warnings[0]
+    else:
+        # winerror is a Windows-only OSError attribute; POSIX builds keep it unset.
+        assert "winerror=None" in warnings[0]
     assert "PermissionError" in warnings[0]
     assert exc_info.value.__cause__ is permission_error
     assert server.startup_error is exc_info.value
