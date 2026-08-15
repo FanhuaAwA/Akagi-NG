@@ -37,6 +37,7 @@ from akagi_ng.mjai_bot.status import BotStatusContext
 from akagi_ng.schema.notifications import NotificationCode
 from akagi_ng.schema.types import (
     EndGameEvent,
+    EndKyokuEvent,
     MJAIEvent,
     MJAIEventBase,
     MJAIResponse,
@@ -254,7 +255,7 @@ def _write_replay_diagnostic_artifact(
 
 
 def canonical_event(event: MJAIEvent, seat_count: int) -> dict[str, Any]:
-    """Convert one Akagi dataclass event to a v1 observed canonical event."""
+    """Convert one Akagi dataclass event to a v2 observed canonical event."""
     if seat_count not in {THREE_PLAYER_SEATS, FOUR_PLAYER_SEATS}:
         raise ValueError("seat_count must be 3 or 4")
 
@@ -301,14 +302,13 @@ def build_state_envelope(
 
     canonical_events = [dict(event) for event in events]
     return {
-        "schema": "flya-mahjong-events-v1",
+        "schema": "flya-mahjong-events-v2",
         "rule_line": "riichi3p" if is_3p else "riichi4p",
         "viewer_seat": player_id,
         "source": {"kind": "observed"},
         "from_seq": 0,
         "to_seq": len(canonical_events),
         "events": canonical_events,
-        "state_digest": compute_state_digest(canonical_events),
     }
 
 
@@ -774,18 +774,34 @@ class FlyADecider:
         except (TypeError, ValueError) as error:
             logger.warning(f"FlyA could not canonicalize event type={event.type}: {error}")
             self._disable_remote_for_game("canonical_event_invalid")
+        if isinstance(event, EndKyokuEvent):
+            self._mark_history_incomplete_for_next_hand()
         if isinstance(event, EndGameEvent):
-            self.online_executor.next_generation()
-            self.history_complete = False
-            self.player_id = None
-            self.session_id = None
-            self._pending_remote_actions = []
-            self._replay_gap_reason = None
-            self._discarded_replay_events = 0
-            if self.client:
-                self.client.close()
-            self.client = None
-            self._client_signature = None
+            self._handle_game_end()
+
+    def _mark_history_incomplete_for_next_hand(self) -> None:
+        """A hand finished but the match continues.
+
+        Mark the observed history incomplete so the next start_kyoku rebuilds the
+        event stream from a fresh start_game boundary instead of appending the
+        next hand to the previous one. This mirrors the reconnect path and keeps
+        every request independently replayable, preventing state_replay_invalid.
+        """
+        self.history_complete = False
+        self._pending_remote_actions = []
+
+    def _handle_game_end(self) -> None:
+        self.online_executor.next_generation()
+        self.history_complete = False
+        self.player_id = None
+        self.session_id = None
+        self._pending_remote_actions = []
+        self._replay_gap_reason = None
+        self._discarded_replay_events = 0
+        if self.client:
+            self.client.close()
+        self.client = None
+        self._client_signature = None
 
     def _rebase_at_start_kyoku(self, event: StartKyokuEvent) -> None:
         """Resume FlyA from the first complete hand boundary after a replay gap."""

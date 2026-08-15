@@ -15,7 +15,7 @@ RuntimeProvider = Callable[[], object]
 
 # Coordinates use the same 16:9 client-area space as in-game autoplay. They
 # are resolved against the letterboxed game area by WindowsInputExecutor.
-RANKED_LOBBY = (11.4, 2.6)
+RANKED_LOBBY = (11.62, 2.54)
 ROOM_SCROLL_ANCHOR = (11.6, 5.0)
 # Calibrated center of the enabled gold result confirmation button.
 RESULT_CONFIRM_COORD = (14.57, 8.18)
@@ -23,6 +23,11 @@ LOBBY_READY_TIMEOUT = 35.0
 LOBBY_READY_POLL_INTERVAL = 0.4
 LOBBY_READY_STABILITY_HITS = 2
 LOBBY_RENDER_DELAY = 4.0
+# Color anchors may drift when the Mahjong Soul client updates its lobby UI.
+# After this many poll iterations without a color-anchor match, fall back to a
+# stable-window coordinate gate so auto-join keeps working instead of aborting.
+LOBBY_READY_ANCHOR_GRACE_HITS = 8
+LOBBY_READY_COORD_FALLBACK_HITS = 3
 MATCH_CONFIRM_TIMEOUT = 15.0
 RESULT_CONFIRM_ATTEMPTS = 3
 RESULT_BUTTON_FIRST_TIMEOUT = 60.0
@@ -31,17 +36,17 @@ RESULT_BUTTON_POLL_INTERVAL = 0.35
 RESULT_BUTTON_STABILITY_TOLERANCE = 5
 RESULT_BUTTON_STABILITY_HITS = 2
 ROOM_COORDS: dict[str, tuple[float, float]] = {
-    "copper": (11.6, 3.4),
-    "silver": (11.6, 4.9),
-    "gold": (11.6, 6.3),
-    "jade": (11.6, 5.3),
-    "throne": (11.6, 6.7),
+    "copper": (11.67, 3.43),
+    "silver": (11.96, 4.86),
+    "gold": (11.58, 6.10),
+    "jade": (11.62, 5.45),
+    "throne": (11.57, 6.65),
 }
 MODE_COORDS: dict[str, tuple[float, float]] = {
-    "four_east": (11.6, 3.4),
-    "four_south": (11.6, 4.9),
-    "three_east": (11.6, 6.3),
-    "three_south": (11.6, 7.3),
+    "four_east": (11.34, 3.29),
+    "four_south": (11.66, 4.86),
+    "three_east": (11.59, 6.18),
+    "three_south": (11.56, 7.48),
 }
 
 
@@ -114,42 +119,82 @@ class AutoJoinManager:
         logger.info("Auto join confirmed by the Mahjong Soul matchmaking protocol.")
 
     def _wait_for_lobby_ready(self, runtime: object, timeout: float, stop_event: threading.Event) -> bool:
-        platform = getattr(runtime, "platform", Platform.MAJSOUL)
-        window_keyword = getattr(runtime, "window_keyword", "")
         # The login/result protocol event is authoritative, but it can arrive a
         # few seconds before the lobby has finished rendering. Require both
         # stable client geometry and two independent lobby chrome anchors before
         # allowing any fixed-coordinate input. Unknown UI revisions fail closed.
+        #
+        # Color anchors are still the preferred readiness signal. If they never
+        # match within a bounded grace window (e.g. the client refreshed its
+        # lobby chrome), fall back to a coordinate gate: a window that keeps a
+        # stable client geometry across consecutive polls after the render delay
+        # is treated as ready so the coordinate-based click chain can proceed.
         if not self._sleep(LOBBY_RENDER_DELAY, stop_event):
             return False
         deadline = time.monotonic() + max(0.0, timeout)
-        stable_hits = 0
-        previous_geometry: tuple[int, int, int, int] | None = None
+        state = {
+            "stable_hits": 0,
+            "previous_geometry": None,
+            "anchor_fail_hits": 0,
+            "coord_fallback_active": False,
+        }
         while time.monotonic() < deadline:
             if self._cancel_requested(stop_event):
                 return False
-            if not self._executor.ensure_target_window(platform, window_keyword):
-                stable_hits = 0
-                previous_geometry = None
-            else:
-                geometry = self._executor.get_target_geometry()
-                if geometry is not None and self._executor.probe_lobby_ready(geometry):
-                    geometry_signature = (
-                        geometry.left,
-                        geometry.top,
-                        geometry.width,
-                        geometry.height,
-                    )
-                    stable_hits = stable_hits + 1 if geometry_signature == previous_geometry else 1
-                    previous_geometry = geometry_signature
-                    if stable_hits >= LOBBY_READY_STABILITY_HITS:
-                        logger.info("Auto join lobby geometry and visual anchors are stable.")
-                        return True
-                else:
-                    stable_hits = 0
-                    previous_geometry = None
+            if self._poll_lobby_ready_once(runtime, state):
+                return True
             if not self._sleep(LOBBY_READY_POLL_INTERVAL, stop_event):
                 return False
+        return False
+
+    def _poll_lobby_ready_once(self, runtime: object, state: dict) -> bool:
+        """Run one lobby-readiness poll; return True when the lobby is ready."""
+        platform = getattr(runtime, "platform", Platform.MAJSOUL)
+        window_keyword = getattr(runtime, "window_keyword", "")
+        if not self._executor.ensure_target_window(platform, window_keyword):
+            state["stable_hits"] = 0
+            state["previous_geometry"] = None
+            state["anchor_fail_hits"] = 0
+            return False
+
+        geometry = self._executor.get_target_geometry()
+        if geometry is None:
+            state["stable_hits"] = 0
+            state["previous_geometry"] = None
+            state["anchor_fail_hits"] = 0
+            return False
+
+        geometry_signature = (
+            geometry.left,
+            geometry.top,
+            geometry.width,
+            geometry.height,
+        )
+        state["stable_hits"] = state["stable_hits"] + 1 if geometry_signature == state["previous_geometry"] else 1
+        state["previous_geometry"] = geometry_signature
+
+        if self._executor.probe_lobby_ready(geometry):
+            state["anchor_fail_hits"] = 0
+            if state["stable_hits"] >= LOBBY_READY_STABILITY_HITS:
+                logger.info("Auto join lobby geometry and visual anchors are stable.")
+                return True
+            return False
+
+        state["anchor_fail_hits"] += 1
+        if state["anchor_fail_hits"] >= LOBBY_READY_ANCHOR_GRACE_HITS and not state["coord_fallback_active"]:
+            state["coord_fallback_active"] = True
+            logger.warning(
+                "Auto join lobby color anchors did not match; falling back to stable-window coordinate readiness."
+            )
+        if (
+            state["coord_fallback_active"]
+            and state["stable_hits"] >= LOBBY_READY_COORD_FALLBACK_HITS
+            and state["previous_geometry"] is not None
+        ):
+            logger.info(
+                f"Auto join lobby geometry is stable; coordinate fallback passed geometry={state['previous_geometry']}."
+            )
+            return True
         return False
 
     def _wait_for_matching_confirmation(self, timeout: float, stop_event: threading.Event) -> bool:

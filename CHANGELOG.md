@@ -2,6 +2,38 @@
 
 All notable changes to Akagi-NG are documented in this file.
 
+## [1.2.6] - 2026-08-15
+
+### Fixed
+
+- Fixed FlyA stateful sessions accumulating events across consecutive hands when
+  auto-playing continues into the next hand. The observed event stream is now
+  rebuilt from a fresh `start_game` boundary after each `end_kyoku`, matching
+  the reconnect recovery path and preventing `state_replay_invalid` rejections
+  on long multi-hand sessions.
+- Upgraded the FlyA decision request schema to `flya-mahjong-events-v2` and
+  stopped sending the optional `state_digest`, leaving digest validation to the
+  server and removing a potential `state_digest_mismatch` source.
+- Fixed Auto Join stalling after the result confirmations when the Mahjong Soul
+  lobby color anchors drift after a client UI update. The lobby-readiness check
+  now falls back to a stable-window coordinate gate after a bounded anchor grace
+  window, so the ranked-lobby/room/mode click chain still runs instead of
+  aborting. Anchor sampling also logs the measured colors for recalibration.
+- Recalibrated the Auto Join ranked-lobby, room and mode button coordinates for
+  the current Mahjong Soul client layout, including the post-scroll positions of
+  the jade and throne rooms.
+- Fixed blank blue toasts emitted when Mahjong Soul reports lobby readiness or
+  matchmaking start: the `lobby_ready` and `matching_started` notification codes
+  now have UI config and translations in all four locales.
+
+### Testing
+
+- Added a regression that drives a normal hand boundary (`end_kyoku` without a
+  pending action) followed by the next `start_kyoku`, asserting the FlyA event
+  stream and session are rebuilt exactly like the reconnect path.
+- Added an Auto Join regression asserting the lobby-readiness coordinate
+  fallback passes once the color-anchor grace window is crossed.
+
 ## [1.2.5] - 2026-08-15
 
 ### Added

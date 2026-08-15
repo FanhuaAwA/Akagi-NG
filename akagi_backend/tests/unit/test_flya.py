@@ -177,14 +177,13 @@ def test_build_state_envelope_contains_only_observed_events() -> None:
     envelope = build_state_envelope(events, player_id=1, is_3p=True)
 
     assert envelope == {
-        "schema": "flya-mahjong-events-v1",
+        "schema": "flya-mahjong-events-v2",
         "rule_line": "riichi3p",
         "viewer_seat": 1,
         "source": {"kind": "observed"},
         "from_seq": 0,
         "to_seq": 1,
         "events": events,
-        "state_digest": compute_state_digest(events),
     }
 
 
@@ -722,6 +721,41 @@ def test_decider_rebases_next_hand_when_pending_action_reaches_hand_boundary(
     assert decider.session_id not in {None, previous_session}
     assert [event["type"] for event in decider.events] == ["start_game", "start_kyoku"]
     assert decider._pending_remote_actions == []
+
+
+def test_decider_rebuilds_event_stream_on_normal_end_kyoku(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _enable_flya(monkeypatch)
+    decider = FlyADecider(BotStatusContext())
+    _record_four_player_start(decider)
+    previous_session = decider.session_id
+    first_hand_events = len(decider.events)
+
+    decider.process(EndKyokuEvent(), None, object())
+
+    assert decider.history_complete is False
+    assert decider.session_id is previous_session
+    assert decider._replay_gap_reason is None
+
+    next_kyoku = StartKyokuEvent(
+        bakaze="S",
+        dora_marker="4p",
+        kyoku=2,
+        honba=0,
+        kyotaku=0,
+        oya=1,
+        scores=[24000, 26000, 25000, 25000],
+        tehais=[["1m"] * 13, ["?"] * 13, ["?"] * 13, ["?"] * 13],
+    )
+    decider.process(next_kyoku, None, object())
+
+    assert decider.history_complete is True
+    assert decider.session_id not in {None, previous_session}
+    assert [event["type"] for event in decider.events] == ["start_game", "start_kyoku"]
+    assert decider.events[0]["names"] == ["", "", "", ""]
+    assert first_hand_events > 0
+    assert len(decider.events) == 2
 
 
 @pytest.mark.parametrize(("observed_pai", "should_rotate"), [("2p", False), ("3p", True)])

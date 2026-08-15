@@ -182,6 +182,20 @@ export const STATUS_UI_MAP = {
     lifecycle: STATUS_LIFECYCLE.EPHEMERAL,
     autoHide: TOAST_DURATION_SHORT,
   },
+  lobby_ready: {
+    level: STATUS_LEVEL.SUCCESS,
+    placement: STATUS_PLACEMENT.TOAST,
+    domain: STATUS_DOMAIN.GAME,
+    lifecycle: STATUS_LIFECYCLE.EPHEMERAL,
+    autoHide: TOAST_DURATION_SHORT,
+  },
+  matching_started: {
+    level: STATUS_LEVEL.INFO,
+    placement: STATUS_PLACEMENT.TOAST,
+    domain: STATUS_DOMAIN.GAME,
+    lifecycle: STATUS_LIFECYCLE.EPHEMERAL,
+    autoHide: TOAST_DURATION_SHORT,
+  },
 } satisfies Record<string, StatusUIConfig>;
 
 export function getStatusConfig(code: string): StatusUIConfig {

@@ -359,6 +359,8 @@
     "model_loaded_local": "已加载本地模型",
     "model_loaded_online": "已加载在线模型",
     "game_syncing": "正在同步对局数据…",
+    "lobby_ready": "大厅已就绪",
+    "matching_started": "正在匹配…",
     "fallback_used": "在线服务不可用，已切换至本地模型",
     "online_service_restored": "在线服务连接已恢复",
     "online_service_reconnecting": "正在重连…",

@@ -359,6 +359,8 @@
     "model_loaded_local": "ローカルモデルを読み込みました。",
     "model_loaded_online": "オンラインモデルを読み込みました。",
     "game_syncing": "対局データを同期中…",
+    "lobby_ready": "ロビー準備完了",
+    "matching_started": "マッチング中…",
     "fallback_used": "オンラインサービスが利用できないため、ローカルモデルに切り替えました。",
     "online_service_restored": "オンラインサービスへの接続が復旧しました。",
     "online_service_reconnecting": "再接続中…",

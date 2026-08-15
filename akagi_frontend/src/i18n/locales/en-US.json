@@ -359,6 +359,8 @@
     "model_loaded_local": "Local model loaded.",
     "model_loaded_online": "Online model loaded.",
     "game_syncing": "Syncing match data…",
+    "lobby_ready": "Lobby ready",
+    "matching_started": "Matchmaking…",
     "fallback_used": "Online service unavailable. Switched to local model.",
     "online_service_restored": "Online service connection restored.",
     "online_service_reconnecting": "Reconnecting…",

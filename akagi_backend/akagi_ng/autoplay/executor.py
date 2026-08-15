@@ -289,6 +289,7 @@ class WindowsInputExecutor:
         play_left = client_offset_x + (geometry.width - play_width) / 2.0
         play_top = client_offset_y + (geometry.height - play_height) / 2.0
 
+        matched_all = True
         for x, y, width, height, expected_r, expected_g, expected_b in LOBBY_ANCHORS:
             left = play_left + (x - width / 2.0) * scale
             top = play_top + (y - height / 2.0) * scale
@@ -309,13 +310,19 @@ class WindowsInputExecutor:
                     green += pixels[offset + 1]
                     red += pixels[offset + 2]
                     samples += 1
+            avg_r, avg_g, avg_b = red / samples, green / samples, blue / samples
             if (
-                abs(red / samples - expected_r) > LOBBY_ANCHOR_TOLERANCE
-                or abs(green / samples - expected_g) > LOBBY_ANCHOR_TOLERANCE
-                or abs(blue / samples - expected_b) > LOBBY_ANCHOR_TOLERANCE
+                abs(avg_r - expected_r) > LOBBY_ANCHOR_TOLERANCE
+                or abs(avg_g - expected_g) > LOBBY_ANCHOR_TOLERANCE
+                or abs(avg_b - expected_b) > LOBBY_ANCHOR_TOLERANCE
             ):
-                return False
-        return True
+                matched_all = False
+                logger.debug(
+                    "Auto join lobby anchor mismatch: "
+                    f"normalized=({x},{y}) expected=({expected_r},{expected_g},{expected_b}) "
+                    f"actual=({avg_r:.0f},{avg_g:.0f},{avg_b:.0f})."
+                )
+        return matched_all
 
     @staticmethod
     def _is_enabled_gold(red: int, green: int, blue: int) -> bool:

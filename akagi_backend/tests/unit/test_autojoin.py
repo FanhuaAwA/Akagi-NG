@@ -229,6 +229,28 @@ def test_lobby_readiness_fails_closed_when_visual_anchors_do_not_match():
     executor.probe_lobby_ready.assert_called()
 
 
+def test_lobby_readiness_coordinate_fallback_passes_when_anchors_drift():
+    executor = MagicMock(available=True)
+    executor.ensure_target_window.return_value = True
+    executor.get_target_geometry.return_value = WindowGeometry(left=100, top=200, width=1600, height=900)
+    executor.probe_lobby_ready.return_value = False
+    manager = AutoJoinManager(lambda: _runtime(), executor)
+    sleep_calls = 0
+
+    def bounded_sleep(_delay, _stop_event):
+        nonlocal sleep_calls
+        sleep_calls += 1
+        return True
+
+    manager._sleep = bounded_sleep
+
+    with patch.object(local_settings.autoplay.auto_join, "enabled", True):
+        assert manager._wait_for_lobby_ready(_runtime(), 5.0, threading.Event()) is True
+
+    # The anchor grace window must be crossed before the coordinate fallback.
+    assert executor.probe_lobby_ready.call_count == 8
+
+
 def test_matchmaking_notification_releases_protocol_confirmation_wait():
     manager = AutoJoinManager(lambda: _runtime(), MagicMock())
     manager.notify_matching_started()
